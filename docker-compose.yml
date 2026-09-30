@@ -1,0 +1,25 @@
+services:
+  wolweb:
+    build: .
+    image: wolweb:latest
+    container_name: wolweb
+    restart: unless-stopped
+    # Magic Packets (Broadcast) und ARP-Scan brauchen das Netz des Hosts – Port-Mappings gibt es dann nicht.
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      WOLWEB_PORT: "8089"
+      WOLWEB_NETWORKS: "192.168.1.0/24"   # Segmente für die Netzwerksuche, kommagetrennt
+      WOLWEB_BCASTIP: "192.168.1.255:9"
+      WOLWEB_SCAN_INTERVAL: "30m"
+      # WOLWEB_USER: "admin"
+      # WOLWEB_PASSWORD: "bitte-ändern"
+      # WOLWEB_TOKEN: "langes-zufälliges-token"   # für Home Assistant & Co.
+      # WOLWEB_PUBLIC_WAKE: "true"               # feste Wecklinks ohne Anmeldung
+      TZ: Europe/Berlin
+    volumes:
+      - ./data:/data
+      # optional: - ./config.json:/config/config.json:ro

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>{{if .Device}}{{.Device.Name}} starten{{else}}Gerät nicht gefunden{{end}} · Wake on LAN</title>
+<base href="{{.Base}}">
+<link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="static/app.css?v={{.Version}}">
+<script src="static/theme.js?v={{.Version}}"></script>
+{{if .Device}}<script src="static/wake.js?v={{.Version}}" defer></script>{{end}}
+</head>
+<body class="wake-page">
+{{template "icons"}}
+<main class="wake-card" id="wake"
+  {{with .Device}}data-name="{{.Name}}" data-path="{{.WakePath}}" data-has-ip="{{if .CheckIP}}1{{end}}" data-target="{{.WakeTarget}}"{{end}}
+  data-timeout="{{.Timeout}}" data-state="{{if .Device}}start{{else}}missing{{end}}">
+{{if .Device}}
+  <div class="wake-visual">
+    <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
+    <div class="wake-icon">
+      <svg class="ico dev-ico"><use href="#i-{{.Device.Icon}}"/></svg>
+      <svg class="ico done-ico" viewBox="0 0 24 24"><path class="check-path" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+      <svg class="ico warn-ico"><use href="#i-alert"/></svg>
+    </div>
+  </div>
+  <h1 id="wake-title">{{.Device.Name}} wird gestartet</h1>
+  <p class="muted" id="wake-sub">{{if .Device.CheckIP}}<span class="mono">{{.Device.CheckIP}}</span> · {{end}}<span class="mono">{{.Device.MAC}}</span></p>
+
+  <ol class="steps" id="steps">
+    <li data-step="check"><span class="step-dot"></span><div><strong>Gerät prüfen</strong><small class="muted" data-detail></small></div></li>
+    <li data-step="send"><span class="step-dot"></span><div><strong>Magic Packet senden</strong><small class="muted" data-detail></small></div></li>
+    <li data-step="wait"><span class="step-dot"></span><div><strong>Auf Start warten</strong><small class="muted" data-detail></small></div></li>
+    <li data-step="online"><span class="step-dot"></span><div><strong>Online</strong><small class="muted" data-detail></small></div></li>
+  </ol>
+
+  <div class="wake-result" id="wake-result" hidden></div>
+
+  <div class="wake-actions">
+    <a class="btn btn-ghost" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>Übersicht</a>
+    <button class="btn btn-secondary" id="wake-again" hidden><svg class="ico"><use href="#i-refresh"/></svg><span>Erneut senden</span></button>
+  </div>
+{{else}}
+  <div class="wake-visual static">
+    <div class="wake-icon warn"><svg class="ico"><use href="#i-alert"/></svg></div>
+  </div>
+  <h1>Gerät nicht gefunden</h1>
+  <p class="muted">Es gibt kein Gerät namens <strong>„{{.Missing}}“</strong>. Vielleicht wurde es umbenannt.</p>
+  <div class="wake-actions"><a class="btn btn-primary" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>Zur Übersicht</a></div>
+{{end}}
+</main>
+</body>
+</html>

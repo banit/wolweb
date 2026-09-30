@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Wake on LAN</title>
+<base href="{{.Base}}">
+<link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="static/app.css?v={{.Version}}">
+<script src="static/theme.js?v={{.Version}}"></script>
+<script src="static/app.js?v={{.Version}}" defer></script>
+</head>
+<body class="app">
+{{template "icons"}}
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"><svg class="ico"><use href="#i-power"/></svg></span>
+    <div>
+      <h1>Wake on LAN</h1>
+      <p class="muted" id="summary">Lade Geräte …</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost icon-only" id="theme-toggle" title="Hell/Dunkel umschalten" aria-label="Hell/Dunkel umschalten">
+      <svg class="ico"><use href="#i-moon"/></svg>
+    </button>
+    <button class="btn btn-secondary" id="open-discovery">
+      <svg class="ico"><use href="#i-radar"/></svg><span>Netzwerk</span><span class="badge" id="new-badge" hidden>0</span>
+    </button>
+    <button class="btn btn-primary" id="add-device">
+      <svg class="ico"><use href="#i-plus"/></svg><span>Gerät</span>
+    </button>
+  </div>
+</header>
+
+<main class="container">
+  <div class="toolbar">
+    <label class="search">
+      <svg class="ico"><use href="#i-search"/></svg>
+      <input type="search" id="search" placeholder="Suchen nach Name, IP, MAC …" autocomplete="off">
+    </label>
+    <div class="segmented" role="tablist" id="filter">
+      <button role="tab" data-filter="all" aria-selected="true">Alle</button>
+      <button role="tab" data-filter="online">Online</button>
+      <button role="tab" data-filter="offline">Offline</button>
+    </div>
+  </div>
+
+  <section class="grid" id="devices" aria-live="polite"></section>
+
+  <div class="empty" id="empty" hidden>
+    <div class="empty-art"><svg class="ico"><use href="#i-power"/></svg></div>
+    <h2>Noch keine Geräte</h2>
+    <p class="muted">Lege ein Gerät von Hand an oder durchsuche dein Netzwerk nach eingeschalteten Geräten.</p>
+    <div class="row gap">
+      <button class="btn btn-secondary" data-action="discovery"><svg class="ico"><use href="#i-radar"/></svg>Netzwerk durchsuchen</button>
+      <button class="btn btn-primary" data-action="add"><svg class="ico"><use href="#i-plus"/></svg>Gerät anlegen</button>
+    </div>
+  </div>
+  <p class="empty-filter muted" id="empty-filter" hidden>Keine Geräte passen zur Suche.</p>
+</main>
+
+<!-- Netzwerksuche -->
+<aside class="drawer" id="discovery" aria-hidden="true" aria-labelledby="discovery-title">
+  <div class="drawer-backdrop" data-close></div>
+  <div class="drawer-panel" role="dialog" aria-modal="true">
+    <header class="drawer-head">
+      <div>
+        <h2 id="discovery-title">Geräte im Netzwerk</h2>
+        <p class="muted small" id="discovery-networks"></p>
+      </div>
+      <button class="btn btn-ghost icon-only" data-close aria-label="Schließen"><svg class="ico"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="drawer-body">
+      <div class="scan-box">
+        <div class="scan-row">
+          <div>
+            <strong id="scan-title">Suche bereit</strong>
+            <p class="muted small" id="scan-detail"></p>
+          </div>
+          <button class="btn btn-primary" id="scan-btn"><svg class="ico"><use href="#i-radar"/></svg><span>Jetzt suchen</span></button>
+        </div>
+        <div class="progress" id="scan-progress" hidden><div class="progress-bar"></div></div>
+      </div>
+      <div class="list-head">
+        <div class="segmented small" role="tablist" id="found-filter">
+          <button role="tab" data-filter="new" aria-selected="true">Neu</button>
+          <button role="tab" data-filter="known">Angelegt</button>
+          <button role="tab" data-filter="ignored">Ignoriert</button>
+        </div>
+      </div>
+      <ul class="found-list" id="found-list"></ul>
+      <p class="muted small center" id="found-empty" hidden></p>
+      <p class="hint small">Die Suche findet nur eingeschaltete Geräte. Übernimm sie jetzt – später kannst du sie per Wake on LAN starten.</p>
+    </div>
+  </div>
+</aside>
+
+<!-- Gerät anlegen/bearbeiten -->
+<dialog class="modal" id="device-dialog" aria-labelledby="device-dialog-title">
+  <form method="dialog" id="device-form" novalidate>
+    <header class="modal-head">
+      <h2 id="device-dialog-title">Gerät anlegen</h2>
+      <button type="button" class="btn btn-ghost icon-only" data-close aria-label="Schließen"><svg class="ico"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="modal-body">
+      <fieldset class="icon-picker" id="icon-picker">
+        <legend>Symbol</legend>
+      </fieldset>
+      <label class="field">
+        <span>Name</span>
+        <input name="name" required maxlength="64" placeholder="z. B. Gaming-PC" autocomplete="off">
+        <small class="muted">Wird Teil des festen Wecklinks.</small>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>MAC-Adresse</span>
+          <input name="mac" required placeholder="00:11:22:33:44:55" autocomplete="off" class="mono">
+          <small class="muted" id="vendor-hint"></small>
+        </label>
+        <label class="field">
+          <span>IP-Adresse <em class="muted">(für Online-Status)</em></span>
+          <input name="ip" placeholder="192.168.1.20" autocomplete="off" class="mono">
+        </label>
+      </div>
+      <details class="advanced">
+        <summary>Erweitert</summary>
+        <div class="field-row">
+          <label class="field">
+            <span>Broadcast-Adresse</span>
+            <input name="broadcast" placeholder="automatisch" autocomplete="off" class="mono">
+            <small class="muted">Ziel des Magic Packets, z. B. 192.168.1.255:9</small>
+          </label>
+          <label class="field">
+            <span>Netzwerkschnittstelle</span>
+            <input name="interface" placeholder="automatisch" autocomplete="off" class="mono">
+          </label>
+        </div>
+        <label class="field">
+          <span>Notiz</span>
+          <textarea name="note" rows="2" maxlength="500"></textarea>
+        </label>
+      </details>
+      <p class="form-error" id="form-error" hidden></p>
+    </div>
+    <footer class="modal-foot">
+      <button type="button" class="btn btn-danger-ghost" id="delete-device" hidden><svg class="ico"><use href="#i-trash"/></svg>Löschen</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-ghost" data-close>Abbrechen</button>
+      <button type="submit" class="btn btn-primary" id="save-device">Speichern</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- Löschen bestätigen -->
+<dialog class="modal modal-small" id="confirm-dialog">
+  <form method="dialog">
+    <div class="modal-body">
+      <h2 id="confirm-title">Wirklich löschen?</h2>
+      <p class="muted" id="confirm-text"></p>
+    </div>
+    <footer class="modal-foot">
+      <span class="spacer"></span>
+      <button value="cancel" class="btn btn-ghost">Abbrechen</button>
+      <button value="ok" class="btn btn-danger">Löschen</button>
+    </footer>
+  </form>
+</dialog>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>

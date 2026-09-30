@@ -1,0 +1,24 @@
+{
+  "host": "0.0.0.0",
+  "port": 8089,
+  "vdir": "/",
+  "bcastip": "192.168.1.255:9",
+  "read_only": false,
+  "data_dir": "data",
+  "discovery": {
+    "networks": ["192.168.1.0/24"],
+    "interval": "30m",
+    "max_hosts": 1024
+  },
+  "status": {
+    "interval": "30s",
+    "ports": [22, 80, 443, 445, 139, 3389, 5900, 8006, 8080, 53],
+    "wake_timeout": "3m"
+  },
+  "auth": {
+    "username": "",
+    "password": "",
+    "api_token": "",
+    "public_wake": true
+  }
+}
