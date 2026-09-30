@@ -52,8 +52,8 @@
     const res = await fetch("api/v1/" + url, opts);
     let data = null;
     try { data = await res.json(); } catch (e) { /* leer */ }
-    if (!res.ok) {
-      const err = new Error((data && data.message) || "Fehler " + res.status);
+    if (!res.ok || !data) {
+      const err = new Error((data && data.message) || "Unerwartete Antwort vom Server (HTTP " + res.status + ")");
       err.status = res.status;
       err.data = data;
       throw err;
@@ -152,6 +152,7 @@
       return [el("span", { class: "pill unknown", text: "Kein Status" }), el("span", { text: "keine IP bekannt" })];
     }
     return [el("span", { class: "pill offline", text: "Offline" }),
+      st.note ? el("span", { class: "pill warn", text: "IP belegt", title: st.note }) : null,
       el("span", { text: st.last_seen ? "zuletzt online " + ago(st.last_seen) : d.last_wake ? "geweckt " + ago(d.last_wake) : "" })];
   }
 

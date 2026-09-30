@@ -61,6 +61,7 @@ func TestCRUDAndValidation(t *testing.T) {
 	for _, in := range []Input{
 		{Name: "", MAC: "00:11:22:33:44:55"},
 		{Name: "a/b", MAC: "00:11:22:33:44:55"},
+		{Name: "..", MAC: "00:11:22:33:44:55"},
 		{Name: "x", MAC: "nope"},
 		{Name: "x", MAC: "00:11:22:33:44:55", IP: "300.1.1.1"},
 		{Name: "x", MAC: "00:11:22:33:44:55", Broadcast: "fe80::1"},
@@ -103,5 +104,21 @@ func TestMergeFound(t *testing.T) {
 	list := s.FoundList()
 	if len(list) != 2 || list[0].DeviceName != "bekannt" || list[1].IP != "10.0.0.3" || list[1].Hostname != "neu" {
 		t.Errorf("%+v", list)
+	}
+}
+
+func TestBrokenDiscoveredFileStopsStart(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "discovered.json"), []byte(`{kaputt`), 0o644)
+	if _, _, err := Open(dir, ""); err == nil {
+		t.Fatal("defekte discovered.json wurde still überschrieben")
+	}
+	os.WriteFile(filepath.Join(dir, "discovered.json"), []byte(`[null,{"mac":"aa-bb-cc-dd-ee-ff","ip":"10.0.0.9"}]`), 0o644)
+	s, _, err := Open(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.FoundByMAC("AA:BB:CC:DD:EE:FF"); !ok {
+		t.Error("Eintrag nicht normalisiert übernommen")
 	}
 }

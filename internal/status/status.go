@@ -5,9 +5,11 @@ import (
 	"context"
 	"log"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
+	"wolweb/internal/discovery"
 	"wolweb/internal/probe"
 	"wolweb/internal/store"
 )
@@ -20,6 +22,7 @@ type State struct {
 	RTTMillis int64     `json:"rtt_ms,omitempty"`
 	CheckedAt time.Time `json:"checked_at,omitzero"`
 	LastSeen  time.Time `json:"last_seen,omitzero"`
+	Note      string    `json:"note,omitempty"`
 }
 
 type Monitor struct {
@@ -50,12 +53,15 @@ func (m *Monitor) Run(ctx context.Context) {
 	}
 }
 
+// maxFoundAge: ältere Suchtreffer liefern keine IP mehr (DHCP kann sie längst neu vergeben haben).
+const maxFoundAge = 7 * 24 * time.Hour
+
 // Target liefert die IP, unter der ein Gerät geprüft wird: eingetragen oder aus der Netzwerksuche.
 func (m *Monitor) Target(d store.Device) (netip.Addr, string) {
 	if a, err := netip.ParseAddr(d.IP); err == nil {
 		return a, "device"
 	}
-	if f, ok := m.store.FoundByMAC(d.MAC); ok {
+	if f, ok := m.store.FoundByMAC(d.MAC); ok && time.Since(f.LastSeen) < maxFoundAge {
 		if a, err := netip.ParseAddr(f.IP); err == nil {
 			return a, "discovery"
 		}
@@ -94,12 +100,34 @@ func (m *Monitor) Check(ctx context.Context, d store.Device) State {
 	st.LastSeen = m.states[d.ID].LastSeen
 	m.mu.RUnlock()
 	if r.Online {
-		st.State, st.Method, st.RTTMillis, st.LastSeen = "online", r.Method, r.RTT.Milliseconds(), st.CheckedAt
+		// Antwortet unter der IP ein anderes Gerät (andere MAC in der Nachbartabelle), zählt das nicht.
+		if mac := discovery.NeighborMAC(ip); mac != nil && !strings.EqualFold(mac.String(), d.MAC) {
+			st.Note = "Unter " + ip.String() + " antwortet ein anderes Gerät (" + strings.ToUpper(mac.String()) + ")"
+		} else {
+			st.State, st.Method, st.RTTMillis, st.LastSeen = "online", r.Method, r.RTT.Milliseconds(), st.CheckedAt
+		}
 	}
-	if ctx.Err() == nil {
-		m.set(d.ID, st)
+	// Nur speichern, wenn das Gerät inzwischen nicht geändert wurde (sonst überschreibt eine
+	// langsame Prüfung der alten IP das Ergebnis der neuen).
+	if cur, ok := m.store.Get(d.ID); ctx.Err() == nil && ok {
+		if curIP, _ := m.Target(cur); curIP == ip {
+			m.set(d.ID, st)
+		}
 	}
 	return st
+}
+
+// Current liefert den gespeicherten Status nur, wenn er zur aktuellen Ziel-IP des Geräts passt.
+func (m *Monitor) Current(d store.Device, maxAge time.Duration) (State, bool) {
+	st, ok := m.Get(d.ID)
+	if !ok || time.Since(st.CheckedAt) > maxAge {
+		return State{}, false
+	}
+	ip, _ := m.Target(d)
+	if (ip.IsValid() && st.IP != ip.String()) || (!ip.IsValid() && st.IP != "") {
+		return State{}, false
+	}
+	return st, true
 }
 
 func (m *Monitor) set(id string, st State) {

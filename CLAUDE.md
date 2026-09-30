@@ -19,7 +19,10 @@ Neufassung von sameerdhoot/wolweb (Go 1.27, Modul `wolweb`, keine Web-Frameworks
 - Ändernde Anfragen brauchen `X-WolWeb: 1` (CSRF), Bearer-Token ist ausgenommen.
 - Texte aus dem Netz (Hostnamen) nur per `textContent` ausgeben.
 
-## Stand (30.09.2026, 1.0.0)
+## Stand (30.09.2026, 1.0.1)
+- 1.0.1: Gegenprüfung mit Codex eingearbeitet (Wecklinks von fremden Seiten nur als Weckseite via Sec-Fetch-Site,
+  IP-Identität per Nachbartabelle, Suchtreffer-IPs verfallen nach 7 Tagen, Status an Ziel-IP gebunden, ARP mit
+  richtiger Absender-IP und Abbruch, fsync des Verzeichnisses, Ladefehler brechen den Start ab statt Daten zu überschreiben).
 - Lokal unter Windows getestet: Übersicht, Anlegen aus Suche, Weckseite (läuft bereits / senden → online),
   Suche per Nachbartabelle. Nicht getestet: ARP-Scan unter Linux, Docker-Image, Zeitüberschreitung der Weckseite,
   Handy-Ansicht im Browser.

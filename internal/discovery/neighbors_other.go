@@ -33,3 +33,6 @@ func readNeighbors(ln LocalNet) ([]Hit, error) {
 	}
 	return hits, nil
 }
+
+// NeighborMAC: außerhalb von Linux nicht umgesetzt (arp -a je Prüfung wäre zu teuer).
+func NeighborMAC(netip.Addr) net.HardwareAddr { return nil }

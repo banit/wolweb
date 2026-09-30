@@ -38,3 +38,28 @@ func readNeighbors(ln LocalNet) ([]Hit, error) {
 	}
 	return out, sc.Err()
 }
+
+// NeighborMAC liefert die MAC, die der Kernel gerade für ip kennt (nil, wenn unbekannt).
+func NeighborMAC(ip netip.Addr) net.HardwareAddr {
+	f, err := os.Open("/proc/net/arp")
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Scan()
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 4 || fields[0] != ip.String() {
+			continue
+		}
+		flags, _ := strconv.ParseUint(strings.TrimPrefix(fields[2], "0x"), 16, 32)
+		if flags&0x2 == 0 {
+			continue
+		}
+		if mac, err := net.ParseMAC(fields[3]); err == nil {
+			return mac
+		}
+	}
+	return nil
+}

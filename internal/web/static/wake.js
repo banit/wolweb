@@ -67,9 +67,11 @@
         method, signal: ctl.signal, cache: "no-store",
         headers: { "Accept": "application/json", "X-WolWeb": "1" },
       });
-      let body = {};
-      try { body = await res.json(); } catch (e) { /* leer */ }
-      if (!res.ok) throw Object.assign(new Error(body.message || "HTTP " + res.status), { body });
+      let body = null;
+      try { body = await res.json(); } catch (e) { /* keine JSON-Antwort */ }
+      if (!res.ok || !body || res.redirected) {
+        throw Object.assign(new Error((body && body.message) || "Unerwartete Antwort vom Server (HTTP " + res.status + ")"), { body: body || {} });
+      }
       return body;
     } finally {
       clearTimeout(timer);
@@ -119,6 +121,7 @@
     let sent;
     try {
       sent = await call("POST", path);
+      if (sent.success !== true) throw Object.assign(new Error(sent.message || "Senden fehlgeschlagen"), { body: sent });
       await sleep(450);
     } catch (e) {
       step("send", "error", (e.body && e.body.error) || e.message);

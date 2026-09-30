@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mdlayher/arp"
+	"github.com/mdlayher/ethernet"
 )
 
 // arpScan fragt jede Adresse per ARP an (zwei Durchläufe) und sammelt die Antworten.
@@ -25,6 +26,23 @@ func arpScan(ctx context.Context, ln LocalNet, targets []netip.Addr, progress fu
 		return nil, err // meist fehlendes CAP_NET_RAW
 	}
 	defer c.Close()
+	// Bei Abbruch den Socket schließen, damit weder Lesen noch Schreiben hängen bleibt.
+	stop := context.AfterFunc(ctx, func() { c.Close() })
+	defer stop()
+
+	// Anfragen selbst bauen: arp.Dial nimmt immer die erste IPv4-Adresse der Schnittstelle als
+	// Absender – hat sie mehrere, würde ein anderes Segment die Anfragen evtl. ignorieren.
+	request := func(ip netip.Addr) error {
+		p, err := arp.NewPacket(arp.OperationRequest, c.HardwareAddr(), ln.Addr, ethernet.Broadcast, ip)
+		if err != nil {
+			return err
+		}
+		_ = c.SetWriteDeadline(time.Now().Add(time.Second))
+		return c.WriteTo(p, ethernet.Broadcast)
+	}
+	if err := request(targets[0]); err != nil {
+		return nil, err // z. B. Schreibrechte fehlen – dann Nachbartabelle
+	}
 
 	var mu sync.Mutex
 	found := map[netip.Addr]net.HardwareAddr{}
@@ -61,7 +79,7 @@ func arpScan(ctx context.Context, ln LocalNet, targets []netip.Addr, progress fu
 				select {
 				case <-ctx.Done():
 				case <-tick.C:
-					_ = c.Request(ip)
+					_ = request(ip)
 				}
 			}
 			if round == 0 {

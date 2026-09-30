@@ -357,7 +357,7 @@ func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 
 // freshStatus prüft sofort, außer die letzte Prüfung ist jünger als eine Sekunde.
 func (s *Server) freshStatus(ctx context.Context, d store.Device) status.State {
-	if st, ok := s.monitor.Get(d.ID); ok && time.Since(st.CheckedAt) < time.Second {
+	if st, ok := s.monitor.Current(d, time.Second); ok {
 		return st
 	}
 	return s.monitor.Check(ctx, d)
@@ -417,7 +417,10 @@ func wantsHTML(r *http.Request) bool {
 func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	d, ok := s.store.FindByName(name)
-	if wantsHTML(r) {
+	// Browser schicken Sec-Fetch-Site mit. Kommt der Aufruf von einer fremden Seite (z. B. als
+	// eingebettetes Bild), wird nicht direkt geweckt, sondern nur die Weckseite ausgeliefert –
+	// sie weckt dann selbst per POST. curl, Home Assistant & Co. senden den Kopf nicht.
+	if sfs := r.Header.Get("Sec-Fetch-Site"); wantsHTML(r) || sfs == "cross-site" || sfs == "same-site" {
 		if !ok {
 			s.render(w, http.StatusNotFound, "wake.html", pageData{Missing: name})
 			return

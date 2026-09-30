@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -106,13 +107,16 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 		}
 	case errors.Is(err, os.ErrNotExist):
 		if legacyPath != "" {
-			if lb, err := os.ReadFile(legacyPath); err == nil {
-				n, err := s.decode(lb)
-				if err != nil {
+			lb, err := os.ReadFile(legacyPath)
+			switch {
+			case err == nil:
+				if _, err := s.decode(lb); err != nil {
 					return nil, nil, fmt.Errorf("%s: %w", legacyPath, err)
 				}
 				notes = append(notes, fmt.Sprintf("%d Gerät(e) aus %s übernommen", len(s.devices), legacyPath))
-				_ = n
+			case !errors.Is(err, os.ErrNotExist):
+				// Nicht still mit leerer Liste starten – sonst würde der Import nie wieder versucht.
+				return nil, nil, fmt.Errorf("alte Gerätedatei %s: %w", legacyPath, err)
 			}
 		}
 		if err := s.saveDevices(); err != nil {
@@ -121,15 +125,46 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 	default:
 		return nil, nil, err
 	}
-	if b, err := os.ReadFile(filepath.Join(dir, "discovered.json")); err == nil {
+	fpath := filepath.Join(dir, "discovered.json")
+	b, err = os.ReadFile(fpath)
+	switch {
+	case err == nil:
 		var list []*Found
-		if err := json.Unmarshal(b, &list); err == nil {
-			for _, f := range list {
-				s.found[f.MAC] = f
-			}
+		if err := json.Unmarshal(b, &list); err != nil {
+			return nil, nil, fmt.Errorf("%s: %w (Datei reparieren oder löschen)", fpath, err)
 		}
+		for _, f := range list {
+			if f == nil {
+				continue
+			}
+			hw, err := wol.ParseMAC(f.MAC)
+			if err != nil {
+				continue
+			}
+			f.MAC = wol.FormatMAC(hw)
+			s.found[f.MAC] = f
+		}
+	case !errors.Is(err, os.ErrNotExist):
+		return nil, nil, fmt.Errorf("%s: %w", fpath, err)
 	}
 	return s, notes, nil
+}
+
+// cleanName macht importierte Namen linktauglich (gleiche Regeln wie Input.validate).
+func cleanName(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if strings.ContainsRune(`/\?#%`, r) {
+			return '-'
+		}
+		return r
+	}, strings.TrimSpace(s))
+	if s == "." || s == ".." {
+		s = ""
+	}
+	if r := []rune(s); len(r) > 64 {
+		s = string(r[:64])
+	}
+	return s
 }
 
 // decode liest das eigene Format oder das des Original-wolweb.
@@ -159,8 +194,11 @@ func (s *Store) decode(b []byte) (string, error) {
 		if err != nil {
 			continue
 		}
-		name := strings.TrimSpace(d.Name)
-		for base, i := name, 2; used[strings.ToLower(name)] || name == ""; i++ {
+		name := cleanName(d.Name)
+		if name == "" {
+			name = "Gerät"
+		}
+		for base, i := name, 2; used[strings.ToLower(name)]; i++ {
 			name = fmt.Sprintf("%s %d", base, i)
 		}
 		used[strings.ToLower(name)] = true
@@ -203,7 +241,24 @@ func writeAtomic(path string, v any) error {
 	if err := os.Chmod(tmp.Name(), 0o640); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
+}
+
+// syncDir sorgt unter Linux dafür, dass die Umbenennung auch nach einem Stromausfall erhalten bleibt.
+// Windows kann Verzeichnisse nicht synchronisieren; dort genügt das Rename.
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // saveDevices muss unter s.mu (Schreibsperre) oder vor der Freigabe des Stores aufgerufen werden.
@@ -292,6 +347,9 @@ func (in *Input) validate() (Device, error) {
 	}
 	if utf8.RuneCountInString(d.Name) > 64 {
 		return d, ValidationError{"Der Name darf höchstens 64 Zeichen haben."}
+	}
+	if d.Name == "." || d.Name == ".." {
+		return d, ValidationError{`Die Namen „.“ und „..“ sind nicht erlaubt.`}
 	}
 	if strings.ContainsAny(d.Name, "/\\?#%") {
 		return d, ValidationError{`Der Name darf keine der Zeichen / \ ? # % enthalten (er wird Teil des Wecklinks).`}
@@ -481,18 +539,28 @@ func (s *Store) SetIgnored(mac string, ignored bool) error {
 	if !ok {
 		return ErrNotFound
 	}
+	old := f.Ignored
 	f.Ignored = ignored
-	return s.saveFound()
+	if err := s.saveFound(); err != nil {
+		f.Ignored = old
+		return err
+	}
+	return nil
 }
 
 func (s *Store) ForgetFound(mac string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.found[mac]; !ok {
+	f, ok := s.found[mac]
+	if !ok {
 		return ErrNotFound
 	}
 	delete(s.found, mac)
-	return s.saveFound()
+	if err := s.saveFound(); err != nil {
+		s.found[mac] = f
+		return err
+	}
+	return nil
 }
 
 // FoundByMAC liefert den Suchtreffer zu einer MAC (für die IP-Aktualisierung angelegter Geräte).
