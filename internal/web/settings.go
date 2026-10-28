@@ -69,6 +69,9 @@ type settingsView struct {
 	Networks     []networkView     `json:"networks"`
 	Interfaces   []interfaceView   `json:"interfaces"`
 	Events       []string          `json:"events"` // alle Ereignisarten
+	// RejectedHosts sind Namen, unter denen wolweb zuletzt aufgerufen und abgewiesen wurde (Schutz
+	// vor DNS-Rebinding) – meist der eigene Reverse-Proxy, der nur noch erlaubt werden muss.
+	RejectedHosts []string `json:"rejected_hosts"`
 }
 
 // networks beschreibt die eingestellten Netze: Schnittstelle des Rechners darin (ohne die kann
@@ -121,6 +124,7 @@ func (s *Server) settingsState() settingsView {
 		Settings: cfg.Editable(), Locked: s.settings.Locked(), Stored: s.settings.Stored(),
 		File: s.settings.Path(), FileFound: s.settings.FileFound(), SettingsFile: s.settings.SettingsPath(),
 		ReadOnly: cfg.ReadOnly, Auth: cfg.AuthEnabled(), Networks: nets, Interfaces: ifs, Events: notify.Kinds,
+		RejectedHosts: s.rejected.list(selfHost(), cfg.AllowedHosts),
 	}
 }
 

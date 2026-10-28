@@ -44,6 +44,7 @@ type Server struct {
 	retry    retries
 	tmpl     *template.Template
 	limiter  wakeLimiter
+	rejected rejectedHosts // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
 	hub      hub
 
 	wakesMu sync.Mutex
@@ -309,6 +310,7 @@ type pageData struct {
 	Retry   int // Sekunden bis zur automatischen Wiederholung, 0 = keine
 	Missing string
 	Key     string // Weckschlüssel, den die Weckseite bei ihren Aufrufen mitschickt
+	Host    string // abgelehnter Hostname (blocked.html)
 	Group   *groupView
 
 	Lang      i18n.Lang         // Sprache der Seite

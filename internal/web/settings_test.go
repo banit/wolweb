@@ -41,7 +41,9 @@ func settingsServer(t *testing.T, cfgJSON string) (*Server, http.Handler, *confi
 	s.SetSettings(m)
 	h := s.Handler()
 	return s, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Host = "192.168.1.10:8089"
+		if r.Host == "example.com" { // Vorgabe von httptest – der Schutz vor DNS-Rebinding lehnte sie ab
+			r.Host = "192.168.1.10:8089"
+		}
 		h.ServeHTTP(w, r)
 	}), m
 }

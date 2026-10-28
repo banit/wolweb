@@ -143,6 +143,17 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 `/etc/systemd/system/` (Benutzer `wolweb` anlegen, `data/` beschreibbar machen), dann
 `systemctl enable --now wolweb`.
 
+## Update von 1.0.x / 1.1.x
+
+Geräte und Einstellungen werden beim ersten Start automatisch übernommen. Selbst tun musst du nur dann etwas, wenn
+du wolweb **ohne Anmeldung über eine eigene Domain** aufrufst, etwa hinter einem Reverse-Proxy
+(`https://wol.example.com`): Seit 1.1 nimmt wolweb ohne Anmeldung nur IP-Adressen und lokale Namen (`nas`,
+`*.lan`, `*.local`, `*.fritz.box` …) an, als Schutz vor DNS-Rebinding. Unter der Domain erscheint dann eine Seite,
+die genau sagt, was einzutragen ist. Am einfachsten öffnest du wolweb einmal über seine IP-Adresse
+(`http://192.168.1.5:8089`) und erlaubst den Namen in den Einstellungen unter „Sicherheit“ – er steht dort schon
+bereit. Alternativ in `config.json` `"allowed_hosts": ["wol.example.com"]` bzw. in Docker
+`WOLWEB_ALLOWED_HOSTS=wol.example.com`. Beim Start steht ein entsprechender Hinweis im Log.
+
 ## Einstellungen
 
 Das Zahnrad oben rechts öffnet die Einstellungsseite (`/settings`). Dort lassen sich die Netze und VLANs,
@@ -443,6 +454,16 @@ network – waking and scanning do not work there.
 
 Without Docker: `CGO_ENABLED=0 go build -o wolweb .`, adapt `config.example.json` as `config.json`, and use
 `deploy/wolweb.service` for systemd (it grants `CAP_NET_RAW` for ping and ARP scans).
+
+### Updating from 1.0.x / 1.1.x
+
+Devices and settings are taken over automatically on the first start. You only need to act if you open wolweb
+**without login via your own domain**, e.g. behind a reverse proxy (`https://wol.example.com`): since 1.1 wolweb
+only accepts IP addresses and local names (`nas`, `*.lan`, `*.local`, `*.fritz.box` …) without login, as protection
+against DNS rebinding. The domain then shows a page that says exactly what to add. The easiest way: open wolweb once
+via its IP address (`http://192.168.1.5:8089`) and allow the name in the settings under “Security” – it is already
+offered there. Alternatively `"allowed_hosts": ["wol.example.com"]` in `config.json` or
+`WOLWEB_ALLOWED_HOSTS=wol.example.com` in Docker. A hint is logged at start-up.
 
 ### Settings page
 

@@ -147,6 +147,10 @@ ip link set eth0.20 up</code></pre>
         <textarea name="allowed_hosts" rows="2" class="mono" autocomplete="off" aria-describedby="hint-hosts"></textarea>
         <small class="muted" id="hint-hosts">{{.T "set.sec.hosts_hint"}}</small>
       </label>
+      <div class="rejected-hosts" id="rejected-hosts" hidden>
+        <p class="small">{{.T "set.sec.rejected"}}</p>
+        <ul id="rejected-list"></ul>
+      </div>
       <p class="muted small">{{.T "set.sec.credentials"}}</p>
     </section>
 

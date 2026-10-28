@@ -40,6 +40,11 @@ func main() {
 		os.Exit(runHealthcheck(cfg))
 	}
 	log.Printf("wolweb %s", version)
+	if !cfg.AuthEnabled() && len(cfg.AllowedHosts) == 0 {
+		log.Print("Hinweis: Ohne Anmeldung nimmt wolweb nur Aufrufe über IP-Adressen und lokale Namen (nas, *.lan, " +
+			"*.local, *.fritz.box …) an – Schutz vor DNS-Rebinding. Läuft es hinter einem Reverse-Proxy mit eigener " +
+			`Domain, diese erlauben: in den Einstellungen unter Sicherheit oder mit "allowed_hosts" bzw. WOLWEB_ALLOWED_HOSTS.`)
+	}
 	if cfg.Auth.WakeKeys && !cfg.AuthEnabled() {
 		log.Print("Hinweis: auth.wake_keys wirkt nur zusammen mit einer Anmeldung (auth.username/password oder api_token)")
 	}

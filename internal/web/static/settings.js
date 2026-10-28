@@ -87,6 +87,7 @@
     setField("allowed_hosts", (s.allowed_hosts || []).join("\n"));
     setField("language", s.language);
     renderEvents(s.notify.events || []);
+    renderRejected(v.rejected_hosts || []);
     nets = (v.networks || []).map((n) => ({ cidr: n.cidr, name: n.name || "", vlan: n.vlan || "", scan: n.scan, orig: n }));
     renderNets();
     renderInterfaces();
@@ -117,6 +118,24 @@
     $("#net-add").disabled = !!locked("discovery.networks") || v.read_only;
     $("#notify-test").disabled = v.read_only;
     setDirty(false);
+  }
+
+  // Zuletzt abgewiesene Hostnamen (meist der eigene Reverse-Proxy): ein Klick erlaubt und speichert.
+  function renderRejected(hosts) {
+    const off = !!locked("allowed_hosts") || !editable();
+    $("#rejected-hosts").hidden = !hosts.length || off;
+    $("#rejected-list").replaceChildren(...hosts.map((h) => el("li", {},
+      el("span", { class: "mono", text: h }),
+      el("button", { type: "button", class: "btn btn-secondary btn-sm", "aria-label": t("set.sec.allow_x", h), onclick: () => allowHost(h) },
+        icon("check"), el("span", { text: t("set.sec.allow") })))));
+  }
+  function allowHost(h) {
+    const f = form.elements.allowed_hosts;
+    const list = splitList(f.value);
+    if (!list.includes(h)) list.push(h);
+    f.value = list.join("\n");
+    setDirty(true);
+    form.requestSubmit();
   }
 
   function renderEvents(selected) {

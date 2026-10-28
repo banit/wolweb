@@ -220,14 +220,52 @@ func TestHostGuard(t *testing.T) {
 			t.Errorf("%s %v: %d statt %d", tc.host, tc.allowed, rec.Code, tc.want)
 		}
 	}
-	// /health bleibt für Healthchecks immer erreichbar.
+	// /health bleibt für Healthchecks immer erreichbar, static/ für die Fehlerseite selbst.
 	h, _ := newTestServer(t, nil)
-	req := httptest.NewRequest("GET", "/health", nil)
-	req.Host = "rebind.evil.example"
+	for _, p := range []string{"/health", "/static/app.css"} {
+		req := httptest.NewRequest("GET", p, nil)
+		req.Host = "rebind.evil.example"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: %d", p, rec.Code)
+		}
+	}
+}
+
+// Update von 1.0.x hinter einem Reverse-Proxy: Die Ablehnung nennt Namen und Abhilfe, die
+// Einstellungen bieten den Namen zum Erlauben an – und danach geht es ohne Neustart.
+func TestHostGuardExplainsAndOffersHost(t *testing.T) {
+	_, h, _ := settingsServer(t, `{"language": "de"}`)
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "wol.example.com"
+	req.Header.Set("Accept", "text/html")
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	h.(http.HandlerFunc)(rec, req)
+	body := rec.Body.String()
+	if rec.Code != http.StatusForbidden || !strings.Contains(body, "wol.example.com") || !strings.Contains(body, "WOLWEB_ALLOWED_HOSTS=wol.example.com") ||
+		!strings.Contains(body, `"allowed_hosts": ["wol.example.com"]`) {
+		t.Fatalf("%d %s", rec.Code, body)
+	}
+	var v settingsView
+	json.Unmarshal(call(h, "GET", "/api/v1/settings", "").Body.Bytes(), &v)
+	if len(v.RejectedHosts) != 1 || v.RejectedHosts[0] != "wol.example.com" {
+		t.Fatalf("angeboten: %v", v.RejectedHosts)
+	}
+	e := v.Settings
+	e.AllowedHosts = []string{"wol.example.com"}
+	b, _ := json.Marshal(e)
+	if rec := call(h, "PUT", "/api/v1/settings", string(b)); rec.Code != 200 {
+		t.Fatalf("erlauben: %d %s", rec.Code, rec.Body)
+	}
+	rec = httptest.NewRecorder()
+	h.(http.HandlerFunc)(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("/health: %d", rec.Code)
+		t.Errorf("nach dem Erlauben: %d", rec.Code)
+	}
+	json.Unmarshal(call(h, "GET", "/api/v1/settings", "").Body.Bytes(), &v)
+	if len(v.RejectedHosts) != 0 {
+		t.Errorf("erlaubter Name noch angeboten: %v", v.RejectedHosts)
 	}
 }
 
@@ -442,7 +480,7 @@ func TestStatusChangeNotifies(t *testing.T) {
 // Jeder Schlüssel, den Vorlagen und Skripte benutzen, muss im Katalog stehen.
 func TestUIKeysExist(t *testing.T) {
 	cat := i18n.Catalog(i18n.DE)
-	use := regexp.MustCompile(`(?:\bt|\btn|\.T|\.TN|\$\.T)\(?\s*"((?:ui|page|wake|group|set)\.[a-z_.]+)"`)
+	use := regexp.MustCompile(`(?:\bt|\btn|\.T|\.TN|\$\.T)\(?\s*"((?:ui|page|wake|group|set|blocked)\.[a-z_.]+)"`)
 	files, _ := fs.Glob(assets, "*/*")
 	for _, f := range files {
 		b, _ := assets.ReadFile(f)
