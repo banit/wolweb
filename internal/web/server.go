@@ -36,6 +36,7 @@ type Server struct {
 	cur      atomic.Pointer[live] // Einstellungen; die Einstellungsseite tauscht sie im Betrieb aus
 	settings *config.Manager      // nil: Einstellungen nur aus config.json (Tests)
 	applyMu  sync.Mutex           // nur eine Übernahme zur Zeit
+	saveMu   sync.Mutex           // Speichern und Übernehmen der Einstellungen als ein Schritt
 	store    *store.Store
 	monitor  *status.Monitor
 	scanner  *discovery.Scanner
@@ -295,7 +296,11 @@ func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
 	var ve store.ValidationError
 	switch {
 	case errors.As(err, &ve):
-		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": ve.In(s.lang(r)), "field": ve.Field})
+		out := map[string]any{"success": false, "message": ve.In(s.lang(r)), "field": ve.Field}
+		if ve.Confirm != "" {
+			out["confirm"] = ve.Confirm // die Oberfläche fragt nach und schickt das Feld mit true erneut
+		}
+		writeJSON(w, http.StatusBadRequest, out)
 	case errors.Is(err, store.ErrNotFound):
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 	case errors.Is(err, store.ErrConflict):
@@ -502,6 +507,7 @@ func (s *Server) setGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
+	s.supersedeRetry(r.PathValue("id")) // keine Wiederholung mehr an ein gelöschtes Gerät
 	if err := s.store.Delete(r.PathValue("id")); err != nil {
 		s.storeError(w, r, err)
 		return
@@ -598,6 +604,7 @@ func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wa
 	if res, busy := s.alreadyWaking(r, d); busy {
 		return res, http.StatusOK
 	}
+	s.supersedeRetry(d.ID)
 	res, code, a := s.sendWake(r, d, source, group)
 	if !res.Success {
 		s.limiter.release(d.ID)
@@ -657,6 +664,12 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 
 // sendWake verschickt das Magic Packet, ohne den Versuch schon einzutragen.
 func (s *Server) sendWake(r *http.Request, d store.Device, source, group string) (wakeResult, int, wakeAttempt) {
+	return s.sendWakeWith(r, d, source, group, wol.Send)
+}
+
+// sendWakeWith wie sendWake mit eigener Sendefunktion (die Wiederholung wartet alle Runden ab).
+func (s *Server) sendWakeWith(r *http.Request, d store.Device, source, group string,
+	send func(net.HardwareAddr, string, string, []byte) error) (wakeResult, int, wakeAttempt) {
 	l := s.lang(r)
 	target := s.wakeTarget(d)
 	client, user := s.caller(r)
@@ -668,7 +681,7 @@ func (s *Server) sendWake(r *http.Request, d store.Device, source, group string)
 		pass, err = wol.ParseSecureOn(d.SecureOn)
 	}
 	if err == nil {
-		err = wol.Send(hw, target, d.Interface, pass)
+		err = send(hw, target, d.Interface, pass)
 	}
 	if err != nil {
 		log.Printf("Waking %s failed: %v", d.Name, err)
@@ -849,8 +862,9 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"version":           s.version,
 		"read_only":         s.conf().ReadOnly,
 		"networks":          s.scanner.Networks(),
-		"networks_auto":     s.scanner.Auto(),   // ohne Einstellung erkannt (genau ein Heimnetz)
-		"network_choices":   s.networkChoices(), // ohne Einstellung und ohne eindeutiges Heimnetz: zur Wahl
+		"networks_auto":     s.scanner.Auto(),    // ohne Einstellung erkannt (genau ein Heimnetz)
+		"network_choices":   s.networkChoices(),  // ohne Einstellung und ohne eindeutiges Heimnetz: zur Wahl
+		"scan_off":          s.scanner.ScanOff(), // Netze eingetragen, aber keins wird durchsucht
 		"segments":          s.segments(),
 		"settings":          s.settings != nil,
 		"local_networks":    discovery.LocalNets(),

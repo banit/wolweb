@@ -32,7 +32,10 @@ Netzwerkkarte).
 3. **Gerät übernehmen:** den Zielrechner einschalten, „Geräte suchen“ → „Übernehmen“. Das Heimnetz erkennt wolweb
    selbst; Name, IP- und MAC-Adresse kommen aus der Suche.
 4. **Wecklink kopieren:** Die neue Karte bietet „Wecklink kopieren“ und „Auf dem Handy einrichten“. Ab dann weckt
-   das Öffnen von `http://<Adresse>:8089/wake/<Name>` den Rechner, und die Seite zeigt, wann er wirklich läuft.
+   das Öffnen von `http://<Adresse>:8089/wake/<Name>` den Rechner, und die Seite zeigt, wann er im Netzwerk antwortet.
+5. **Richtig testen:** den Rechner herunterfahren (Strom und Netzwerkkabel bleiben dran), dann den Wecklink öffnen.
+   Erst wenn die Seite das Gerät als erreichbar meldet, funktioniert Wake on LAN – ein Test am noch eingeschalteten
+   Rechner beweist nichts.
 
 Alles Weitere – Dauerbetrieb mit systemd, Update, mehrere Netze und VLANs, Konfiguration, Benachrichtigungen,
 Metriken und die API – steht weiter unten.
@@ -114,8 +117,9 @@ nächste geplante Weckzeit oder „Zeitplan pausiert“.
 | `http://host:8089/wake-group/Homelab` | ganze Gruppe: im Browser eine Seite mit dem Start jedes Geräts, sonst JSON (auch `?wait=`) |
 
 Der Name ist nicht von Groß-/Kleinschreibung abhängig. Nach dem Umbenennen gelten alte Links weiter: Browser
-werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich bis zu zehn frühere Namen; vergibt man
-einen davon neu, gehört der Link ab dann dem neuen Gerät). Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
+werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich je Gerät bis zu zehn frühere Namen;
+einen davon einem anderen Gerät zu geben, muss man bestätigen, danach gehört der Link dem neuen Gerät – ein Import
+wählt stattdessen einen freien Namen). Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
 ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts. Während
 des Wartens nennt sie, wie lange geprüft wird (`status.wake_timeout`) und ob automatisch erneut gesendet wird. Kommt
 keine Antwort, bleibt „Start nicht bestätigt“ mit dem Naheliegenden stehen (Strom, Netzwerkkabel, blockierte
@@ -219,14 +223,26 @@ wolweb übernimmt Konfiguration und Geräteliste des ursprünglichen
 
 ## Update von 1.0.x / 1.1.x
 
-Geräte und Einstellungen werden beim ersten Start automatisch übernommen. Selbst tun musst du nur dann etwas, wenn
-du wolweb **ohne Anmeldung über eine eigene Domain** aufrufst, etwa hinter einem Reverse-Proxy
-(`https://wol.example.com`): Seit 1.1 nimmt wolweb ohne Anmeldung nur IP-Adressen und lokale Namen (`nas`,
-`*.lan`, `*.local`, `*.fritz.box` …) an, als Schutz vor DNS-Rebinding. Unter der Domain erscheint dann eine Seite,
-die genau sagt, was einzutragen ist. Am einfachsten öffnest du wolweb einmal über seine IP-Adresse
-(`http://192.168.1.5:8089`) und erlaubst den Namen in den Einstellungen unter „Sicherheit“ – er steht dort schon
-bereit. Alternativ in `config.json` `"allowed_hosts": ["wol.example.com"]` bzw. in Docker
-`WOLWEB_ALLOWED_HOSTS=wol.example.com`. Beim Start steht ein entsprechender Hinweis im Log.
+Geräte und Einstellungen werden beim ersten Start automatisch übernommen.
+
+1. **Vor dem Update – nur wenn du wolweb ohne Anmeldung über eine eigene Domain aufrufst**, etwa hinter einem
+   Reverse-Proxy (`https://wol.example.com`): diesen Namen zuerst freigeben. Seit 1.1 nimmt wolweb ohne Anmeldung nur
+   IP-Adressen und lokale Namen (`nas`, `*.lan`, `*.local`, `*.fritz.box` …) an, als Schutz vor DNS-Rebinding; unter
+   anderen Namen erscheint eine Seite, die erklärt, was zu tun ist. In `config.json` `"allowed_hosts":
+   ["wol.example.com"]` eintragen (ältere Versionen übergehen den Schlüssel) bzw. in `docker-compose.yml`
+   `WOLWEB_ALLOWED_HOSTS: "wol.example.com"`. Merkst du es erst danach: wolweb über seine IP-Adresse öffnen
+   (`http://192.168.1.5:8089`) und den Namen in den Einstellungen unter „Sicherheit“ → „Weitere Hostnamen“ eintragen
+   (zuletzt abgewiesene Namen stehen dort zur Auswahl – nur einen übernehmen, den du selbst eingerichtet hast). Beim
+   Start steht außerdem ein Hinweis im Log.
+2. **Aktualisieren:**
+   - *Docker, aus dem Repository gebaut:* `git pull && docker compose up -d --build`. Wer `docker-compose.yml` selbst
+     angepasst hat, vergleicht sie mit der neuen (siehe den Punkt *Docker* unter „Was sich mit 1.2 ändert“), statt sie
+     zu überschreiben.
+   - *Docker mit fertigem Image:* `docker compose pull && docker compose up -d`.
+   - *Programmdatei mit systemd:* wolweb stoppen (`systemctl stop wolweb`), die Datei in `/opt/wolweb` ersetzen, wieder
+     starten (`systemctl start wolweb`). `config.json` und `data/` bleiben, wie sie sind.
+3. **Prüfen:** die Übersicht öffnen – unten steht die Version – und im Log (`docker logs wolweb` bzw.
+   `journalctl -u wolweb`) nach der Zeile zur Sicherung und nach Hinweisen sehen.
 
 **Sicherung und Weg zurück:** Bevor eine neue Version die Daten zum ersten Mal schreibt, legt sie eine Kopie an:
 `data/backup-<alte Version>-<Datum>/` (etwa `backup-1.0.x-20261028-160512/` mit `devices.json`,
@@ -438,9 +454,12 @@ Wechsel online ↔ offline, nicht das erste Ergebnis nach dem Start.
 
 wolweb schickt Benachrichtigungen genau an die eingetragene Adresse – auch an Server im eigenen Netz, etwa ein
 selbst gehostetes ntfy oder Home Assistant. **Weiterleitungen folgt es nicht**: Antwortet das Ziel mit einer
-Umleitung (3xx), geht die Nachricht nicht weiter, sondern es steht ein Fehler im Log (und bei „Testnachricht
-senden“). Sonst könnte ein umgeleiteter Server die Nachricht an ein Ziel schicken lassen, das niemand eingetragen
-hat. Abhilfe: die endgültige Adresse direkt eintragen (z. B. mit `https://` statt `http://`).
+Umleitung (3xx), geht die Nachricht nicht weiter, sondern es steht ein Fehler im Log. Sonst könnte ein umgeleiteter
+Server die Nachricht an ein Ziel schicken lassen, das niemand eingetragen hat. Abhilfe: die endgültige Adresse direkt
+eintragen (z. B. mit `https://` statt `http://`). „Testnachricht senden“ sagt nur „zugestellt“ oder „nicht
+zugestellt“ – den Grund nennt das Log (`docker logs wolweb` bzw. `journalctl -u wolweb`). Technische Einzelheiten zu
+internen Zielen zeigt die Seite damit nicht; ob eine Adresse die Nachricht angenommen hat, sieht natürlich weiterhin,
+wer die Einstellungsseite benutzen darf.
 
 `/metrics` liefert Kennzahlen im Prometheus-Format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
 `wolweb_device_last_seen_timestamp_seconds`, `wolweb_wakes_total`, `wolweb_discovery_found` …). Mit Anmeldung
@@ -463,7 +482,8 @@ braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_
   Weckseite weckt dann. Mehr als Wecken ist so nicht möglich, und `HEAD` (Linkvorschauen in Messengern, Linkprüfer)
   weckt nie. Wer auch das verhindern will, schaltet die Anmeldung samt `auth.wake_keys` ein: Dann braucht jeder
   Link – Gerät wie Gruppe gleichermaßen – den Schlüssel, den „Wecklink kopieren“ anhängt, und Namen lassen sich
-  nicht erraten.
+  nicht erraten. Das ist eine bewusste Ausnahme vom Schutz gegen Cross-Site-Anfragen: Wecklinks sollen von überall
+  funktionieren, jede andere Änderung braucht die Seite von wolweb selbst oder ein Token.
 - **DNS-Rebinding**: Ohne Anmeldung nimmt wolweb nur Aufrufe unter IP-Adressen, Namen ohne Punkt (`nas`), lokalen
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus
   `allowed_hosts` an (`"wol.example.com"`, `"*.example.com"`, `"*"` schaltet die Prüfung ab). Sonst könnte eine

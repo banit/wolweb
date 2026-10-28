@@ -118,6 +118,22 @@ func TestRunAutoFollowsInterval(t *testing.T) {
 	}
 }
 
+// Sind Netze eingetragen, aber bei keinem ist die Suche an, wird nichts durchsucht – auch nicht das
+// automatisch erkannte Heimnetz, das man eben ausgeschlossen haben kann.
+func TestConfiguredButNoneScanned(t *testing.T) {
+	sc := New(nil, nil, 1024)
+	if err := sc.Configure(nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(sc.Networks()) != 0 || sc.Auto() || !sc.Configured() || !sc.ScanOff() || sc.Broadcast() != "" {
+		t.Errorf("Netze %v, auto %v, eingetragen %v, aus %v", sc.Networks(), sc.Auto(), sc.Configured(), sc.ScanOff())
+	}
+	sc.SetNetworks(nil) // wieder ohne Eintrag: Erkennung gilt
+	if sc.Configured() || sc.ScanOff() {
+		t.Error("ohne Eintrag gilt wieder die Erkennung")
+	}
+}
+
 // Container-Brücken, VMs und VPNs sind kein Heimnetz; Proxmox-Bridge und VLAN-Interface schon.
 func TestVirtualIface(t *testing.T) {
 	for name, virtual := range map[string]bool{

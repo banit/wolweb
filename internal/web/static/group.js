@@ -105,7 +105,7 @@
     for (const li of items) {
       const r = byID.get(li.dataset.id);
       if (!r || !r.success) mark(li, "error", t("ui.error"), (r && r.error) || t("group.not_sent"));
-      else if (li.dataset.hasIp) mark(li, "sent", t("group.pill.starting"));
+      else if (li.dataset.hasIp) mark(li, "sent", t("group.pill.starting"), r.already ? t("group.already") : undefined);
       else mark(li, "skip", t("group.pill.sent"));
     }
     const watch = items.filter((li) => li.dataset.s === "sent");

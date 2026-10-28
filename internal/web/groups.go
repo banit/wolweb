@@ -73,6 +73,7 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 			ok++
 			continue
 		}
+		s.supersedeRetry(d.ID)
 		wr, _, a := s.sendWake(r, d, source, name)
 		if !wr.Success {
 			s.limiter.release(d.ID)
@@ -239,6 +240,7 @@ func (s *Server) wakeDue(t time.Time) []string {
 		for _, e := range entries {
 			if e.Due(t) && s.schedRan.first(d.ID+"|"+e.String()+"|"+day, t) {
 				log.Printf("Schedule: waking %s (%s)", d.Name, e)
+				s.supersedeRetry(d.ID)
 				_, _, a := s.sendWake(nil, d, srcSchedule, "")
 				attempts = append(attempts, a)
 				woken = append(woken, d.Name)

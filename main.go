@@ -84,6 +84,9 @@ func main() {
 	}
 	mon := status.New(st, prober, statusInterval)
 	scanner := discovery.New(st, cfg.Discovery.ScanCIDRs(), cfg.Discovery.MaxHosts)
+	if err := scanner.Configure(cfg.Discovery.ScanCIDRs(), len(cfg.Discovery.Networks) > 0); err != nil {
+		log.Fatalf("Configuration: %v", err)
+	}
 	scanner.SetInterval(scanInterval)
 	ws := web.New(cfg, st, mon, scanner, prober.ICMPAvailable(), version) // hängt sich an mon und scanner
 	ws.SetSettings(settings)

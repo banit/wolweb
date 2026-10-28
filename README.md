@@ -31,7 +31,10 @@ enabled on the target computers (BIOS/UEFI, on Windows also for the network adap
 3. **Add a device:** switch the target computer on, then “Find devices” → “Add”. wolweb detects the home network by
    itself; name, IP and MAC address come from the scan.
 4. **Copy the wake link:** the new card offers “Copy wake link” and “Set up on your phone”. From then on, opening
-   `http://<address>:8089/wake/<name>` wakes the computer, and the page shows when it is really up.
+   `http://<address>:8089/wake/<name>` wakes the computer, and the page shows when it answers on the network.
+5. **Test it for real:** shut the computer down (leave power and the network cable connected), then open the wake
+   link. Only when the page reports the device as reachable does Wake on LAN work – a test with the computer still
+   switched on proves nothing.
 
 Everything else – running it permanently with systemd, switching from the original wolweb, updating, multiple
 networks and VLANs, configuration, notifications, metrics and the API – follows below.
@@ -109,8 +112,9 @@ wake-up or “Schedule paused”.
 | `http://host:8089/wake-group/Homelab` | whole group: in a browser a page with the start of every device, otherwise JSON (also `?wait=`) |
 
 The name is not case-sensitive. After renaming, old links keep working: browsers are redirected to the new address,
-curl & co. wake directly (wolweb remembers up to ten former names; if you give one of them to another device, the
-link belongs to that device from then on). The “online” confirmation needs a known IP (entered or from the network
+curl & co. wake directly (wolweb remembers up to ten former names per device; giving one of them to another device
+needs a confirmation, and from then on the link belongs to that device – an import picks a free name instead). The
+“online” confirmation needs a known IP (entered or from the network
 scan). If the device is already running, the page says so and sends nothing. While waiting, it tells you how long it
 keeps checking (`status.wake_timeout`) and whether it will resend automatically. Without an answer, “Start not
 confirmed” stays on the page with the obvious checks (power, network cable, a blocked answer), plus “Check again”
@@ -212,13 +216,24 @@ wolweb takes over the configuration and device list of the original
 
 ## Updating from 1.0.x / 1.1.x
 
-Devices and settings are taken over automatically on the first start. You only need to act if you open wolweb
-**without login via your own domain**, e.g. behind a reverse proxy (`https://wol.example.com`): since 1.1 wolweb
-only accepts IP addresses and local names (`nas`, `*.lan`, `*.local`, `*.fritz.box` …) without login, as protection
-against DNS rebinding. The domain then shows a page that says exactly what to add. The easiest way: open wolweb once
-via its IP address (`http://192.168.1.5:8089`) and allow the name on the settings page under “Security” – it is
-already offered there. Alternatively `"allowed_hosts": ["wol.example.com"]` in `config.json` or
-`WOLWEB_ALLOWED_HOSTS=wol.example.com` in Docker. A matching hint is logged at start-up.
+Devices and settings are taken over automatically on the first start.
+
+1. **Before the update – only if you open wolweb without login via your own domain**, e.g. behind a reverse proxy
+   (`https://wol.example.com`): allow that name first. Since 1.1 wolweb only accepts IP addresses and local names
+   (`nas`, `*.lan`, `*.local`, `*.fritz.box` …) without login, as protection against DNS rebinding; any other name
+   gets a page that explains what to do. Add `"allowed_hosts": ["wol.example.com"]` to `config.json` (older versions
+   ignore the key) or `WOLWEB_ALLOWED_HOSTS: "wol.example.com"` to `docker-compose.yml`. If you only find out
+   afterwards: open wolweb via its IP address (`http://192.168.1.5:8089`) and enter the name on the settings page
+   under “Security” → “Additional host names” (recently rejected names are listed there – only take over one you set
+   up yourself). A matching hint is also logged at start-up.
+2. **Update:**
+   - *Docker, built from the repository:* `git pull && docker compose up -d --build`. If you changed
+     `docker-compose.yml` yourself, compare it with the new one (see the *Docker* note under “What changes with 1.2”) instead of overwriting it.
+   - *Docker with the ready-made image:* `docker compose pull && docker compose up -d`.
+   - *Binary with systemd:* stop wolweb (`systemctl stop wolweb`), replace the file in `/opt/wolweb`, start it again
+     (`systemctl start wolweb`). `config.json` and `data/` stay as they are.
+3. **Check:** open the overview – the version is shown at the bottom – and look at the log (`docker logs wolweb` or
+   `journalctl -u wolweb`) for the backup line and any hints.
 
 **Backup and going back:** before a new version writes the data for the first time, it makes a copy:
 `data/backup-<old version>-<date>/` (e.g. `backup-1.0.x-20261028-160512/` with `devices.json`, `discovered.json`
@@ -425,9 +440,11 @@ online ↔ offline are reported, not the first result after the start. Notificat
 
 wolweb sends notifications exactly to the configured address – servers in your own network included, e.g. a
 self-hosted ntfy or Home Assistant. **It does not follow redirects**: if the target answers with a redirect (3xx), the
-message is not passed on; instead an error is logged (and shown by “Send test message”). Otherwise a redirecting
-server could have the message delivered to a target nobody configured. Remedy: enter the final address directly
-(e.g. with `https://` instead of `http://`).
+message is not passed on; instead an error is logged. Otherwise a redirecting server could have the message
+delivered to a target nobody configured. Remedy: enter the final address directly (e.g. with `https://` instead of
+`http://`). “Send test message” only says “delivered” or “not delivered” – the reason is in the log (`docker logs
+wolweb` or `journalctl -u wolweb`). The page thus shows no technical details about internal targets; whether an
+address accepted the message is of course still visible to anyone who may use the settings page.
 
 `/metrics` provides metrics in Prometheus format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
 `wolweb_device_last_seen_timestamp_seconds`, `wolweb_device_last_wake_timestamp_seconds`, `wolweb_wakes_total`,
@@ -450,7 +467,9 @@ server could have the message delivered to a target nobody configured. Remedy: e
   browser to `/wake/<name>` or `/wake-group/<name>`, and the wake page it gets then wakes. Nothing beyond waking is
   possible this way, and `HEAD` (link previews in messengers, link checkers) never wakes. To prevent even that,
   enable the login together with `auth.wake_keys`: then every link – device and group alike – needs the key that
-  “Copy wake link” appends, and names cannot be guessed.
+  “Copy wake link” appends, and names cannot be guessed. This is a deliberate exception to the protection against
+  cross-site requests: wake links are meant to work from anywhere, every other change needs wolweb's own page or a
+  token.
 - **DNS rebinding**: without login, wolweb only accepts requests under IP addresses, names without a dot (`nas`),
   local suffixes (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) and the names in
   `allowed_hosts` (`"wol.example.com"`, `"*.example.com"`; `"*"` switches the check off). Otherwise a foreign website

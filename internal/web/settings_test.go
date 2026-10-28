@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,6 +131,30 @@ func TestSettingsAPI(t *testing.T) {
 	}
 }
 
+// Gleichzeitige Änderungen: Was gespeichert ist, muss auch gelten. Ohne gemeinsame Sperre für
+// Speichern und Übernehmen konnte eine ältere Anfrage ihren Stand nach einer neueren übernehmen.
+func TestSettingsConcurrentSaves(t *testing.T) {
+	s, h, m := settingsServer(t, `{"status": {"wake_retry": "45s"}}`)
+	var wg sync.WaitGroup
+	for i := range 40 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e := m.Config().Editable()
+			e.Status.WakeRetry = []string{"10s", "20s", "30s", "40s"}[i%4]
+			b, _ := json.Marshal(e)
+			if rec := call(h, "PUT", "/api/v1/settings", string(b)); rec.Code != 200 {
+				t.Errorf("PUT: %d %s", rec.Code, rec.Body)
+			}
+		}()
+	}
+	wg.Wait()
+	_, _, _, want := m.Config().Durations()
+	if got := s.rt().wakeRetry; got != want {
+		t.Errorf("gilt %v, gespeichert %v", got, want)
+	}
+}
+
 func TestSettingsReadOnlyAndUnavailable(t *testing.T) {
 	_, h, _ := settingsServer(t, `{"read_only": true}`)
 	if rec := call(h, "PUT", "/api/v1/settings", `{}`); rec.Code != http.StatusForbidden {
@@ -161,7 +186,7 @@ func TestSettingsTestNotify(t *testing.T) {
 	}
 	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }))
 	defer broken.Close()
-	if rec := call(h, "POST", "/api/v1/settings/test-notify", `{"webhook":"`+broken.URL+`/geheim","ntfy":""}`); rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), "geheim") {
+	if rec := call(h, "POST", "/api/v1/settings/test-notify", `{"webhook":"`+broken.URL+`/geheim","ntfy":""}`); rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), "geheim") || strings.Contains(rec.Body.String(), "500") {
 		t.Errorf("Fehler: %d %s", rec.Code, rec.Body)
 	}
 	if rec := call(h, "POST", "/api/v1/settings/test-notify", `{"webhook":"ftp://x","ntfy":""}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), "notify.webhook") {
@@ -184,5 +209,28 @@ func TestChooseNetwork(t *testing.T) {
 	}
 	if rec := call(h, "POST", "/api/v1/discovery/network", `{"cidr":"kein-netz"}`); rec.Code != 400 {
 		t.Errorf("ungültiges Netz: %d", rec.Code)
+	}
+	for _, body := range []string{`{}`, `{"cidr":""}`, `{"cidrs":[]}`, `{"cidrs":[""]}`} {
+		if rec := call(h, "POST", "/api/v1/discovery/network", body); rec.Code != 400 || len(s.scanner.Networks()) != 1 {
+			t.Errorf("leere Auswahl %s: %d, Netze %v", body, rec.Code, s.scanner.Networks())
+		}
+	}
+	// „Alle erkannten Netze durchsuchen“
+	if rec := call(h, "POST", "/api/v1/discovery/network", `{"cidrs":["10.0.0.0/24","10.1.0.0/24"]}`); rec.Code != 200 || len(s.scanner.Networks()) != 2 {
+		t.Errorf("alle: %d %v", rec.Code, s.scanner.Networks())
+	}
+	// Netze eingetragen, keins durchsucht: info meldet „ausgeschaltet“, keine Auswahl
+	e := m.Config().Editable()
+	for i := range e.Discovery.Networks {
+		e.Discovery.Networks[i].Scan = false
+	}
+	if _, err := m.Save(e); err != nil {
+		t.Fatal(err)
+	}
+	s.Apply(m.Config())
+	var info map[string]any
+	json.Unmarshal(call(h, "GET", "/api/v1/info", "").Body.Bytes(), &info)
+	if info["scan_off"] != true || len(info["networks"].([]any)) != 0 || len(info["network_choices"].([]any)) != 0 {
+		t.Errorf("info: %v %v %v", info["scan_off"], info["networks"], info["network_choices"])
 	}
 }

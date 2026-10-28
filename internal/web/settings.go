@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
+	"slices"
 
 	"wolweb/internal/config"
 	"wolweb/internal/discovery"
@@ -31,7 +32,7 @@ func (s *Server) Apply(cfg config.Config) {
 	scan, check, _, _ := cfg.Durations()
 	s.monitor.SetPorts(cfg.Status.Ports)
 	s.monitor.SetInterval(check)
-	if err := s.scanner.SetNetworks(cfg.Discovery.ScanCIDRs()); err != nil {
+	if err := s.scanner.Configure(cfg.Discovery.ScanCIDRs(), len(cfg.Discovery.Networks) > 0); err != nil {
 		log.Printf("Settings: scan networks: %v", err) // geprüft – sollte nie vorkommen
 	}
 	s.scanner.SetInterval(scan)
@@ -163,23 +164,33 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	cfg, err := s.settings.Save(e)
-	if err != nil {
+	if err := s.commit(func() (config.Config, error) { return s.settings.Save(e) }); err != nil {
 		s.settingsError(w, r, err)
 		return
 	}
-	s.Apply(cfg)
 	writeJSON(w, http.StatusOK, s.settingsState())
 }
 
 func (s *Server) resetSettings(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.settings.Reset()
-	if err != nil {
+	if err := s.commit(s.settings.Reset); err != nil {
 		s.settingsError(w, r, err)
 		return
 	}
-	s.Apply(cfg)
 	writeJSON(w, http.StatusOK, s.settingsState())
+}
+
+// commit speichert (oder setzt zurück) und übernimmt in einem Schritt. Ohne gemeinsame Sperre könnte
+// eine ältere Anfrage ihren Stand nach einer neueren übernehmen – settings.json und der laufende
+// Betrieb (etwa erlaubte Hostnamen) liefen dann auseinander.
+func (s *Server) commit(change func() (config.Config, error)) error {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	cfg, err := change()
+	if err != nil {
+		return err
+	}
+	s.Apply(cfg)
+	return nil
 }
 
 // settingsError: Eingabefehler nennen das Feld (wie bei Geräten), alles andere ist ein Speicherfehler.
@@ -218,7 +229,10 @@ func (s *Server) testNotify(w http.ResponseWriter, r *http.Request) {
 	defer n.Close()
 	ev := notify.Event{Event: notify.Test, Device: "wolweb", Message: i18n.T(l, "notify.test")}
 	if err := n.Test(ev); err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"success": false, "message": i18n.T(l, "msg.notify_failed", i18n.ErrorText(l, err))})
+		// Nur „nicht zugestellt“: Fehlerart und HTTP-Status verrieten sonst, welche internen Adressen
+		// und Ports antworten (wolweb hängt oft in mehreren Netzen). Die Einzelheiten stehen im Log.
+		log.Printf("Test message: %v", err)
+		writeJSON(w, http.StatusBadGateway, map[string]any{"success": false, "message": i18n.T(l, "msg.notify_failed")})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": i18n.T(l, "msg.notify_sent")})
@@ -236,24 +250,35 @@ func (s *Server) networkChoices() []discovery.LocalNet {
 // chooseNetwork speichert das in der Suche gewählte Heimnetz (wie in den Einstellungen).
 func (s *Server) chooseNetwork(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		CIDR string `json:"cidr"`
+		CIDR  string   `json:"cidr"`
+		CIDRs []string `json:"cidrs"` // „Alle erkannten Netze durchsuchen“
 	}
 	if err := readJSON(r, &in); err != nil {
 		s.storeError(w, r, err)
+		return
+	}
+	if in.CIDR == "" && !slices.ContainsFunc(in.CIDRs, func(c string) bool { return c != "" }) {
+		s.fail(w, r, http.StatusBadRequest, "set.err.cidr_missing") // leer hieße: alle Netze löschen
 		return
 	}
 	if _, env := s.settings.Locked()["discovery.networks"]; env {
 		s.fail(w, r, http.StatusConflict, "err.networks_locked")
 		return
 	}
-	e := s.settings.Config().Editable()
-	e.Discovery.Networks = []config.Network{{CIDR: in.CIDR, Scan: true}}
-	cfg, err := s.settings.Save(e)
+	err := s.commit(func() (config.Config, error) {
+		e := s.settings.Config().Editable() // unter der Sperre lesen, sonst ginge eine gleichzeitige Änderung verloren
+		e.Discovery.Networks = nil
+		for _, c := range append(in.CIDRs, in.CIDR) {
+			if c != "" {
+				e.Discovery.Networks = append(e.Discovery.Networks, config.Network{CIDR: c, Scan: true})
+			}
+		}
+		return s.settings.Save(e)
+	})
 	if err != nil {
 		s.settingsError(w, r, err)
 		return
 	}
-	s.Apply(cfg)
 	writeJSON(w, http.StatusOK, map[string]any{"networks": s.scanner.Networks()})
 }
 
