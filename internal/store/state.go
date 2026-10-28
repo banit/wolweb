@@ -23,7 +23,8 @@ type Event struct {
 	Time    time.Time `json:"time"`
 	ID      string    `json:"id,omitempty"`
 	Device  string    `json:"device"`
-	Source  string    `json:"source"`           // "Übersicht", "Weckseite", "Wecklink", "API", "Zeitplan", "Gruppe …"
+	Source  string    `json:"source"`           // Schlüssel: ui, page, link, api, schedule, group, group_page, group_link
+	Group   string    `json:"group,omitempty"`  // bei Gruppen deren Name
 	Client  string    `json:"client,omitempty"` // IP-Adresse des Aufrufers
 	User    string    `json:"user,omitempty"`
 	Target  string    `json:"target,omitempty"`

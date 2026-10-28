@@ -3,15 +3,18 @@ package web
 import (
 	"bufio"
 	"encoding/json"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"wolweb/internal/config"
 	"wolweb/internal/discovery"
+	"wolweb/internal/i18n"
 	"wolweb/internal/probe"
 	"wolweb/internal/status"
 	"wolweb/internal/store"
@@ -337,7 +340,7 @@ func TestScheduleWakesDueDevices(t *testing.T) {
 	if got := s.wakeDue(fri.AddDate(0, 0, 1)); len(got) != 0 { // Samstag
 		t.Errorf("Samstag 07:30: %v", got)
 	}
-	if h := st.History(1); len(h) != 1 || h[0].Source != "Zeitplan" || !h[0].Success {
+	if h := st.History(1); len(h) != 1 || h[0].Source != "schedule" || !h[0].Success {
 		t.Errorf("Verlauf: %+v", h)
 	}
 }
@@ -432,5 +435,70 @@ func TestStatusChangeNotifies(t *testing.T) {
 	case ev := <-got:
 		t.Errorf("unerwartet: %q", ev)
 	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// Jeder Schlüssel, den Vorlagen und Skripte benutzen, muss im Katalog stehen.
+func TestUIKeysExist(t *testing.T) {
+	cat := i18n.Catalog(i18n.DE)
+	use := regexp.MustCompile(`(?:\bt|\btn|\.T|\.TN|\$\.T)\(?\s*"((?:ui|page|wake|group)\.[a-z_.]+)"`)
+	files, _ := fs.Glob(assets, "*/*")
+	for _, f := range files {
+		b, _ := assets.ReadFile(f)
+		for _, m := range use.FindAllStringSubmatch(string(b), -1) {
+			k := m[1]
+			if strings.HasSuffix(k, ".") { // dynamisch zusammengesetzt, z. B. "ui.icon." + key
+				continue
+			}
+			_, ok := cat[k]
+			_, one := cat[k+".one"]
+			if !ok && !one {
+				t.Errorf("%s: Schlüssel %q fehlt im Katalog", f, k)
+			}
+		}
+	}
+	for _, prefix := range []string{"ui.icon.desktop", "ui.src.schedule", "ui.src.group_link", "ui.scan.method.arp", "ui.scan.method.neighbors"} {
+		if _, ok := cat[prefix]; !ok {
+			t.Errorf("dynamischer Schlüssel %q fehlt", prefix)
+		}
+	}
+}
+
+func TestEnglish(t *testing.T) {
+	h, st := newTestServer(t, nil)
+	st.Create(store.Input{Name: "NAS", MAC: "00:11:22:33:44:55"})
+	// API: Fehlermeldung auf Englisch, mit betroffenem Feld
+	req := httptest.NewRequest("POST", "/api/v1/devices", strings.NewReader(`{"name":"PC","mac":"kaputt"}`))
+	req.Header.Set("X-WolWeb", "1")
+	req.Header.Set("Accept-Language", "en-GB,en;q=0.9")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var res struct{ Message, Field string }
+	json.Unmarshal(rec.Body.Bytes(), &res)
+	if rec.Code != http.StatusBadRequest || res.Field != "mac" || !strings.HasPrefix(res.Message, "The MAC address is invalid") {
+		t.Errorf("%d %+v", rec.Code, res)
+	}
+	// Seite: Cookie des Umschalters schlägt den Browser
+	req = httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept-Language", "de-DE")
+	req.Header.Set("Cookie", "wolweb_lang=en")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, `<html lang="en">`) || !strings.Contains(body, "Scan network") || !strings.Contains(body, `data-lang="de"`) {
+		t.Errorf("Seite nicht englisch:\n%.400s", body)
+	}
+	// Katalog als JSON in der Seite
+	i := strings.Index(body, `<script id="i18n" type="application/json">`)
+	j := strings.Index(body[i:], "</script>")
+	var cat map[string]string
+	if i < 0 || json.Unmarshal([]byte(body[i+len(`<script id="i18n" type="application/json">`):i+j]), &cat) != nil || cat["ui.wake"] != "Wake" {
+		t.Error("Katalog in der Seite fehlt oder ist kein JSON")
+	}
+	// Wecklink ohne Gerät, ?lang=en
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/wake/Gibtsnicht?lang=en", nil))
+	if !strings.Contains(rec.Body.String(), `Device \"Gibtsnicht\" not found.`) {
+		t.Errorf("Wecklink: %s", rec.Body)
 	}
 }

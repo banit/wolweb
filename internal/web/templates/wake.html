@@ -1,18 +1,20 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex">
-<title>{{if .Device}}{{.Device.Name}} starten{{else}}Gerät nicht gefunden{{end}} · Wake on LAN</title>
+<title>{{if .Device}}{{.T "wake.tab.start" .Device.Name}}{{else}}{{.T "page.missing.title"}}{{end}} · Wake on LAN</title>
 <base href="{{.Base}}">
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="static/icon-180.png">
 <meta name="theme-color" content="#4f46e5">
 <meta name="apple-mobile-web-app-title" content="{{if .Device}}{{.Device.Name}}{{else}}wolweb{{end}}">
 <link rel="stylesheet" href="static/app.css?v={{.Version}}">
+<script id="i18n" type="application/json">{{.I18N}}</script>
 <script src="static/theme.js?v={{.Version}}"></script>
+<script src="static/i18n.js?v={{.Version}}" defer></script>
 {{if .Device}}<script src="static/wake.js?v={{.Version}}" defer></script>{{end}}
 </head>
 <body class="wake-page">
@@ -29,29 +31,30 @@
       <svg class="ico warn-ico"><use href="#i-alert"/></svg>
     </div>
   </div>
-  <h1 id="wake-title">{{.Device.Name}} wird gestartet</h1>
+  <h1 id="wake-title">{{.T "wake.title.starting" .Device.Name}}</h1>
   <p class="muted" id="wake-sub">{{if .Device.CheckIP}}<span class="mono">{{.Device.CheckIP}}</span> · {{end}}<span class="mono">{{.Device.MAC}}</span></p>
 
   <ol class="steps" id="steps">
-    <li data-step="check"><span class="step-dot"></span><div><strong>Gerät prüfen</strong><small class="muted" data-detail></small></div></li>
-    <li data-step="send"><span class="step-dot"></span><div><strong>Magic Packet senden</strong><small class="muted" data-detail></small></div></li>
-    <li data-step="wait"><span class="step-dot"></span><div><strong>Auf Start warten</strong><small class="muted" data-detail></small></div></li>
-    <li data-step="online"><span class="step-dot"></span><div><strong>Online</strong><small class="muted" data-detail></small></div></li>
+    <li data-step="check"><span class="step-dot"></span><div><strong>{{.T "wake.step.check"}}</strong><small class="muted" data-detail></small></div></li>
+    <li data-step="send"><span class="step-dot"></span><div><strong>{{.T "wake.step.send"}}</strong><small class="muted" data-detail></small></div></li>
+    <li data-step="wait"><span class="step-dot"></span><div><strong>{{.T "wake.step.wait"}}</strong><small class="muted" data-detail></small></div></li>
+    <li data-step="online"><span class="step-dot"></span><div><strong>{{.T "ui.online"}}</strong><small class="muted" data-detail></small></div></li>
   </ol>
 
   <div class="wake-result" id="wake-result" hidden></div>
 
   <div class="wake-actions">
-    <a class="btn btn-ghost" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>Übersicht</a>
-    <button class="btn btn-secondary" id="wake-again" hidden><svg class="ico"><use href="#i-refresh"/></svg><span>Erneut senden</span></button>
+    <a class="btn btn-ghost" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.overview"}}</a>
+    <button class="btn btn-secondary" id="wake-again" hidden><svg class="ico"><use href="#i-refresh"/></svg><span>{{.T "wake.btn.again"}}</span></button>
   </div>
 {{else}}
   <div class="wake-visual static">
     <div class="wake-icon warn"><svg class="ico"><use href="#i-alert"/></svg></div>
   </div>
-  <h1>Gerät nicht gefunden</h1>
-  <p class="muted">Es gibt kein Gerät namens <strong>„{{.Missing}}“</strong>. Vielleicht wurde es umbenannt.</p>
-  <div class="wake-actions"><a class="btn btn-primary" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>Zur Übersicht</a></div>
+  <h1>{{.T "page.missing.title"}}</h1>
+  <p class="muted">{{.T "page.missing.text"}}</p>
+  <p class="mono">{{.Missing}}</p>
+  <div class="wake-actions"><a class="btn btn-primary" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.to_overview"}}</a></div>
 {{end}}
 </main>
 </body>

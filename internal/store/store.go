@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"wolweb/internal/config"
+	"wolweb/internal/i18n"
 	"wolweb/internal/oui"
 	"wolweb/internal/schedule"
 	"wolweb/internal/wol"
@@ -57,15 +58,26 @@ type Found struct {
 	Ignored        bool      `json:"ignored,omitempty"`
 }
 
+// Fehler zum Vergleichen mit errors.Is; die Oberfläche bekommt sie übersetzt (err.device_not_found,
+// err.conflict). Eine i18n.Msg ginge hier nicht – sie ist nicht vergleichbar.
 var (
 	ErrNotFound = errors.New("nicht gefunden")
 	ErrConflict = errors.New("die Daten wurden inzwischen geändert – bitte neu laden")
 )
 
-// ValidationError wird als HTTP 400 mit Text an die Oberfläche gegeben.
-type ValidationError struct{ Msg string }
+// ValidationError wird als HTTP 400 an die Oberfläche gegeben: Meldung (übersetzbar) und das
+// betroffene Eingabefeld ("name", "mac", "ports" …), damit es markiert werden kann.
+type ValidationError struct {
+	i18n.Msg
+	Field string
+}
 
-func (e ValidationError) Error() string { return e.Msg }
+func invalid(field, key string, args ...any) ValidationError {
+	return ValidationError{Msg: i18n.M(key, args...), Field: field}
+}
+
+// Invalid baut einen Eingabefehler ohne bestimmtes Feld (z. B. für ungültiges JSON).
+func Invalid(key string, args ...any) ValidationError { return invalid("", key, args...) }
 
 type Store struct {
 	mu         sync.RWMutex
@@ -415,32 +427,32 @@ func (in *Input) validate() (Device, error) {
 	var d Device
 	d.Name = strings.TrimSpace(in.Name)
 	if d.Name == "" {
-		return d, ValidationError{"Bitte einen Namen angeben."}
+		return d, invalid("name", "val.name_required")
 	}
 	if utf8.RuneCountInString(d.Name) > 64 {
-		return d, ValidationError{"Der Name darf höchstens 64 Zeichen haben."}
+		return d, invalid("name", "val.name_too_long")
 	}
 	if d.Name == "." || d.Name == ".." {
-		return d, ValidationError{`Die Namen „.“ und „..“ sind nicht erlaubt.`}
+		return d, invalid("name", "val.name_dots")
 	}
 	if strings.ContainsAny(d.Name, "/\\?#%") || hasControl(d.Name) {
-		return d, ValidationError{`Der Name darf keine der Zeichen / \ ? # % enthalten (er wird Teil des Wecklinks).`}
+		return d, invalid("name", "val.name_chars")
 	}
 	hw, err := wol.ParseMAC(in.MAC)
 	if err != nil {
-		return d, ValidationError{"Die MAC-Adresse ist ungültig (Beispiel: 00:11:22:33:44:55)."}
+		return d, invalid("mac", "val.mac")
 	}
 	d.MAC = wol.FormatMAC(hw)
 	d.Vendor = oui.Lookup(hw)
 	if ip := strings.TrimSpace(in.IP); ip != "" {
 		a, err := netip.ParseAddr(ip)
 		if err != nil || !a.Is4() {
-			return d, ValidationError{"Die IP-Adresse ist ungültig (nur IPv4)."}
+			return d, invalid("ip", "val.ip")
 		}
 		d.IP = a.String()
 	}
 	if d.Broadcast, err = config.NormalizeBroadcast(in.Broadcast); err != nil {
-		return d, ValidationError{"Broadcast-Adresse: " + err.Error()}
+		return d, invalid("broadcast", "val.broadcast", err)
 	}
 	d.Interface = strings.TrimSpace(in.Interface)
 	d.Icon = in.Icon
@@ -449,33 +461,33 @@ func (in *Input) validate() (Device, error) {
 	}
 	d.Note = strings.TrimSpace(in.Note)
 	if utf8.RuneCountInString(d.Note) > 500 {
-		return d, ValidationError{"Die Notiz ist zu lang (höchstens 500 Zeichen)."}
+		return d, invalid("note", "val.note_too_long")
 	}
 	for _, p := range in.Ports {
 		if p <= 0 || p > 65535 {
-			return d, ValidationError{fmt.Sprintf("Ports: %d ist kein gültiger Port (1–65535).", p)}
+			return d, invalid("ports", "val.port", p)
 		}
 		if !slices.Contains(d.Ports, p) {
 			d.Ports = append(d.Ports, p)
 		}
 	}
 	if len(d.Ports) > 16 {
-		return d, ValidationError{"Ports: höchstens 16 Stück."}
+		return d, invalid("ports", "val.too_many_ports")
 	}
 	pass, err := wol.ParseSecureOn(in.SecureOn)
 	if err != nil {
-		return d, ValidationError{err.Error()}
+		return d, invalid("secureon", "val.secureon", in.SecureOn)
 	}
 	if pass != nil {
 		d.SecureOn = wol.FormatMAC(pass)
 	}
 	d.Group = strings.TrimSpace(in.Group)
 	if utf8.RuneCountInString(d.Group) > 32 || strings.ContainsAny(d.Group, `/\?#%`) || hasControl(d.Group) {
-		return d, ValidationError{`Gruppe: höchstens 32 Zeichen, ohne / \ ? # % (sie wird Teil des Gruppen-Wecklinks).`}
+		return d, invalid("group", "val.group")
 	}
 	entries, err := schedule.ParseList(in.Schedule)
 	if err != nil {
-		return d, ValidationError{"Zeitplan: " + err.Error()}
+		return d, invalid("schedule", "val.schedule", err)
 	}
 	for _, e := range entries {
 		d.Schedule = append(d.Schedule, e.String())
@@ -525,7 +537,7 @@ func (s *Store) Create(in Input) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.nameTaken(d.Name, "") {
-		return d, ValidationError{fmt.Sprintf("Es gibt schon ein Gerät namens %q.", d.Name)}
+		return d, invalid("name", "val.name_taken", d.Name)
 	}
 	now := time.Now().UTC()
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
@@ -557,7 +569,7 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 		return d, ErrConflict
 	}
 	if s.nameTaken(d.Name, id) {
-		return d, ValidationError{fmt.Sprintf("Es gibt schon ein Gerät namens %q.", d.Name)}
+		return d, invalid("name", "val.name_taken", d.Name)
 	}
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = old.ID, old.CreatedAt, time.Now().UTC(), old.WakeKey
 	prev := s.devices
@@ -627,10 +639,11 @@ type ImportResult struct {
 
 // Import übernimmt Geräte aus einem Export (oder einer devices.json des alten wolweb). Geräte,
 // deren MAC schon angelegt ist, werden übersprungen; doppelte Namen bekommen eine Nummer.
-func (s *Store) Import(b []byte) (ImportResult, error) {
+// Fehler einzelner Einträge stehen in der Sprache l im Ergebnis.
+func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 	devs, _, _, err := decodeDevices(b)
 	if err != nil {
-		return ImportResult{}, ValidationError{"Die Datei ist keine gültige Geräteliste: " + err.Error()}
+		return ImportResult{}, Invalid("val.import_invalid", err)
 	}
 	var res ImportResult
 	s.mu.Lock()
@@ -642,7 +655,7 @@ func (s *Store) Import(b []byte) (ImportResult, error) {
 		in.Name = cleanName(in.Name)
 		d, err := in.validate()
 		if err != nil {
-			res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", src.Name, err))
+			res.Errors = append(res.Errors, src.Name+": "+i18n.Text(l, err))
 			continue
 		}
 		if slices.ContainsFunc(next, func(x Device) bool { return x.MAC == d.MAC }) {

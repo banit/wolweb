@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"wolweb/internal/i18n"
 	"wolweb/internal/schedule"
 	"wolweb/internal/store"
 )
@@ -66,7 +66,7 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 	res := groupResult{Success: true, Group: name}
 	ok := 0
 	for _, d := range members {
-		wr, _ := s.wake(r, d, source)
+		wr, _ := s.wake(r, d, source, name)
 		res.Results = append(res.Results, wr)
 		if wr.Success {
 			ok++
@@ -74,7 +74,7 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 			res.Success = false
 		}
 	}
-	res.Message = fmt.Sprintf("Magic Packet an %d von %d Geräten der Gruppe %s gesendet.", ok, len(members), name)
+	res.Message = i18n.T(s.lang(r), "msg.group_sent", ok, len(members), name)
 	code := http.StatusOK
 	if ok == 0 {
 		code = http.StatusInternalServerError
@@ -86,10 +86,10 @@ func (s *Server) wakeGroupAPI(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	members := s.store.GroupMembers(name)
 	if len(members) == 0 {
-		writeError(w, http.StatusNotFound, "Gruppe nicht gefunden.")
+		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 		return
 	}
-	res, code := s.wakeGroup(r, members[0].Group, members, "Gruppe "+members[0].Group)
+	res, code := s.wakeGroup(r, members[0].Group, members, srcGroup)
 	writeJSON(w, code, res)
 }
 
@@ -111,7 +111,7 @@ func (s *Server) groupLink(w http.ResponseWriter, r *http.Request) {
 	name, members, ok := s.findGroupForLink(r)
 	if sfs := r.Header.Get("Sec-Fetch-Site"); r.Method == http.MethodHead || wantsHTML(r) || sfs == "cross-site" || sfs == "same-site" {
 		if !ok {
-			s.render(w, http.StatusNotFound, "wake.html", pageData{Missing: r.PathValue("name")})
+			s.render(w, r, http.StatusNotFound, "wake.html", pageData{Missing: r.PathValue("name")})
 			return
 		}
 		g := s.groupView(name, members, false)
@@ -119,23 +119,23 @@ func (s *Server) groupLink(w http.ResponseWriter, r *http.Request) {
 		if s.needsKey(r) {
 			pd.Key = s.groupKey(name)
 		}
-		s.render(w, http.StatusOK, "group.html", pd)
+		s.render(w, r, http.StatusOK, "group.html", pd)
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("Gruppe %q nicht gefunden.", r.PathValue("name")))
+		s.fail(w, r, http.StatusNotFound, "err.group_not_found_name", r.PathValue("name"))
 		return
 	}
-	s.groupWakeNow(w, r, name, members, "Gruppen-Wecklink")
+	s.groupWakeNow(w, r, name, members, srcGroupLink)
 }
 
 func (s *Server) groupLinkPost(w http.ResponseWriter, r *http.Request) {
 	name, members, ok := s.findGroupForLink(r)
 	if !ok {
-		writeError(w, http.StatusNotFound, "Gruppe nicht gefunden.")
+		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 		return
 	}
-	s.groupWakeNow(w, r, name, members, "Gruppenseite")
+	s.groupWakeNow(w, r, name, members, srcGroupPage)
 }
 
 func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name string, members []store.Device, source string) {
@@ -143,11 +143,11 @@ func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name strin
 		if wait, ok := s.limiter.allow("gruppe:" + strings.ToLower(name)); !ok {
 			secs := int(wait.Seconds()) + 1
 			w.Header().Set("Retry-After", strconv.Itoa(secs))
-			writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Die Gruppe %s wurde gerade erst geweckt – bitte noch %d s warten.", name, secs))
+			s.fail(w, r, http.StatusTooManyRequests, "err.group_rate_limited", name, secs)
 			return
 		}
 	}
-	res, code := s.wakeGroup(r, name, members, source+" "+name)
+	res, code := s.wakeGroup(r, name, members, source)
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); wait > 0 && code == http.StatusOK {
 		// Alle Geräte mit IP gleichzeitig abwarten.
 		var wg sync.WaitGroup
@@ -170,7 +170,7 @@ func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name strin
 func (s *Server) groupLinkStatus(w http.ResponseWriter, r *http.Request) {
 	_, members, ok := s.findGroupForLink(r)
 	if !ok {
-		writeError(w, http.StatusNotFound, "Gruppe nicht gefunden.")
+		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 		return
 	}
 	type memberStatus struct {
@@ -216,7 +216,7 @@ func (s *Server) wakeDue(t time.Time) []string {
 		for _, e := range entries {
 			if e.Due(t) {
 				log.Printf("Zeitplan: wecke %s (%s)", d.Name, e)
-				s.wake(nil, d, "Zeitplan")
+				s.wake(nil, d, srcSchedule, "")
 				woken = append(woken, d.Name)
 				break
 			}

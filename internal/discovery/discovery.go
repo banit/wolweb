@@ -8,14 +8,15 @@ package discovery
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/netip"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
+	"wolweb/internal/i18n"
 	"wolweb/internal/oui"
 	"wolweb/internal/store"
 	"wolweb/internal/wol"
@@ -108,7 +109,7 @@ func localNetFor(target netip.Prefix) (LocalNet, bool) {
 func hosts(p netip.Prefix, max int) ([]netip.Addr, error) {
 	size := 1 << (32 - p.Bits())
 	if size-2 > max {
-		return nil, fmt.Errorf("%s hat %d Adressen – erlaubt sind höchstens %d (discovery.max_hosts)", p, size, max)
+		return nil, i18n.M("scan.too_large", p.String(), size, max)
 	}
 	var out []netip.Addr
 	a := p.Addr()
@@ -132,8 +133,22 @@ type Job struct {
 	Done       int       `json:"done"`
 	Found      int       `json:"found"`
 	New        int       `json:"new"`
-	Error      string    `json:"error,omitempty"`
+	Error      string    `json:"error,omitempty"` // auf Deutsch; übersetzt liefert es Localized
 	Auto       bool      `json:"auto"`
+
+	errs []error
+}
+
+// Localized liefert den Auftrag mit der Fehlermeldung in Sprache l.
+func (j Job) Localized(l i18n.Lang) Job {
+	if len(j.errs) > 0 {
+		parts := make([]string, len(j.errs))
+		for i, e := range j.errs {
+			parts[i] = i18n.Text(l, e)
+		}
+		j.Error = strings.Join(parts, "\n")
+	}
+	return j
 }
 
 type Scanner struct {
@@ -181,6 +196,7 @@ func (s *Scanner) Job() Job {
 	return s.job
 }
 
+// Vergleichbare Fehler für errors.Is; übersetzt als scan.busy bzw. scan.no_networks.
 var ErrBusy = errors.New("es läuft bereits eine Suche")
 var ErrNoNetworks = errors.New("keine Netzsegmente konfiguriert (discovery.networks)")
 
@@ -239,7 +255,7 @@ func (s *Scanner) run(ctx context.Context, cancel context.CancelFunc) {
 		found, method, err := s.scanNetwork(ctx, p)
 		// Abbruch und Zeitlimit werden unten einmal gemeldet, nicht je Segment.
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			errs = append(errs, fmt.Errorf("%s: %w", p, err))
+			errs = append(errs, i18n.M("scan.net_error", p.String(), err))
 		}
 		if method != "" {
 			methods[method] = true
@@ -252,9 +268,9 @@ func (s *Scanner) run(ctx context.Context, cancel context.CancelFunc) {
 	}
 	switch ctx.Err() {
 	case context.Canceled:
-		errs = append(errs, errors.New("abgebrochen"))
+		errs = append(errs, i18n.M("scan.cancelled"))
 	case context.DeadlineExceeded:
-		errs = append(errs, fmt.Errorf("nach %s abgebrochen (Zeitlimit)", maxScanTime))
+		errs = append(errs, i18n.M("scan.timeout", maxScanTime.String()))
 	}
 	var method string
 	for m := range methods {
@@ -269,6 +285,7 @@ func (s *Scanner) run(ctx context.Context, cancel context.CancelFunc) {
 		j.Found = len(all)
 		j.New = newCount
 		j.Method = method
+		j.errs = errs
 		if err := errors.Join(errs...); err != nil {
 			j.Error = err.Error()
 		}
@@ -284,19 +301,19 @@ func (s *Scanner) scanNetwork(ctx context.Context, p netip.Prefix) ([]store.Foun
 	s.update(func(j *Job) { j.Total += len(targets) })
 	ln, ok := localNetFor(p)
 	if !ok {
-		return nil, "", errors.New("kein direkt angeschlossenes Netz – ARP funktioniert nur im eigenen Segment")
+		return nil, "", i18n.M("scan.not_local")
 	}
 	progress := func(n int) { s.update(func(j *Job) { j.Done += n }) }
 
 	hits, err := arpScan(ctx, ln, targets, progress)
-	method := "ARP-Scan"
+	method := "arp" // Schlüssel; die Oberfläche übersetzt ihn
 	switch {
 	case err != nil && ctx.Err() != nil:
 		// Abgebrochen: Die bis dahin eingegangenen ARP-Antworten sind echt und werden übernommen.
 		// Die Nachbartabelle als Ersatz wäre hier falsch – ARP funktioniert ja.
 	case err != nil:
 		log.Printf("ARP-Scan auf %s nicht möglich (%v) – nutze Nachbartabelle", ln.Interface, err)
-		method = "Nachbartabelle"
+		method = "neighbors"
 		hits, err = neighborScan(ctx, ln, targets, progress)
 		if err != nil {
 			return nil, method, err

@@ -1,6 +1,7 @@
 // Weckseite: prüft das Gerät, sendet das Magic Packet und verfolgt den Start bis "online".
 (function () {
   "use strict";
+  const { t } = window.wolwebI18n;
   const card = document.getElementById("wake");
   const name = card.dataset.name;
   const path = card.dataset.path; // "wake/<Name>", relativ zu <base>
@@ -24,14 +25,15 @@
   }
   function human(ms) {
     const s = Math.round(ms / 1000);
-    if (s < 60) return s + (s === 1 ? " Sekunde" : " Sekunden");
+    if (s < 60) return window.wolwebI18n.tn("wake.seconds", s);
     const m = Math.floor(s / 60), r = s % 60;
     return m + " min" + (r ? " " + r + " s" : "");
   }
   function via(st) {
     if (!st || !st.method) return "";
-    const m = st.method === "icmp" ? "Ping" : st.method.replace("tcp/", "Port ").replace("(abgelehnt)", "(geschlossen)");
-    return "antwortet per " + m + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "");
+    const port = /^tcp\/(\d+)( \(abgelehnt\))?/.exec(st.method);
+    const m = st.method === "icmp" ? "Ping" : port ? t(port[2] ? "wake.port_closed" : "ui.port", port[1]) : st.method;
+    return t("wake.answers_via", m) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "");
   }
   function showResult(kind, head, text, tips) {
     result.className = "wake-result " + kind;
@@ -71,7 +73,7 @@
       let body = null;
       try { body = await res.json(); } catch (e) { /* keine JSON-Antwort */ }
       if (!res.ok || !body || res.redirected) {
-        throw Object.assign(new Error((body && body.message) || "Unerwartete Antwort vom Server (HTTP " + res.status + ")"), { body: body || {} });
+        throw Object.assign(new Error((body && body.message) || t("ui.unexpected_response", res.status)), { body: body || {} });
       }
       return body;
     } finally {
@@ -87,63 +89,62 @@
     again.hidden = true;
     result.hidden = true;
     for (const id of ["check", "send", "wait", "online"]) step(id, "", "");
-    setTitle(name + " wird gestartet", name + " starten");
+    setTitle(t("wake.title.starting", name), t("wake.tab.start", name));
 
     // 1. Prüfen, ob das Gerät schon läuft
     setState("check");
-    step("check", "active", hasIP ? "Ist das Gerät schon an?" : "");
+    step("check", "active", hasIP ? t("wake.check.active") : "");
     const t0 = Date.now();
     if (hasIP && !force) {
       let st = null;
       try { st = await status(); } catch (e) { /* weiter mit Senden */ }
       await sleep(Math.max(0, 500 - (Date.now() - t0)));
       if (st && st.state === "online") {
-        step("check", "done", "Läuft bereits – " + via(st));
-        step("send", "skip", "Nicht nötig");
+        step("check", "done", t("wake.check.running", via(st)));
+        step("send", "skip", t("wake.send.not_needed"));
         step("wait", "skip", "");
         step("online", "done", via(st));
         setState("online");
-        setTitle(name + " läuft bereits", "✓ " + name);
-        showResult("ok", "Alles bereit", name + " ist bereits eingeschaltet und erreichbar.");
-        again.querySelector("span").textContent = "Trotzdem senden";
+        setTitle(t("wake.title.running", name), "✓ " + name);
+        showResult("ok", t("wake.result.ready"), t("wake.result.ready_text", name));
+        again.querySelector("span").textContent = t("wake.btn.send_anyway");
         again.hidden = false;
         running = false;
         return;
       }
-      step("check", "done", "Aus – wird geweckt");
+      step("check", "done", t("wake.check.off"));
     } else {
       await sleep(350);
-      step("check", "skip", hasIP ? "Übersprungen" : "Keine IP hinterlegt – Online-Prüfung nicht möglich");
+      step("check", "skip", hasIP ? t("wake.check.skipped") : t("wake.check.no_ip"));
     }
 
     // 2. Magic Packet senden
     setState("send");
-    step("send", "active", "Sende an " + card.dataset.target + " …");
+    step("send", "active", t("wake.send.active", card.dataset.target));
     let sent;
     try {
       sent = await call("POST", path + query);
-      if (sent.success !== true) throw Object.assign(new Error(sent.message || "Senden fehlgeschlagen"), { body: sent });
+      if (sent.success !== true) throw Object.assign(new Error(sent.message || t("wake.send.failed")), { body: sent });
       await sleep(450);
     } catch (e) {
       step("send", "error", (e.body && e.body.error) || e.message);
       setState("error");
-      setTitle("Senden fehlgeschlagen", "✗ " + name);
-      showResult("err", "Das Magic Packet konnte nicht gesendet werden", (e.body && e.body.message) || e.message);
-      again.querySelector("span").textContent = "Erneut versuchen";
+      setTitle(t("wake.send.failed"), "✗ " + name);
+      showResult("err", t("wake.result.send_failed"), (e.body && e.body.message) || e.message);
+      again.querySelector("span").textContent = t("wake.btn.retry");
       again.hidden = false;
       running = false;
       return;
     }
-    step("send", "done", "Gesendet an " + (sent.target || card.dataset.target));
+    step("send", "done", t("wake.send.done", sent.target || card.dataset.target));
 
     if (!hasIP) {
-      step("wait", "skip", "Ohne IP-Adresse nicht prüfbar");
+      step("wait", "skip", t("wake.wait.no_ip"));
       step("online", "skip", "");
       setState("sent");
-      setTitle("Magic Packet gesendet", "✓ " + name);
-      showResult("ok", "Weckruf ist raus",
-        "Ob " + name + " startet, lässt sich ohne IP-Adresse nicht prüfen. Trage in der Übersicht eine IP ein, dann bestätigt diese Seite den Start.");
-      again.querySelector("span").textContent = "Erneut senden";
+      setTitle(t("ui.packet_sent"), "✓ " + name);
+      showResult("ok", t("wake.result.sent"), t("wake.result.sent_text", name));
+      again.querySelector("span").textContent = t("wake.btn.again");
       again.hidden = false;
       running = false;
       return;
@@ -152,9 +153,9 @@
     // 3. Warten, bis das Gerät antwortet
     setState("wait");
     const start = Date.now();
-    step("wait", "active", "0:00 · warte auf Antwort …");
+    step("wait", "active", t("wake.wait.active", "0:00"));
     const tick = setInterval(() => {
-      step("wait", "active", fmt(Date.now() - start) + " · warte auf Antwort …");
+      step("wait", "active", t("wake.wait.active", fmt(Date.now() - start)));
     }, 500);
     let online = null;
     while (Date.now() - start < timeout) {
@@ -168,22 +169,18 @@
     const took = Date.now() - start;
 
     if (online) {
-      step("wait", "done", "Gestartet nach " + fmt(took));
+      step("wait", "done", t("ui.started_after", fmt(took)));
       step("online", "done", via(online));
       setState("online");
-      setTitle(name + " ist online", "✓ " + name);
-      showResult("ok", "Erfolgreich gestartet", name + " hat nach " + human(took) + " geantwortet und ist jetzt erreichbar.");
+      setTitle(t("ui.x_is_online", name), "✓ " + name);
+      showResult("ok", t("wake.result.started"), t("wake.result.started_text", name, human(took)));
     } else {
-      step("wait", "warn", "Keine Antwort nach " + fmt(took));
+      step("wait", "warn", t("wake.wait.no_answer", fmt(took)));
       step("online", "", "");
       setState("timeout");
-      setTitle("Keine Rückmeldung", "! " + name);
-      showResult("warn", name + " hat sich nicht gemeldet", "Das Paket wurde gesendet, das Gerät antwortet aber noch nicht. Mögliche Ursachen:", [
-        "Wake on LAN ist im BIOS/UEFI oder im Netzwerktreiber nicht aktiviert.",
-        "Das Gerät war komplett stromlos oder hängt an einem anderen Netzsegment.",
-        "Die Firewall blockiert Ping und alle geprüften Ports – dann läuft es evtl. trotzdem.",
-      ]);
-      again.querySelector("span").textContent = "Erneut senden";
+      setTitle(t("wake.title.no_answer"), "! " + name);
+      showResult("warn", t("wake.result.timeout", name), t("wake.result.timeout_text"), [t("wake.tip.bios"), t("wake.tip.power"), t("wake.tip.firewall")]);
+      again.querySelector("span").textContent = t("wake.btn.again");
       again.hidden = false;
     }
     running = false;

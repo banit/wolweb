@@ -3,10 +3,8 @@
   "use strict";
 
   const $ = (sel, root = document) => root.querySelector(sel);
-  const ICONS = [
-    ["desktop", "PC"], ["laptop", "Laptop"], ["server", "Server"], ["nas", "NAS"], ["tv", "TV"],
-    ["console", "Konsole"], ["router", "Netzwerk"], ["printer", "Drucker"], ["other", "Sonstiges"],
-  ];
+  const { t, tn, locale } = window.wolwebI18n; // Texte aus de.json/en.json (siehe i18n.js)
+  const ICONS = ["desktop", "laptop", "server", "nas", "tv", "console", "router", "printer", "other"];
   const state = {
     info: { read_only: false, networks: [], wake_timeout: 180 },
     devices: [],
@@ -55,7 +53,7 @@
     let data = null;
     try { data = await res.json(); } catch (e) { /* leer */ }
     if (!res.ok || !data) {
-      const err = new Error((data && data.message) || "Unerwartete Antwort vom Server (HTTP " + res.status + ")");
+      const err = new Error((data && data.message) || t("ui.unexpected_response", res.status));
       err.status = res.status;
       err.data = data;
       throw err;
@@ -66,15 +64,28 @@
   function ago(iso) {
     if (!iso) return "";
     const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-    if (s < 45) return "gerade eben";
-    if (s < 3600) return "vor " + Math.round(s / 60) + " min";
-    if (s < 86400) return "vor " + Math.round(s / 3600) + " h";
-    const d = Math.round(s / 86400);
-    return "vor " + d + (d === 1 ? " Tag" : " Tagen");
+    if (s < 45) return t("ui.ago.now");
+    if (s < 3600) return t("ui.ago.min", Math.round(s / 60));
+    if (s < 86400) return t("ui.ago.h", Math.round(s / 3600));
+    return tn("ui.ago.days", Math.round(s / 86400));
   }
   function fmtDuration(ms) {
     const s = Math.round(ms / 1000);
     return s < 60 ? s + " s" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + " min";
+  }
+  // Server-Werte, die als Schlüssel oder deutsch gespeichert sind, für die Anzeige übersetzen.
+  function methodText(m) {
+    if (!m) return "";
+    if (m === "icmp") return "Ping";
+    const port = /^tcp\/(\d+)/.exec(m);
+    return port ? t("ui.port", port[1]) : m;
+  }
+  function vendorText(v) { return v === "Private/zufällige MAC" ? t("ui.vendor_private") : v || ""; }
+  // Zeitpläne speichert der Server einheitlich deutsch ("Mo-Fr 07:30"); Englisch versteht er auch.
+  const DAYS_EN = { Mo: "Mon", Di: "Tue", Mi: "Wed", Do: "Thu", Fr: "Fri", Sa: "Sat", So: "Sun" };
+  function scheduleText(s) {
+    if (!s || window.wolwebI18n.lang === "de") return s || "";
+    return s.replace(/^täglich/, "daily").replace(/\b(Mo|Di|Mi|Do|Fr|Sa|So)\b/g, (d) => DAYS_EN[d]);
   }
   // Mit auth.wake_keys gehört der Schlüssel in jeden Link, der ohne Anmeldung funktionieren soll.
   function wakeURL(d) {
@@ -112,7 +123,7 @@
       renderDevices();
     } catch (e) {
       if (e.status === 401) location.reload();
-      $("#summary").textContent = "Server nicht erreichbar";
+      $("#summary").textContent = t("ui.server_unreachable");
     }
   }
 
@@ -134,8 +145,7 @@
     const grid = $("#devices");
     const total = state.devices.length;
     const online = state.devices.filter((d) => deviceState(d) === "online").length;
-    $("#summary").textContent = total === 0 ? "Keine Geräte" :
-      total + (total === 1 ? " Gerät" : " Geräte") + " · " + online + " online";
+    $("#summary").textContent = total === 0 ? t("ui.no_devices") : t("ui.summary", tn("ui.n_devices", total), online);
     for (const b of $("#filter").children) {
       const f = b.dataset.filter;
       const n = f === "all" ? total : f === "online" ? online : total - online;
@@ -165,7 +175,7 @@
         if (members.length) next.push(groupHead(g), el("div", { class: "grid" }, cards(members)));
       }
       const rest = list.filter((d) => !d.group);
-      if (rest.length) next.push(el("div", { class: "group-head" }, el("h2", { text: "Weitere Geräte" })), el("div", { class: "grid" }, cards(rest)));
+      if (rest.length) next.push(el("div", { class: "group-head" }, el("h2", { text: t("ui.other_devices") })), el("div", { class: "grid" }, cards(rest)));
     }
     keepFocus(grid, () => grid.replaceChildren(...next));
   }
@@ -175,10 +185,10 @@
     const online = members.filter((d) => deviceState(d) === "online").length;
     return el("div", { class: "group-head", "data-id": "gruppe:" + g.name },
       el("h2", { text: g.name }),
-      el("span", { class: "muted", text: online + " von " + members.length + " online" }),
+      el("span", { class: "muted", text: t("ui.x_of_y_online", online, members.length) }),
       el("span", { class: "spacer" }),
-      el("button", { class: "btn btn-secondary btn-sm", "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: "Gruppe wecken" })),
-      el("button", { class: "btn btn-ghost btn-sm icon-only", title: "Gruppen-Wecklink kopieren", "aria-label": "Gruppen-Wecklink kopieren", "data-focus": "copy", onclick: () => copyURL(groupURL(g), "Gruppen-Wecklink kopiert") }, icon("link")));
+      el("button", { class: "btn btn-secondary btn-sm", "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: t("ui.wake_group") })),
+      el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.copy_group_link"), "aria-label": t("ui.copy_group_link"), "data-focus": "copy", onclick: () => copyURL(groupURL(g), t("ui.group_link_copied"), t("ui.copy_group_link")) }, icon("link")));
   }
 
   function groupURL(g) {
@@ -188,12 +198,12 @@
   }
 
   function nextWakeText(iso) {
-    const t = new Date(iso);
-    const days = Math.round((new Date(t).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
-    const clock = t.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-    if (days === 0) return "heute " + clock;
-    if (days === 1) return "morgen " + clock;
-    return t.toLocaleDateString("de-DE", { weekday: "short" }) + " " + clock;
+    const d = new Date(iso);
+    const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+    const clock = d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+    if (days === 0) return t("ui.today_at", clock);
+    if (days === 1) return t("ui.tomorrow_at", clock);
+    return d.toLocaleDateString(locale, { weekday: "short" }) + " " + clock;
   }
 
   function statusLine(d) {
@@ -201,18 +211,17 @@
     const st = d.status || {};
     if (s === "waking") {
       const w = state.waking.get(d.id);
-      return [el("span", { class: "pill waking", text: "Startet …" }), el("span", { class: "timer", "data-timer": d.id, text: fmtDuration(Date.now() - w.start) })];
+      return [el("span", { class: "pill waking", text: t("ui.starting") }), el("span", { class: "timer", "data-timer": d.id, text: fmtDuration(Date.now() - w.start) })];
     }
     if (s === "online") {
-      const m = st.method === "icmp" ? "Ping" : (st.method || "").replace("tcp/", "Port ").replace(" (abgelehnt)", "");
-      return [el("span", { class: "pill online", text: "Online" }), el("span", { text: m + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "") })];
+      return [el("span", { class: "pill online", text: t("ui.online") }), el("span", { text: methodText(st.method) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "") })];
     }
     if (s === "unknown") {
-      return [el("span", { class: "pill unknown", text: "Kein Status" }), el("span", { text: "keine IP bekannt" })];
+      return [el("span", { class: "pill unknown", text: t("ui.no_status") }), el("span", { text: t("ui.no_ip_known") })];
     }
-    return [el("span", { class: "pill offline", text: "Offline" }),
-      st.note ? el("span", { class: "pill warn", text: "IP belegt", title: st.note }) : null,
-      el("span", { text: st.last_seen ? "zuletzt online " + ago(st.last_seen) : d.last_wake ? "geweckt " + ago(d.last_wake) : "" })];
+    return [el("span", { class: "pill offline", text: t("ui.offline") }),
+      st.conflict_mac ? el("span", { class: "pill warn", text: t("ui.ip_taken"), title: t("ui.ip_taken_title", st.ip, st.conflict_mac) }) : null,
+      el("span", { text: st.last_seen ? t("ui.last_online", ago(st.last_seen)) : d.last_wake ? t("ui.last_woken", ago(d.last_wake)) : "" })];
   }
 
   function buildCard(d) {
@@ -221,21 +230,21 @@
     const ip = d.ip || d.check_ip;
     const card = el("article", { class: "card", "data-id": d.id, "data-state": s },
       el("div", { class: "card-top" },
-        el("div", { class: "dev-icon", title: d.vendor || "" }, icon(d.icon || "desktop")),
+        el("div", { class: "dev-icon", title: vendorText(d.vendor) }, icon(d.icon || "desktop")),
         el("div", { class: "card-title" },
           el("h3", { text: d.name, title: d.name }),
           el("div", { class: "card-meta" },
-            ip ? el("span", { class: "mono", text: ip, title: d.ip ? "IP-Adresse" : "IP aus der Netzwerksuche" }) : null,
-            el("span", { class: "mono", text: d.mac, title: d.vendor || "MAC-Adresse" }),
-            d.next_wake ? el("span", { class: "sched", title: "Zeitplan: " + (d.schedule || []).join("; ") }, icon("clock"), nextWakeText(d.next_wake)) : null)),
-        ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: "Bearbeiten", "aria-label": "Bearbeiten", "data-focus": "edit", onclick: () => openDialog(d) }, icon("edit"))),
+            ip ? el("span", { class: "mono", text: ip, title: d.ip ? t("ui.ip_address") : t("ui.ip_from_scan") }) : null,
+            el("span", { class: "mono", text: d.mac, title: vendorText(d.vendor) || t("ui.mac_address") }),
+            d.next_wake ? el("span", { class: "sched", title: t("ui.schedule_title", (d.schedule || []).map(scheduleText).join("; ")) }, icon("clock"), nextWakeText(d.next_wake)) : null)),
+        ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.edit"), "aria-label": t("ui.edit"), "data-focus": "edit", onclick: () => openDialog(d) }, icon("edit"))),
       d.note ? el("p", { class: "card-note", text: d.note }) : null,
       el("div", { class: "status-line" }, statusLine(d)),
       el("div", { class: "card-actions" },
         el("button", { class: "btn btn-primary btn-wake", disabled: s === "waking", "data-focus": "wake", onclick: () => wake(d) },
-          icon("power"), el("span", { text: s === "waking" ? "Wird gestartet …" : s === "online" ? "Erneut wecken" : "Wecken" })),
-        el("button", { class: "btn btn-secondary icon-only", title: "Wecklink kopieren", "aria-label": "Wecklink kopieren", "data-focus": "copy", onclick: () => copyLink(d) }, icon("link")),
-        el("a", { class: "btn btn-secondary icon-only", href: d.wake_path, target: "_blank", rel: "noopener", title: "Weckseite öffnen", "aria-label": "Weckseite öffnen", "data-focus": "open" }, icon("external"))));
+          icon("power"), el("span", { text: s === "waking" ? t("ui.being_started") : s === "online" ? t("ui.wake_again") : t("ui.wake") })),
+        el("button", { class: "btn btn-secondary icon-only", title: t("ui.copy_link"), "aria-label": t("ui.copy_link"), "data-focus": "copy", onclick: () => copyLink(d) }, icon("link")),
+        el("a", { class: "btn btn-secondary icon-only", href: d.wake_path, target: "_blank", rel: "noopener", title: t("ui.open_wake_page"), "aria-label": t("ui.open_wake_page"), "data-focus": "open" }, icon("external"))));
     if (s === "waking") {
       const w = state.waking.get(d.id);
       const pct = Math.min(100, ((Date.now() - w.start) / (state.info.wake_timeout * 1000)) * 100);
@@ -246,14 +255,14 @@
     return card;
   }
 
-  function copyLink(d) { return copyURL(wakeURL(d), "Wecklink kopiert"); }
-  async function copyURL(url, title) {
+  function copyLink(d) { return copyURL(wakeURL(d), t("ui.link_copied"), t("ui.copy_link")); }
+  async function copyURL(url, done, ask) {
     try {
       await navigator.clipboard.writeText(url);
-      toast("ok", title, url);
+      toast("ok", done, url);
     } catch (e) {
       // Ohne HTTPS gibt es keine Zwischenablage-API – Link zum manuellen Kopieren anzeigen.
-      window.prompt(title.replace(" kopiert", "") + " kopieren:", url);
+      window.prompt(ask + ":", url);
     }
   }
 
@@ -263,15 +272,15 @@
     try {
       res = await api("POST", "devices/" + encodeURIComponent(d.id) + "/wake");
     } catch (e) {
-      toast("err", "Wecken fehlgeschlagen", (e.data && e.data.error) || e.message);
+      toast("err", t("ui.wake_failed"), (e.data && e.data.error) || e.message);
       return;
     }
     if (!d.check_ip) {
-      toast("ok", "Magic Packet gesendet", d.name + " · an " + res.target + " (ohne IP kein Online-Nachweis)");
+      toast("ok", t("ui.packet_sent"), t("ui.sent_no_ip", d.name, res.target));
       loadDevices();
       return;
     }
-    toast("ok", "Magic Packet gesendet", d.name + " wird gestartet …");
+    toast("ok", t("ui.packet_sent"), t("ui.is_starting", d.name));
     track(d);
   }
 
@@ -280,11 +289,11 @@
     try {
       res = await api("POST", "groups/" + encodeURIComponent(g.name) + "/wake");
     } catch (e) {
-      toast("err", "Gruppe wecken fehlgeschlagen", (e.data && e.data.message) || e.message);
+      toast("err", t("ui.group_wake_failed"), (e.data && e.data.message) || e.message);
       return;
     }
     const failed = res.results.filter((r) => !r.success);
-    toast(failed.length ? "warn" : "ok", "Gruppe " + g.name, res.message + (failed.length ? " Fehler: " + failed.map((r) => r.device).join(", ") : ""));
+    toast(failed.length ? "warn" : "ok", t("ui.group_x", g.name), res.message + (failed.length ? " " + t("ui.errors_for", failed.map((r) => r.device).join(", ")) : ""));
     for (const r of res.results) {
       const d = state.devices.find((x) => x.id === r.id);
       if (r.success && d && d.check_ip) track(d, true);
@@ -310,7 +319,7 @@
           renderDevices();
           const card = $('.card[data-id="' + CSS.escape(d.id) + '"]');
           if (card) { card.classList.add("card-flash"); setTimeout(() => card.classList.remove("card-flash"), 1300); }
-          if (!quiet) toast("ok", d.name + " ist online", "Gestartet nach " + fmtDuration(Date.now() - start));
+          if (!quiet) toast("ok", t("ui.x_is_online", d.name), t("ui.started_after", fmtDuration(Date.now() - start)));
           return;
         }
       } catch (e) { /* weiter */ }
@@ -318,7 +327,7 @@
     }
     state.waking.delete(d.id);
     renderDevices();
-    toast("warn", d.name + " antwortet nicht", "Das Paket wurde gesendet, aber nach " + fmtDuration(Date.now() - start) + " kam keine Antwort.");
+    toast("warn", t("ui.x_no_answer", d.name), t("ui.no_answer_after", fmtDuration(Date.now() - start)));
   }
 
   // Laufende Zeitanzeige beim Wecken
@@ -337,7 +346,8 @@
 
   function buildIconPicker() {
     const box = $("#icon-picker");
-    for (const [key, label] of ICONS) {
+    for (const key of ICONS) {
+      const label = t("ui.icon." + key);
       box.append(el("label", { title: label },
         el("input", { type: "radio", name: "icon", value: key, "aria-label": label }),
         el("span", {}, icon(key))));
@@ -350,7 +360,7 @@
     $("#form-error").hidden = true;
     for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
     const v = d || prefill || {};
-    $("#device-dialog-title").textContent = d ? "Gerät bearbeiten" : prefill ? "Gerät übernehmen" : "Gerät anlegen";
+    $("#device-dialog-title").textContent = d ? t("ui.dialog.edit") : prefill ? t("ui.dialog.adopt") : t("ui.dialog.add");
     form.name.value = v.name || "";
     form.mac.value = v.mac || "";
     form.ip.value = v.ip || "";
@@ -360,13 +370,13 @@
     form.ports.value = (v.ports || []).join(", ");
     form.secureon.value = v.secureon || "";
     form.group.value = v.group || "";
-    form.schedule.value = (v.schedule || []).join("; ");
+    form.schedule.value = (v.schedule || []).map(scheduleText).join("; ");
     $("#group-list").replaceChildren(...[...new Set(state.devices.map((x) => x.group).filter(Boolean))].map((g) => el("option", { value: g })));
-    form.ports.placeholder = state.info.ports && state.info.ports.length ? "Standard: " + state.info.ports.slice(0, 5).join(", ") + (state.info.ports.length > 5 ? " …" : "") : "Standard";
+    form.ports.placeholder = state.info.ports && state.info.ports.length ? t("ui.default_ports", state.info.ports.slice(0, 5).join(", ") + (state.info.ports.length > 5 ? " …" : "")) : t("ui.default");
     const ic = form.querySelector('input[name="icon"][value="' + (v.icon || "desktop") + '"]');
     if (ic) ic.checked = true;
-    $("#vendor-hint").textContent = v.vendor ? "Hersteller: " + v.vendor : "";
-    form.broadcast.placeholder = "automatisch" + (state.info.default_broadcast ? " (" + state.info.default_broadcast + ")" : "");
+    $("#vendor-hint").textContent = v.vendor ? t("ui.vendor", vendorText(v.vendor)) : "";
+    form.broadcast.placeholder = state.info.default_broadcast ? t("ui.automatic_x", state.info.default_broadcast) : t("ui.automatic");
     $(".advanced").open = !!(v.broadcast || v.interface || v.note || v.secureon || (v.ports && v.ports.length));
     $("#delete-device").hidden = !d;
     $("#rotate-key").hidden = !(d && state.info.wake_keys);
@@ -389,7 +399,7 @@
     const err = $("#form-error");
     for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
     if (body.ports.some((p) => !Number.isInteger(p))) {
-      err.textContent = "Ports: bitte nur Zahlen, getrennt durch Komma.";
+      err.textContent = t("ui.ports_numbers");
       err.hidden = false;
       $(".advanced").open = true;
       form.ports.setAttribute("aria-invalid", "true");
@@ -408,20 +418,18 @@
         saved = await api("POST", "devices", body);
       }
       dlg.close();
-      toast("ok", state.editing ? "Gespeichert" : "Gerät angelegt", saved.name + " · " + saved.mac);
+      toast("ok", state.editing ? t("ui.saved") : t("ui.device_added"), saved.name + " · " + saved.mac);
       await loadDevices();
       if (drawerOpen()) loadDiscovery();
     } catch (e) {
       err.textContent = e.message;
       err.hidden = false;
-      if (/^Die MAC/.test(e.message)) form.mac.setAttribute("aria-invalid", "true");
-      else if (/IP-Adresse/.test(e.message)) form.ip.setAttribute("aria-invalid", "true");
-      else if (/Broadcast/.test(e.message)) form.broadcast.setAttribute("aria-invalid", "true");
-      else if (/^Ports/.test(e.message)) form.ports.setAttribute("aria-invalid", "true");
-      else if (/SecureOn/.test(e.message)) form.secureon.setAttribute("aria-invalid", "true");
-      else if (/^Gruppe/.test(e.message)) form.group.setAttribute("aria-invalid", "true");
-      else if (/^Zeitplan/.test(e.message)) form.schedule.setAttribute("aria-invalid", "true");
-      else if (/Name|namens/.test(e.message)) form.name.setAttribute("aria-invalid", "true");
+      // Der Server nennt das betroffene Feld; Felder unter "Erweitert" dafür aufklappen.
+      const field = e.data && e.data.field && form.elements[e.data.field];
+      if (field) {
+        field.setAttribute("aria-invalid", "true");
+        if (field.closest(".advanced")) $(".advanced").open = true;
+      }
     } finally {
       btn.disabled = false;
     }
@@ -430,30 +438,30 @@
   $("#rotate-key").addEventListener("click", async () => {
     const d = state.editing;
     if (!d) return;
-    const ok = await confirmDialog("Neuen Weckschlüssel für „" + d.name + "“?", "Der bisherige Wecklink funktioniert danach ohne Anmeldung nicht mehr.", "Erneuern");
+    const ok = await confirmDialog(t("ui.rotate.title", d.name), t("ui.rotate.text"), t("ui.rotate.ok"));
     if (!ok) return;
     try {
       const nd = await api("POST", "devices/" + encodeURIComponent(d.id) + "/wake-key");
       state.editing = nd;
-      toast("ok", "Neuer Weckschlüssel", wakeURL(nd));
+      toast("ok", t("ui.rotate.done"), wakeURL(nd));
       loadDevices();
     } catch (e) {
-      toast("err", "Nicht möglich", e.message);
+      toast("err", t("ui.not_possible"), e.message);
     }
   });
 
   $("#delete-device").addEventListener("click", async () => {
     const d = state.editing;
     if (!d) return;
-    const ok = await confirmDialog("„" + d.name + "“ löschen?", "Der feste Wecklink funktioniert danach nicht mehr.");
+    const ok = await confirmDialog(t("ui.delete.title", d.name), t("ui.delete.text"));
     if (!ok) return;
     try {
       await api("DELETE", "devices/" + encodeURIComponent(d.id));
       dlg.close();
-      toast("ok", "Gelöscht", d.name);
+      toast("ok", t("ui.deleted"), d.name);
       loadDevices();
     } catch (e) {
-      toast("err", "Löschen fehlgeschlagen", e.message);
+      toast("err", t("ui.delete_failed"), e.message);
     }
   });
 
@@ -461,7 +469,7 @@
     const c = $("#confirm-dialog");
     $("#confirm-title").textContent = title;
     $("#confirm-text").textContent = text;
-    $("#confirm-ok").textContent = okLabel || "Löschen";
+    $("#confirm-ok").textContent = okLabel || t("ui.delete");
     c.returnValue = "";
     c.showModal();
     return new Promise((resolve) => c.addEventListener("close", () => resolve(c.returnValue === "ok"), { once: true }));
@@ -529,38 +537,38 @@
     }
 
     const nets = state.info.networks || [];
-    $("#discovery-networks").textContent = nets.length ? "Segmente: " + nets.join(", ") : "";
+    $("#discovery-networks").textContent = nets.length ? t("ui.scan.segments", nets.join(", ")) : "";
     const btn = $("#scan-btn");
     const prog = $("#scan-progress");
     if (!nets.length) {
-      $("#scan-title").textContent = "Kein Netzsegment eingestellt";
-      $("#scan-detail").textContent = "In config.json unter discovery.networks z. B. \"192.168.1.0/24\" eintragen (oder WOLWEB_NETWORKS).";
+      $("#scan-title").textContent = t("ui.scan.no_segment");
+      $("#scan-detail").textContent = t("ui.scan.no_segment_hint");
       btn.disabled = true;
     } else if (job.running) {
-      $("#scan-title").textContent = "Suche läuft …";
-      $("#scan-detail").textContent = job.done + " von " + job.total + " Adressen geprüft";
+      $("#scan-title").textContent = t("ui.scan.running");
+      $("#scan-detail").textContent = t("ui.scan.progress", job.done, job.total);
       btn.disabled = false;
-      btn.replaceChildren(icon("x"), el("span", { text: "Abbrechen" }));
+      btn.replaceChildren(icon("x"), el("span", { text: t("ui.cancel") }));
       btn.dataset.mode = "cancel";
       prog.hidden = false;
       prog.classList.toggle("indeterminate", !job.total);
       $(".progress-bar", prog).style.width = (job.total ? Math.round((job.done / job.total) * 100) : 0) + "%";
     } else {
       btn.disabled = false;
-      btn.replaceChildren(icon("radar"), el("span", { text: "Jetzt suchen" }));
+      btn.replaceChildren(icon("radar"), el("span", { text: t("ui.scan.start") }));
       btn.dataset.mode = "scan";
       prog.hidden = true;
+      const methods = (job.method || "").split(", ").filter(Boolean).map((m) => t("ui.scan.method." + m)).join(", ");
+      const found = t("ui.scan.found", tn("ui.n_devices", job.found)) + (job.new ? t("ui.scan.new_suffix", job.new) : "");
       if (job.finished_at) {
-        $("#scan-title").textContent = job.error ? "Suche mit Problemen beendet" : job.found + (job.found === 1 ? " Gerät" : " Geräte") + " gefunden" + (job.new ? ", " + job.new + " neu" : "");
-        $("#scan-detail").textContent = (job.auto ? "Automatische Suche " : "Letzte Suche ") + ago(job.finished_at) +
-          (job.method ? " · " + job.method : "") + (job.error ? " · " + job.error : "");
+        $("#scan-title").textContent = job.error ? t("ui.scan.with_problems") : found;
+        $("#scan-detail").textContent = t(job.auto ? "ui.scan.auto_ago" : "ui.scan.last_ago", ago(job.finished_at)) +
+          (methods ? " · " + methods : "") + (job.error ? " · " + job.error : "");
       } else {
-        $("#scan-title").textContent = "Suche bereit";
-        $("#scan-detail").textContent = "Findet eingeschaltete Geräte mit IP, MAC, Name und Hersteller.";
+        $("#scan-title").textContent = t("ui.scan.ready");
+        $("#scan-detail").textContent = t("ui.scan.ready_hint");
       }
-      if (wasRunning && !job.error) {
-        toast("ok", "Suche beendet", job.found + (job.found === 1 ? " Gerät" : " Geräte") + " gefunden" + (job.new ? ", davon " + job.new + " neu" : ""));
-      }
+      if (wasRunning && !job.error) toast("ok", t("ui.scan.done"), found);
     }
     wasRunning = !!job.running;
 
@@ -570,8 +578,8 @@
     const empty = $("#found-empty");
     empty.hidden = items.length !== 0;
     empty.textContent = state.foundFilter === "new"
-      ? (state.found.length ? "Keine neuen Geräte – alles schon angelegt oder ignoriert." : "Noch keine Suche gelaufen.")
-      : state.foundFilter === "known" ? "Noch kein gefundenes Gerät angelegt." : "Nichts ignoriert.";
+      ? (state.found.length ? t("ui.found.none_new") : t("ui.found.no_scan"))
+      : state.foundFilter === "known" ? t("ui.found.none_known") : t("ui.found.none_ignored");
   }
 
   function guessIcon(f) {
@@ -592,13 +600,13 @@
   function buildFound(f) {
     const ro = state.info.read_only;
     const kind = classify(f);
-    const title = f.hostname || f.vendor || "Unbekanntes Gerät";
+    const title = f.hostname || vendorText(f.vendor) || t("ui.found.unknown");
     const actions = [];
     if (!ro && kind === "new") {
-      actions.push(el("button", { class: "btn btn-primary btn-sm", "data-focus": "adopt", onclick: () => adopt(f) }, icon("plus"), el("span", { text: "Übernehmen" })));
-      actions.push(el("button", { class: "btn btn-ghost btn-sm icon-only", title: "Ignorieren", "aria-label": "Ignorieren", "data-focus": "ignore", onclick: () => setIgnored(f, true) }, icon("eye-off")));
+      actions.push(el("button", { class: "btn btn-primary btn-sm", "data-focus": "adopt", onclick: () => adopt(f) }, icon("plus"), el("span", { text: t("ui.found.adopt") })));
+      actions.push(el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.found.ignore"), "aria-label": t("ui.found.ignore"), "data-focus": "ignore", onclick: () => setIgnored(f, true) }, icon("eye-off")));
     } else if (!ro && kind === "ignored") {
-      actions.push(el("button", { class: "btn btn-secondary btn-sm", "data-focus": "unignore", onclick: () => setIgnored(f, false) }, el("span", { text: "Wieder anzeigen" })));
+      actions.push(el("button", { class: "btn btn-secondary btn-sm", "data-focus": "unignore", onclick: () => setIgnored(f, false) }, el("span", { text: t("ui.found.unignore") })));
     } else if (kind === "known") {
       actions.push(el("span", { class: "tag", text: f.device_name }));
     }
@@ -609,8 +617,8 @@
         el("div", { class: "card-meta" },
           el("span", { class: "mono", text: f.ip }),
           el("span", { class: "mono", text: f.mac }),
-          f.hostname && f.vendor ? el("span", { text: f.vendor }) : null,
-          el("span", { text: "gesehen " + ago(f.last_seen) }))),
+          f.hostname && f.vendor ? el("span", { text: vendorText(f.vendor) }) : null,
+          el("span", { text: t("ui.found.seen", ago(f.last_seen)) }))),
       el("div", { class: "found-actions" }, actions));
   }
 
@@ -626,7 +634,7 @@
       f.ignored = ignored;
       renderDiscovery();
     } catch (e) {
-      toast("err", "Fehler", e.message);
+      toast("err", t("ui.error"), e.message);
     }
   }
 
@@ -636,25 +644,31 @@
       if (btn.dataset.mode === "cancel") await api("POST", "discovery/cancel");
       else await api("POST", "discovery/scan");
     } catch (e) {
-      toast("err", "Suche nicht möglich", e.message);
+      toast("err", t("ui.scan.impossible"), e.message);
     }
     loadDiscovery();
   });
 
   // ---------- Verlauf, Export, Import ----------
-  const SOURCE_ICON = { "Zeitplan": "clock" };
+  const SOURCE_ICON = { schedule: "clock" };
+  // Quellen im Verlauf sind Schlüssel ("ui", "link", "schedule", "group" …), Gruppen mit Namen.
+  function sourceText(ev) {
+    const key = "ui.src." + ev.source;
+    const s = t(key, ev.group || "");
+    return s === key ? ev.source : s; // unbekannte Quelle: so anzeigen, wie sie gespeichert ist
+  }
   async function openHistory() {
     const d = $("#history-dialog");
     let events = [];
-    try { events = (await api("GET", "history?limit=200")).events || []; } catch (e) { toast("err", "Verlauf nicht verfügbar", e.message); return; }
-    const fmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    try { events = (await api("GET", "history?limit=200")).events || []; } catch (e) { toast("err", t("ui.history_unavailable"), e.message); return; }
+    const fmt = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     $("#history-list").replaceChildren(...events.map((ev) => el("li", { class: ev.success ? "ok" : "err" },
       icon(ev.success ? (SOURCE_ICON[ev.source] || "check") : "x"),
       el("div", { class: "h-main" },
         el("strong", { text: ev.device }),
-        el("div", { class: "h-meta", text: [ev.source, ev.user, ev.client, ev.target && "an " + ev.target].filter(Boolean).join(" · ") }),
+        el("div", { class: "h-meta", text: [sourceText(ev), ev.user, ev.client, ev.target && t("ui.to_target", ev.target)].filter(Boolean).join(" · ") }),
         ev.error ? el("div", { class: "h-meta", text: ev.error }) : null),
-      el("time", { datetime: ev.time, title: new Date(ev.time).toLocaleString("de-DE"), text: fmt.format(new Date(ev.time)) }))));
+      el("time", { datetime: ev.time, title: new Date(ev.time).toLocaleString(locale), text: fmt.format(new Date(ev.time)) }))));
     $("#history-empty").hidden = events.length !== 0;
     d.showModal();
   }
@@ -668,13 +682,13 @@
     if (!file) return;
     try {
       const res = await api("POST", "import", await file.text(), true);
-      const parts = [res.added + " übernommen"];
-      if (res.skipped) parts.push(res.skipped + " schon vorhanden");
-      if (res.errors && res.errors.length) parts.push(res.errors.length + " fehlerhaft");
-      toast(res.errors && res.errors.length ? "warn" : "ok", "Import abgeschlossen", parts.join(", ") + (res.errors && res.errors.length ? ": " + res.errors.slice(0, 3).join("; ") : ""));
+      const parts = [t("ui.import.added", res.added)];
+      if (res.skipped) parts.push(t("ui.import.skipped", res.skipped));
+      if (res.errors && res.errors.length) parts.push(t("ui.import.faulty", res.errors.length));
+      toast(res.errors && res.errors.length ? "warn" : "ok", t("ui.import.done"), parts.join(", ") + (res.errors && res.errors.length ? ": " + res.errors.slice(0, 3).join("; ") : ""));
       loadDevices();
     } catch (err) {
-      toast("err", "Import fehlgeschlagen", err.message);
+      toast("err", t("ui.import.failed"), err.message);
     }
   });
 
@@ -711,6 +725,13 @@
     document.documentElement.setAttribute("data-theme", next);
     try { localStorage.setItem("wolweb-theme", next); } catch (e) { /* egal */ }
     updateThemeIcon();
+  });
+
+  // Sprache: Wahl im Cookie (gilt auch für Meldungen des Servers), dann neu laden.
+  $("#lang-toggle").addEventListener("click", (e) => {
+    const next = e.currentTarget.dataset.lang;
+    document.cookie = "wolweb_lang=" + next + "; path=" + new URL(document.baseURI).pathname + "; max-age=31536000; SameSite=Lax";
+    location.reload();
   });
 
   $("#add-device").addEventListener("click", () => openDialog());

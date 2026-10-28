@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"wolweb/internal/i18n"
 )
 
 func TestWebhookAndNtfy(t *testing.T) {
@@ -19,7 +21,7 @@ func TestWebhookAndNtfy(t *testing.T) {
 		ch <- got{r.URL.Path, r.URL.RawQuery, string(b), r.Header.Get("Content-Type")}
 	}))
 	defer srv.Close()
-	n := New(srv.URL+"/hook", srv.URL+"/wolweb-test", []string{Online, WakeFailed}, "test")
+	n := New(srv.URL+"/hook", srv.URL+"/wolweb-test", []string{Online, WakeFailed}, "test", i18n.DE)
 	n.Send(Event{Event: Wake, Device: "NAS", Message: "nicht abonniert"})
 	n.Send(Event{Event: Online, Device: "Büro-PC", Message: "Büro-PC ist online"})
 	var hook, ntfy got
@@ -49,7 +51,7 @@ func TestWebhookAndNtfy(t *testing.T) {
 	}
 	var none *Notifier
 	none.Send(Event{Event: Online}) // nil darf nicht abstürzen
-	if New("", "", nil, "x") != nil {
+	if New("", "", nil, "x", i18n.DE) != nil {
 		t.Error("ohne Ziel sollte New nil liefern")
 	}
 }

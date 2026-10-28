@@ -1,6 +1,7 @@
 // Gruppenseite: weckt alle Geräte einer Gruppe und verfolgt, bis jedes mit IP online ist.
 (function () {
   "use strict";
+  const { t } = window.wolwebI18n;
   const card = document.getElementById("group");
   const name = card.dataset.name;
   const path = card.dataset.path; // "wake-group/<Name>", relativ zu <base>
@@ -58,14 +59,14 @@
     again.hidden = true;
     result.hidden = true;
     card.dataset.state = "send";
-    title.textContent = "Gruppe " + name + " wird gestartet";
+    title.textContent = t("group.title.starting", name);
     let sent;
     try {
       sent = await call("POST", path + query);
     } catch (e) {
       card.dataset.state = "error";
-      title.textContent = "Senden fehlgeschlagen";
-      show("err", "Die Magic Packets konnten nicht gesendet werden", e.message);
+      title.textContent = t("wake.send.failed");
+      show("err", t("group.result.send_failed"), e.message);
       again.hidden = false;
       running = false;
       return;
@@ -73,36 +74,36 @@
     const byID = new Map((sent.results || []).map((r) => [r.id, r]));
     for (const li of items) {
       const r = byID.get(li.dataset.id);
-      if (!r || !r.success) mark(li, "error", "Fehler", (r && r.error) || "nicht gesendet");
-      else if (li.dataset.hasIp) mark(li, "sent", "startet …");
-      else mark(li, "skip", "gesendet");
+      if (!r || !r.success) mark(li, "error", t("ui.error"), (r && r.error) || t("group.not_sent"));
+      else if (li.dataset.hasIp) mark(li, "sent", t("group.pill.starting"));
+      else mark(li, "skip", t("group.pill.sent"));
     }
     const watch = items.filter((li) => li.dataset.s === "sent");
     card.dataset.state = "wait";
     const start = Date.now();
     while (watch.some((li) => li.dataset.s !== "online") && Date.now() - start < timeout) {
-      sub.textContent = watch.filter((li) => li.dataset.s === "online").length + " von " + watch.length + " online · " + fmt(Date.now() - start);
+      sub.textContent = t("ui.x_of_y_online", watch.filter((li) => li.dataset.s === "online").length, watch.length) + " · " + fmt(Date.now() - start);
       await sleep(2000);
       try {
         const st = await call("GET", path + "/status" + query);
         for (const m of st.members || []) {
           const li = items.find((x) => x.dataset.id === m.id);
-          if (li && li.dataset.s === "sent" && m.status && m.status.state === "online") mark(li, "online", "online", "nach " + fmt(Date.now() - start));
+          if (li && li.dataset.s === "sent" && m.status && m.status.state === "online") mark(li, "online", t("ui.online"), t("group.after", fmt(Date.now() - start)));
         }
       } catch (e) { /* kurz nicht erreichbar – weiter */ }
     }
     const online = watch.filter((li) => li.dataset.s === "online").length;
     const failed = items.filter((li) => li.dataset.s === "error").length;
-    sub.textContent = online + " von " + watch.length + " online";
+    sub.textContent = t("ui.x_of_y_online", online, watch.length);
     if (!failed && online === watch.length) {
       card.dataset.state = watch.length ? "online" : "sent";
-      title.textContent = watch.length ? "Gruppe " + name + " ist online" : "Magic Packets gesendet";
-      show("ok", watch.length ? "Alle Geräte sind erreichbar" : "Weckrufe sind raus", watch.length ? "" : "Ohne IP-Adressen lässt sich der Start nicht prüfen.");
+      title.textContent = watch.length ? t("group.title.online", name) : t("group.title.sent");
+      show("ok", watch.length ? t("group.result.all_online") : t("wake.result.sent"), watch.length ? "" : t("group.result.no_ip"));
     } else {
       card.dataset.state = "timeout";
-      title.textContent = "Nicht alle Geräte haben sich gemeldet";
-      for (const li of watch) if (li.dataset.s === "sent") mark(li, "sent", "keine Antwort");
-      show("warn", online + " von " + watch.length + " Geräten online" + (failed ? ", " + failed + " Fehler" : ""), "Prüfe Wake on LAN im BIOS/UEFI und ob die Geräte am Strom hängen.");
+      title.textContent = t("group.title.partial");
+      for (const li of watch) if (li.dataset.s === "sent") mark(li, "sent", t("group.pill.no_answer"));
+      show("warn", t("ui.x_of_y_online", online, watch.length) + (failed ? " · " + t("group.n_errors", failed) : ""), t("group.result.partial_text"));
     }
     again.hidden = false;
     running = false;

@@ -3,10 +3,10 @@ package wol
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net"
 	"strings"
+
+	"wolweb/internal/i18n"
 )
 
 // ParseMAC akzeptiert 00:11:22:33:44:55, 00-11-22-33-44-55, 0011.2233.4455 und 001122334455
@@ -25,7 +25,7 @@ func ParseMAC(s string) (net.HardwareAddr, error) {
 	}
 	hw, err := net.ParseMAC(s)
 	if err != nil || len(hw) != 6 {
-		return nil, fmt.Errorf("%q ist keine gültige MAC-Adresse", s)
+		return nil, i18n.M("wol.mac", s)
 	}
 	return hw, nil
 }
@@ -52,7 +52,7 @@ func ParseSecureOn(s string) ([]byte, error) {
 	}
 	hw, err := ParseMAC(s)
 	if err != nil {
-		return nil, fmt.Errorf("%q ist kein gültiges SecureOn-Passwort (6 Byte, z. B. 01:02:03:04:05:06)", s)
+		return nil, i18n.M("val.secureon", s)
 	}
 	return hw, nil
 }
@@ -63,7 +63,7 @@ func ParseSecureOn(s string) ([]byte, error) {
 func Send(hw net.HardwareAddr, target, iface string, secureOn []byte) error {
 	raddr, err := net.ResolveUDPAddr("udp4", target)
 	if err != nil {
-		return fmt.Errorf("Zieladresse %q: %w", target, err)
+		return i18n.M("wol.target", target, err)
 	}
 	laddr := &net.UDPAddr{}
 	var lc net.ListenConfig
@@ -82,16 +82,16 @@ func Send(hw net.HardwareAddr, target, iface string, secureOn []byte) error {
 	// scheitern – obwohl das erste längst unterwegs ist.
 	conn, err := lc.ListenPacket(context.Background(), "udp4", laddr.String())
 	if err != nil {
-		return fmt.Errorf("UDP-Socket für %s: %w", target, err)
+		return i18n.M("wol.socket", target, err)
 	}
 	defer conn.Close()
 	pkt := Packet(hw, secureOn)
 	// Zweimal senden – UDP geht gelegentlich verloren, doppelt schadet nicht.
 	for range 2 {
 		if n, err := conn.WriteTo(pkt, raddr); err != nil {
-			return fmt.Errorf("Senden an %s: %w", target, err)
+			return i18n.M("wol.send", target, err)
 		} else if n != len(pkt) {
-			return errors.New("Paket unvollständig gesendet")
+			return i18n.M("wol.short")
 		}
 	}
 	return nil
@@ -100,7 +100,7 @@ func Send(hw net.HardwareAddr, target, iface string, secureOn []byte) error {
 func interfaceIPv4(name string) (net.IP, error) {
 	ifc, err := net.InterfaceByName(name)
 	if err != nil {
-		return nil, fmt.Errorf("Netzwerkschnittstelle %q: %w", name, err)
+		return nil, i18n.M("wol.iface", name, err)
 	}
 	addrs, err := ifc.Addrs()
 	if err != nil {
@@ -111,5 +111,5 @@ func interfaceIPv4(name string) (net.IP, error) {
 			return n.IP.To4(), nil
 		}
 	}
-	return nil, fmt.Errorf("Schnittstelle %q hat keine IPv4-Adresse", name)
+	return nil, i18n.M("wol.iface_no_ipv4", name)
 }

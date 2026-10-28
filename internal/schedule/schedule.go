@@ -3,11 +3,12 @@
 package schedule
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"wolweb/internal/i18n"
 )
 
 // Entry ist eine Weckzeit an bestimmten Wochentagen.
@@ -37,31 +38,32 @@ func Parse(s string) (Entry, error) {
 	var e Entry
 	f := strings.Fields(strings.ToLower(strings.TrimSpace(s)))
 	if len(f) == 0 || len(f) > 2 {
-		return e, fmt.Errorf("%q: erwartet z. B. \"Mo-Fr 07:30\"", s)
+		return e, i18n.M("sched.format", s)
 	}
 	clock := f[len(f)-1]
 	h, m, ok := strings.Cut(clock, ":")
 	hour, err1 := strconv.Atoi(h)
 	min, err2 := strconv.Atoi(m)
 	if !ok || err1 != nil || err2 != nil || hour < 0 || hour > 23 || min < 0 || min > 59 || len(m) != 2 {
-		return e, fmt.Errorf("%q: Uhrzeit %q ungültig (HH:MM)", s, clock)
+		return e, i18n.M("sched.time", s, clock)
 	}
 	e.Hour, e.Min = hour, min
 	if len(f) == 1 {
 		e.Days = [7]bool{true, true, true, true, true, true, true}
 		return e, nil
 	}
-	if err := e.parseDays(f[0]); err != nil {
-		return e, fmt.Errorf("%q: %w", s, err)
+	if day, ok := e.parseDays(f[0]); !ok {
+		return e, i18n.M("sched.day", s, day)
 	}
 	return e, nil
 }
 
-func (e *Entry) parseDays(s string) error {
+// parseDays setzt die Tage; bei einem unbekannten Wochentag liefert sie ihn mit false.
+func (e *Entry) parseDays(s string) (string, bool) {
 	switch s {
 	case "täglich", "taeglich", "tgl", "*", "daily":
 		e.Days = [7]bool{true, true, true, true, true, true, true}
-		return nil
+		return "", true
 	case "werktags", "wochentags", "weekdays":
 		s = "mo-fr"
 	case "wochenende", "weekend":
@@ -71,7 +73,7 @@ func (e *Entry) parseDays(s string) error {
 		from, to, isRange := strings.Cut(part, "-")
 		a, ok := dayWords[strings.TrimSuffix(from, ".")]
 		if !ok {
-			return fmt.Errorf("unbekannter Wochentag %q", from)
+			return from, false
 		}
 		if !isRange {
 			e.Days[a] = true
@@ -79,7 +81,7 @@ func (e *Entry) parseDays(s string) error {
 		}
 		b, ok := dayWords[strings.TrimSuffix(to, ".")]
 		if !ok {
-			return fmt.Errorf("unbekannter Wochentag %q", to)
+			return to, false
 		}
 		for d := a; ; d = (d + 1) % 7 { // auch über das Wochenende hinweg, z. B. Fr-Mo
 			e.Days[d] = true
@@ -88,7 +90,7 @@ func (e *Entry) parseDays(s string) error {
 			}
 		}
 	}
-	return nil
+	return "", true
 }
 
 // String liefert die einheitliche Schreibweise, z. B. "Mo-Fr 07:30" oder "täglich 22:00".
@@ -153,7 +155,7 @@ func ParseList(items []string) ([]Entry, error) {
 		}
 	}
 	if len(out) > 8 {
-		return nil, errors.New("höchstens 8 Weckzeiten")
+		return nil, i18n.M("sched.max")
 	}
 	return out, nil
 }

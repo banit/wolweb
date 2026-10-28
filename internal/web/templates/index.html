@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,7 +12,9 @@
 <meta name="theme-color" content="#4f46e5">
 <meta name="apple-mobile-web-app-title" content="wolweb">
 <link rel="stylesheet" href="static/app.css?v={{.Version}}">
+<script id="i18n" type="application/json">{{.I18N}}</script>
 <script src="static/theme.js?v={{.Version}}"></script>
+<script src="static/i18n.js?v={{.Version}}" defer></script>
 <script src="static/app.js?v={{.Version}}" defer></script>
 </head>
 <body class="app">
@@ -22,18 +24,19 @@
     <span class="brand-mark"><svg class="ico"><use href="#i-power"/></svg></span>
     <div>
       <h1>Wake on LAN</h1>
-      <p class="muted" id="summary">Lade Geräte …</p>
+      <p class="muted" id="summary">{{.T "page.loading"}}</p>
     </div>
   </div>
   <div class="topbar-actions">
-    <button class="btn btn-ghost icon-only" id="theme-toggle" title="Hell/Dunkel umschalten" aria-label="Hell/Dunkel umschalten">
+    <button class="btn btn-ghost lang-toggle" id="lang-toggle" data-lang="{{.OtherLang}}" title="{{.T "page.lang_switch"}}" aria-label="{{.T "page.lang_switch"}}" lang="{{.OtherLang}}">{{.OtherLang}}</button>
+    <button class="btn btn-ghost icon-only" id="theme-toggle" title="{{.T "page.theme"}}" aria-label="{{.T "page.theme"}}">
       <svg class="ico"><use href="#i-moon"/></svg>
     </button>
     <button class="btn btn-secondary" id="open-discovery">
-      <svg class="ico"><use href="#i-radar"/></svg><span>Netzwerk</span><span class="badge" id="new-badge" hidden>0</span>
+      <svg class="ico"><use href="#i-radar"/></svg><span>{{.T "page.network"}}</span><span class="badge" id="new-badge" hidden>0</span>
     </button>
     <button class="btn btn-primary" id="add-device">
-      <svg class="ico"><use href="#i-plus"/></svg><span>Gerät</span>
+      <svg class="ico"><use href="#i-plus"/></svg><span>{{.T "page.device"}}</span>
     </button>
   </div>
 </header>
@@ -42,12 +45,12 @@
   <div class="toolbar">
     <label class="search">
       <svg class="ico"><use href="#i-search"/></svg>
-      <input type="search" id="search" placeholder="Suchen nach Name, IP, MAC …" autocomplete="off">
+      <input type="search" id="search" placeholder="{{.T "page.search"}}" autocomplete="off">
     </label>
     <div class="segmented" role="tablist" id="filter">
-      <button role="tab" data-filter="all" aria-selected="true">Alle</button>
-      <button role="tab" data-filter="online">Online</button>
-      <button role="tab" data-filter="offline">Offline</button>
+      <button role="tab" data-filter="all" aria-selected="true">{{.T "page.filter.all"}}</button>
+      <button role="tab" data-filter="online">{{.T "ui.online"}}</button>
+      <button role="tab" data-filter="offline">{{.T "ui.offline"}}</button>
     </div>
   </div>
 
@@ -55,19 +58,19 @@
 
   <div class="empty" id="empty" hidden>
     <div class="empty-art"><svg class="ico"><use href="#i-power"/></svg></div>
-    <h2>Noch keine Geräte</h2>
-    <p class="muted">Lege ein Gerät von Hand an oder durchsuche dein Netzwerk nach eingeschalteten Geräten.</p>
+    <h2>{{.T "page.empty.title"}}</h2>
+    <p class="muted">{{.T "page.empty.text"}}</p>
     <div class="row gap">
-      <button class="btn btn-secondary" data-action="discovery"><svg class="ico"><use href="#i-radar"/></svg>Netzwerk durchsuchen</button>
-      <button class="btn btn-primary" data-action="add"><svg class="ico"><use href="#i-plus"/></svg>Gerät anlegen</button>
+      <button class="btn btn-secondary" data-action="discovery"><svg class="ico"><use href="#i-radar"/></svg>{{.T "page.empty.scan"}}</button>
+      <button class="btn btn-primary" data-action="add"><svg class="ico"><use href="#i-plus"/></svg>{{.T "page.empty.add"}}</button>
     </div>
   </div>
-  <p class="empty-filter muted" id="empty-filter" hidden>Keine Geräte passen zur Suche.</p>
+  <p class="empty-filter muted" id="empty-filter" hidden>{{.T "page.no_match"}}</p>
 
   <footer class="page-foot">
-    <button class="btn btn-ghost btn-sm" id="open-history"><svg class="ico"><use href="#i-clock"/></svg>Verlauf</button>
-    <a class="btn btn-ghost btn-sm" href="api/v1/export" download><svg class="ico"><use href="#i-download"/></svg>Exportieren</a>
-    <button class="btn btn-ghost btn-sm" id="import-btn"><svg class="ico"><use href="#i-upload"/></svg>Importieren</button>
+    <button class="btn btn-ghost btn-sm" id="open-history"><svg class="ico"><use href="#i-clock"/></svg>{{.T "page.history"}}</button>
+    <a class="btn btn-ghost btn-sm" href="api/v1/export" download><svg class="ico"><use href="#i-download"/></svg>{{.T "page.export"}}</a>
+    <button class="btn btn-ghost btn-sm" id="import-btn"><svg class="ico"><use href="#i-upload"/></svg>{{.T "page.import"}}</button>
     <input type="file" id="import-file" accept="application/json,.json" hidden>
     <span class="spacer"></span>
     <span class="muted small" id="version"></span>
@@ -80,32 +83,32 @@
   <div class="drawer-panel" role="dialog" aria-modal="true">
     <header class="drawer-head">
       <div>
-        <h2 id="discovery-title">Geräte im Netzwerk</h2>
+        <h2 id="discovery-title">{{.T "page.scan.title"}}</h2>
         <p class="muted small" id="discovery-networks"></p>
       </div>
-      <button class="btn btn-ghost icon-only" data-close aria-label="Schließen"><svg class="ico"><use href="#i-x"/></svg></button>
+      <button class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg class="ico"><use href="#i-x"/></svg></button>
     </header>
     <div class="drawer-body">
       <div class="scan-box">
         <div class="scan-row">
           <div>
-            <strong id="scan-title">Suche bereit</strong>
+            <strong id="scan-title">{{.T "ui.scan.ready"}}</strong>
             <p class="muted small" id="scan-detail"></p>
           </div>
-          <button class="btn btn-primary" id="scan-btn"><svg class="ico"><use href="#i-radar"/></svg><span>Jetzt suchen</span></button>
+          <button class="btn btn-primary" id="scan-btn"><svg class="ico"><use href="#i-radar"/></svg><span>{{.T "ui.scan.start"}}</span></button>
         </div>
         <div class="progress" id="scan-progress" hidden><div class="progress-bar"></div></div>
       </div>
       <div class="list-head">
         <div class="segmented small" role="tablist" id="found-filter">
-          <button role="tab" data-filter="new" aria-selected="true">Neu</button>
-          <button role="tab" data-filter="known">Angelegt</button>
-          <button role="tab" data-filter="ignored">Ignoriert</button>
+          <button role="tab" data-filter="new" aria-selected="true">{{.T "page.found.new"}}</button>
+          <button role="tab" data-filter="known">{{.T "page.found.known"}}</button>
+          <button role="tab" data-filter="ignored">{{.T "page.found.ignored"}}</button>
         </div>
       </div>
       <ul class="found-list" id="found-list"></ul>
       <p class="muted small center" id="found-empty" hidden></p>
-      <p class="hint small">Die Suche findet nur eingeschaltete Geräte. Übernimm sie jetzt – später kannst du sie per Wake on LAN starten.</p>
+      <p class="hint small">{{.T "page.scan.hint"}}</p>
     </div>
   </div>
 </aside>
@@ -114,80 +117,80 @@
 <dialog class="modal" id="device-dialog" aria-labelledby="device-dialog-title">
   <form method="dialog" id="device-form" novalidate>
     <header class="modal-head">
-      <h2 id="device-dialog-title">Gerät anlegen</h2>
-      <button type="button" class="btn btn-ghost icon-only" data-close aria-label="Schließen"><svg class="ico"><use href="#i-x"/></svg></button>
+      <h2 id="device-dialog-title">{{.T "ui.dialog.add"}}</h2>
+      <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg class="ico"><use href="#i-x"/></svg></button>
     </header>
     <div class="modal-body">
       <fieldset class="icon-picker" id="icon-picker">
-        <legend>Symbol</legend>
+        <legend>{{.T "page.f.icon"}}</legend>
       </fieldset>
       <label class="field">
-        <span>Name</span>
-        <input name="name" required maxlength="64" placeholder="z. B. Gaming-PC" autocomplete="off">
-        <small class="muted">Wird Teil des festen Wecklinks.</small>
+        <span>{{.T "page.f.name"}}</span>
+        <input name="name" required maxlength="64" placeholder="{{.T "page.f.name_ph"}}" autocomplete="off">
+        <small class="muted">{{.T "page.f.name_hint"}}</small>
       </label>
       <div class="field-row">
         <label class="field">
-          <span>MAC-Adresse</span>
+          <span>{{.T "ui.mac_address"}}</span>
           <input name="mac" required placeholder="00:11:22:33:44:55" autocomplete="off" class="mono">
           <small class="muted" id="vendor-hint"></small>
         </label>
         <label class="field">
-          <span>IP-Adresse <em class="muted">(für Online-Status)</em></span>
+          <span>{{.T "ui.ip_address"}} <em class="muted">{{.T "page.f.ip_hint"}}</em></span>
           <input name="ip" placeholder="192.168.1.20" autocomplete="off" class="mono">
         </label>
       </div>
       <div class="field-row">
         <label class="field">
-          <span>Gruppe</span>
-          <input name="group" list="group-list" placeholder="keine" autocomplete="off" maxlength="32">
+          <span>{{.T "page.f.group"}}</span>
+          <input name="group" list="group-list" placeholder="{{.T "page.f.group_ph"}}" autocomplete="off" maxlength="32">
           <datalist id="group-list"></datalist>
-          <small class="muted">Geräte einer Gruppe lassen sich gemeinsam wecken</small>
+          <small class="muted">{{.T "page.f.group_hint"}}</small>
         </label>
         <label class="field">
-          <span>Zeitplan</span>
-          <input name="schedule" placeholder="z. B. Mo-Fr 07:30; Sa,So 09:00" autocomplete="off">
-          <small class="muted">Automatisch wecken, mehrere Zeiten mit ; trennen</small>
+          <span>{{.T "page.f.schedule"}}</span>
+          <input name="schedule" placeholder="{{.T "page.f.schedule_ph"}}" autocomplete="off">
+          <small class="muted">{{.T "page.f.schedule_hint"}}</small>
         </label>
       </div>
       <details class="advanced">
-        <summary>Erweitert</summary>
+        <summary>{{.T "page.f.advanced"}}</summary>
         <div class="field-row">
           <label class="field">
-            <span>Broadcast-Adresse</span>
-            <input name="broadcast" placeholder="automatisch" autocomplete="off" class="mono">
-            <small class="muted">Ziel des Magic Packets, z. B. 192.168.1.255:9</small>
+            <span>{{.T "page.f.broadcast"}}</span>
+            <input name="broadcast" placeholder="{{.T "ui.automatic"}}" autocomplete="off" class="mono">
+            <small class="muted">{{.T "page.f.broadcast_hint"}}</small>
           </label>
           <label class="field">
-            <span>Netzwerkschnittstelle</span>
-            <input name="interface" placeholder="automatisch" autocomplete="off" class="mono">
+            <span>{{.T "page.f.interface"}}</span>
+            <input name="interface" placeholder="{{.T "ui.automatic"}}" autocomplete="off" class="mono">
           </label>
         </div>
         <div class="field-row">
           <label class="field">
-            <span>Ports für die Online-Prüfung</span>
-            <input name="ports" placeholder="Standard" autocomplete="off" class="mono" inputmode="numeric">
-            <small class="muted">z. B. 22, 3389 – sonst die allgemeine Liste</small>
+            <span>{{.T "page.f.ports"}}</span>
+            <input name="ports" placeholder="{{.T "ui.default"}}" autocomplete="off" class="mono" inputmode="numeric">
+            <small class="muted">{{.T "page.f.ports_hint"}}</small>
           </label>
           <label class="field">
-            <span>SecureOn-Passwort</span>
-            <input name="secureon" placeholder="keins" autocomplete="off" class="mono">
-            <small class="muted">Nur falls im BIOS bzw. der Netzwerkkarte gesetzt</small>
+            <span>{{.T "page.f.secureon"}}</span>
+            <input name="secureon" placeholder="{{.T "page.f.secureon_ph"}}" autocomplete="off" class="mono">
+            <small class="muted">{{.T "page.f.secureon_hint"}}</small>
           </label>
         </div>
         <label class="field">
-          <span>Notiz</span>
+          <span>{{.T "page.f.note"}}</span>
           <textarea name="note" rows="2" maxlength="500"></textarea>
         </label>
       </details>
       <p class="form-error" id="form-error" hidden></p>
     </div>
     <footer class="modal-foot">
-      <button type="button" class="btn btn-danger-ghost" id="delete-device" hidden><svg class="ico"><use href="#i-trash"/></svg>Löschen</button>
-      <button type="button" class="btn btn-ghost" id="rotate-key" hidden title="Neuer Schlüssel für den öffentlichen Wecklink"><svg class="ico"><use href="#i-refresh"/></svg>Schlüssel</button>
+      <button type="button" class="btn btn-danger-ghost" id="delete-device" hidden><svg class="ico"><use href="#i-trash"/></svg>{{.T "ui.delete"}}</button>
+      <button type="button" class="btn btn-ghost" id="rotate-key" hidden title="{{.T "page.rotate_title"}}"><svg class="ico"><use href="#i-refresh"/></svg>{{.T "page.rotate"}}</button>
       <span class="spacer"></span>
-      <button type="button" class="btn btn-ghost" data-close>Abbrechen</button>
-      <button type="submit" class="btn btn-primary" id="save-device">Speichern</button>
+      <button type="button" class="btn btn-ghost" data-close>{{.T "ui.cancel"}}</button>
+      <button type="submit" class="btn btn-primary" id="save-device">{{.T "page.save"}}</button>
     </footer>
   </form>
 </dialog>
@@ -195,26 +198,26 @@
 <!-- Verlauf -->
 <dialog class="modal" id="history-dialog" aria-labelledby="history-title">
   <header class="modal-head">
-    <h2 id="history-title">Verlauf</h2>
-    <button type="button" class="btn btn-ghost icon-only" data-close aria-label="Schließen"><svg class="ico"><use href="#i-x"/></svg></button>
+    <h2 id="history-title">{{.T "page.history"}}</h2>
+    <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg class="ico"><use href="#i-x"/></svg></button>
   </header>
   <div class="modal-body">
     <ul class="history" id="history-list"></ul>
-    <p class="muted small center" id="history-empty" hidden>Noch kein Gerät geweckt.</p>
+    <p class="muted small center" id="history-empty" hidden>{{.T "page.history_empty"}}</p>
   </div>
 </dialog>
 
-<!-- Löschen bestätigen -->
+<!-- Bestätigen -->
 <dialog class="modal modal-small" id="confirm-dialog">
   <form method="dialog">
     <div class="modal-body">
-      <h2 id="confirm-title">Wirklich löschen?</h2>
+      <h2 id="confirm-title"></h2>
       <p class="muted" id="confirm-text"></p>
     </div>
     <footer class="modal-foot">
       <span class="spacer"></span>
-      <button value="cancel" class="btn btn-ghost">Abbrechen</button>
-      <button value="ok" class="btn btn-danger" id="confirm-ok">Löschen</button>
+      <button value="cancel" class="btn btn-ghost">{{.T "ui.cancel"}}</button>
+      <button value="ok" class="btn btn-danger" id="confirm-ok">{{.T "ui.delete"}}</button>
     </footer>
   </form>
 </dialog>

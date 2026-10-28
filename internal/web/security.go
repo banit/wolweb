@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"wolweb/internal/i18n"
 	"wolweb/internal/store"
 )
 
@@ -52,8 +53,7 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 				"gewollt? Dann in allowed_hosts bzw. WOLWEB_ALLOWED_HOSTS eintragen.", host)
 		}
 		mu.Unlock()
-		msg := fmt.Sprintf("Der Hostname %q ist nicht freigegeben (Schutz vor DNS-Rebinding). "+
-			"In config.json unter allowed_hosts oder per WOLWEB_ALLOWED_HOSTS eintragen.", host)
+		msg := i18n.T(s.lang(r), "err.host_not_allowed", host)
 		if strings.HasPrefix(r.URL.Path, s.cfg.VDir+"api/") {
 			writeError(w, http.StatusForbidden, msg)
 			return
@@ -169,6 +169,6 @@ func (s *Server) limitPublic(w http.ResponseWriter, r *http.Request, d store.Dev
 	secs := int(math.Ceil(wait.Seconds()))
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
 	writeJSON(w, http.StatusTooManyRequests, wakeResult{Device: d.Name, Error: "rate limited",
-		Message: fmt.Sprintf("%s wurde gerade erst geweckt – bitte noch %d s warten.", d.Name, secs)})
+		Message: i18n.T(s.lang(r), "err.rate_limited", d.Name, secs)})
 	return true
 }

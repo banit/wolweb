@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"wolweb/internal/i18n"
 )
 
 // Ereignisarten
@@ -40,6 +42,7 @@ type Notifier struct {
 	webhook, ntfy string
 	kinds         []string
 	agent         string
+	lang          i18n.Lang // Sprache der ntfy-Titel
 	client        *http.Client
 	queue         chan Event
 
@@ -48,14 +51,15 @@ type Notifier struct {
 }
 
 // New liefert nil, wenn weder webhook noch ntfy gesetzt ist. kinds leer = alle Ereignisse.
-func New(webhook, ntfy string, kinds []string, version string) *Notifier {
+// lang ist die Sprache der ntfy-Titel (die Meldungen selbst kommen fertig vom Aufrufer).
+func New(webhook, ntfy string, kinds []string, version string, lang i18n.Lang) *Notifier {
 	if webhook == "" && ntfy == "" {
 		return nil
 	}
 	if len(kinds) == 0 {
 		kinds = Kinds
 	}
-	n := &Notifier{webhook: webhook, ntfy: ntfy, kinds: kinds, agent: "wolweb/" + version,
+	n := &Notifier{webhook: webhook, ntfy: ntfy, kinds: kinds, agent: "wolweb/" + version, lang: lang,
 		client: &http.Client{Timeout: 10 * time.Second}, queue: make(chan Event, 100)}
 	go n.run()
 	return n
@@ -85,7 +89,7 @@ func (n *Notifier) run() {
 		}
 		if n.ntfy != "" {
 			// Titel usw. als Parameter in der URL – in HTTP-Köpfen wären Umlaute nicht erlaubt.
-			title, tag, prio := ntfyStyle(ev)
+			title, tag, prio := ntfyStyle(ev, n.lang)
 			u, err := url.Parse(n.ntfy)
 			if err != nil {
 				n.logErr("ntfy-Adresse %q: %v", n.ntfy, err)
@@ -101,16 +105,17 @@ func (n *Notifier) run() {
 	}
 }
 
-func ntfyStyle(ev Event) (title, tag, priority string) {
+func ntfyStyle(ev Event, l i18n.Lang) (title, tag, priority string) {
+	title = i18n.T(l, "notify.title."+ev.Event, ev.Device)
 	switch ev.Event {
 	case Online:
-		return ev.Device + " ist online", "green_circle", "default"
+		return title, "green_circle", "default"
 	case Offline:
-		return ev.Device + " ist offline", "red_circle", "low"
+		return title, "red_circle", "low"
 	case Wake:
-		return ev.Device + " wird geweckt", "zap", "low"
+		return title, "zap", "low"
 	default:
-		return ev.Device + ": Wecken fehlgeschlagen", "warning", "high"
+		return title, "warning", "high"
 	}
 }
 

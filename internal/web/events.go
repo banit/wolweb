@@ -10,19 +10,21 @@ import (
 	"time"
 
 	"wolweb/internal/discovery"
+	"wolweb/internal/i18n"
 	"wolweb/internal/notify"
 	"wolweb/internal/status"
 	"wolweb/internal/store"
 )
 
-// hub verteilt Ereignisse an alle offenen Server-Sent-Events-Verbindungen der Oberfläche.
+// hub verteilt Ereignisse an alle offenen Server-Sent-Events-Verbindungen der Oberfläche. Jede
+// Verbindung hat ihre Sprache (für übersetzte Inhalte wie Fehler der Suche).
 type hub struct {
 	mu     sync.Mutex
-	subs   map[chan []byte]struct{}
+	subs   map[chan []byte]i18n.Lang
 	closed bool
 }
 
-func (h *hub) subscribe() (chan []byte, func()) {
+func (h *hub) subscribe(l i18n.Lang) (chan []byte, func()) {
 	ch := make(chan []byte, 32)
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -31,9 +33,9 @@ func (h *hub) subscribe() (chan []byte, func()) {
 		return ch, func() {}
 	}
 	if h.subs == nil {
-		h.subs = map[chan []byte]struct{}{}
+		h.subs = map[chan []byte]i18n.Lang{}
 	}
-	h.subs[ch] = struct{}{}
+	h.subs[ch] = l
 	return ch, func() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -47,15 +49,25 @@ func (h *hub) subscribe() (chan []byte, func()) {
 // publish schickt ein Ereignis an alle. Wer nicht mitkommt, verpasst es – die Oberfläche lädt
 // ohnehin regelmäßig nach.
 func (h *hub) publish(event string, data any) {
-	b, err := json.Marshal(data)
-	if err != nil {
-		log.Printf("Ereignis %s: %v", event, err)
-		return
-	}
-	msg := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event, b))
+	h.publishLocalized(event, func(i18n.Lang) any { return data })
+}
+
+// publishLocalized baut den Inhalt je Sprache der Empfänger (höchstens einmal pro Sprache).
+func (h *hub) publishLocalized(event string, data func(i18n.Lang) any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for ch := range h.subs {
+	msgs := map[i18n.Lang][]byte{}
+	for ch, l := range h.subs {
+		msg, ok := msgs[l]
+		if !ok {
+			b, err := json.Marshal(data(l))
+			if err != nil {
+				log.Printf("Ereignis %s: %v", event, err)
+				return
+			}
+			msg = []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event, b))
+			msgs[l] = msg
+		}
 		select {
 		case ch <- msg:
 		default:
@@ -87,7 +99,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Accel-Buffering", "no") // nginx: nicht puffern
 	w.WriteHeader(http.StatusOK)
-	ch, unsubscribe := s.hub.subscribe()
+	ch, unsubscribe := s.hub.subscribe(s.lang(r))
 	defer unsubscribe()
 	io.WriteString(w, "retry: 5000\n\n")
 	if rc.Flush() != nil {
@@ -127,15 +139,15 @@ func (s *Server) statusChanged(d store.Device, old status.State, hadOld bool, st
 	// dem Start und nicht bei "unbekannt" (keine IP).
 	if hadOld && old.State != st.State && (old.State == "online" || old.State == "offline") &&
 		(st.State == "online" || st.State == "offline") {
-		kind, msg := notify.Online, d.Name+" ist online"
+		kind, msg := notify.Online, i18n.T(s.defLang, "notify.online", d.Name)
 		if st.State == "offline" {
-			kind, msg = notify.Offline, d.Name+" ist offline"
+			kind, msg = notify.Offline, i18n.T(s.defLang, "notify.offline", d.Name)
 		}
 		if st.Method != "" {
 			msg += " (" + st.Method + ")"
 		}
-		if st.Note != "" {
-			msg += " – " + st.Note
+		if st.Conflict != "" {
+			msg += " – " + i18n.T(s.defLang, "notify.conflict", st.IP, st.Conflict)
 		}
 		s.notify.Send(notify.Event{Event: kind, Device: d.Name, ID: d.ID, IP: st.IP, Message: msg})
 	}
@@ -151,5 +163,5 @@ func (s *Server) scanChanged(j discovery.Job) {
 	}
 	s.scanLast = time.Now()
 	s.scanMu.Unlock()
-	s.hub.publish("scan", j)
+	s.hub.publishLocalized("scan", func(l i18n.Lang) any { return j.Localized(l) })
 }

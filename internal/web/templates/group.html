@@ -1,18 +1,20 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex">
-<title>Gruppe {{.Group.Name}} starten · Wake on LAN</title>
+<title>{{.T "group.tab.start" .Group.Name}} · Wake on LAN</title>
 <base href="{{.Base}}">
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="static/icon-180.png">
 <meta name="theme-color" content="#4f46e5">
 <meta name="apple-mobile-web-app-title" content="{{.Group.Name}}">
 <link rel="stylesheet" href="static/app.css?v={{.Version}}">
+<script id="i18n" type="application/json">{{.I18N}}</script>
 <script src="static/theme.js?v={{.Version}}"></script>
+<script src="static/i18n.js?v={{.Version}}" defer></script>
 <script src="static/group.js?v={{.Version}}" defer></script>
 </head>
 <body class="wake-page">
@@ -27,15 +29,15 @@
       <svg class="ico warn-ico"><use href="#i-alert"/></svg>
     </div>
   </div>
-  <h1 id="group-title">Gruppe {{.Group.Name}} wird gestartet</h1>
-  <p class="muted" id="group-sub">{{len .Group.Members}} {{if eq (len .Group.Members) 1}}Gerät{{else}}Geräte{{end}}</p>
+  <h1 id="group-title">{{.T "group.title.starting" .Group.Name}}</h1>
+  <p class="muted" id="group-sub">{{.TN "ui.n_devices" (len .Group.Members)}}</p>
 
   <ul class="members" id="members">
     {{range .Group.Members}}
     <li data-id="{{.ID}}" data-has-ip="{{if .CheckIP}}1{{end}}" data-s="">
       <span class="dev-icon"><svg class="ico"><use href="#i-{{.Icon}}"/></svg></span>
-      <div><strong>{{.Name}}</strong><small class="muted" data-detail>{{if .CheckIP}}{{.CheckIP}}{{else}}ohne IP – Start nicht prüfbar{{end}}</small></div>
-      <span class="pill" data-pill>wartet</span>
+      <div><strong>{{.Name}}</strong><small class="muted" data-detail>{{if .CheckIP}}{{.CheckIP}}{{else}}{{$.T "group.no_ip"}}{{end}}</small></div>
+      <span class="pill" data-pill>{{$.T "group.pill.waiting"}}</span>
     </li>
     {{end}}
   </ul>
@@ -43,8 +45,8 @@
   <div class="wake-result" id="group-result" hidden></div>
 
   <div class="wake-actions">
-    <a class="btn btn-ghost" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>Übersicht</a>
-    <button class="btn btn-secondary" id="group-again" hidden><svg class="ico"><use href="#i-refresh"/></svg><span>Erneut senden</span></button>
+    <a class="btn btn-ghost" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.overview"}}</a>
+    <button class="btn btn-secondary" id="group-again" hidden><svg class="ico"><use href="#i-refresh"/></svg><span>{{.T "wake.btn.again"}}</span></button>
   </div>
 </main>
 </body>

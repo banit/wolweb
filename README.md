@@ -14,6 +14,8 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
 - **Benachrichtigungen** per Webhook (JSON) oder ntfy aufs Handy, wenn ein Gerät online/offline geht oder
   geweckt wird; **Prometheus-Metriken** unter `/metrics`
 - **Verlauf** jedes Weckversuchs (wer, wann, woher, Ergebnis), **Export/Import** der Geräte als JSON
+- **Deutsch und Englisch**: Die Oberfläche folgt der Sprache des Browsers und lässt sich oben rechts umschalten;
+  auch die Meldungen der API kommen in der gewählten Sprache
 - Übernimmt die `devices.json` und die Einstellungen des alten wolweb
 
 ## Geräte
@@ -118,6 +120,7 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 | `vdir` | `WOLWEBVDIR` | `/` | Unterpfad, z. B. `/wolweb` hinter einem Reverse-Proxy |
 | `bcastip` | `WOLWEBBCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
 | `read_only` | `WOLWEBREADONLY` | `false` | nur wecken, nichts ändern |
+| `language` | `WOLWEB_LANGUAGE` | `de` | `de` oder `en`: Sprache, wenn weder Umschalter noch Browser eine nennen (auch für Benachrichtigungen) |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`) und Suchergebnisse (`discovered.json`) |
 | `discovery.networks` | `WOLWEB_NETWORKS` | – | Segmente für die Suche (CIDR, kommagetrennt) |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus |
@@ -170,6 +173,15 @@ braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_
   `allowed_hosts` an (`"wol.example.com"`, `"*.example.com"`, `"*"` schaltet die Prüfung ab). Sonst könnte eine
   fremde Webseite ihren Namen auf die IP von wolweb umbiegen und die API im Browser fernsteuern. Mit Anmeldung wird
   nur geprüft, wenn `allowed_hosts` gesetzt ist.
+
+## Sprache
+
+Die Oberfläche gibt es auf Deutsch und Englisch. Gewählt wird in dieser Reihenfolge: `?lang=de|en` in der Adresse,
+der Umschalter oben rechts (Cookie `wolweb_lang`), die Sprache des Browsers (`Accept-Language`), sonst `language`.
+Das gilt auch für die API – Automationen bekommen Meldungen auf Englisch mit `Accept-Language: en`. Fehlerantworten
+nennen zusätzlich das betroffene Feld (`"field": "mac"`). Die Texte stehen in `internal/i18n/de.json` und
+`en.json`; ein Test prüft, dass beide dieselben Schlüssel haben und alles Benutzte vorhanden ist. Das Protokoll
+(Log) bleibt deutsch.
 
 ## API
 

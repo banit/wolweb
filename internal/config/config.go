@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"wolweb/internal/i18n"
 	"wolweb/internal/notify"
 )
 
@@ -25,6 +26,7 @@ type Config struct {
 	BcastIP   string    `json:"bcastip"` // Ziel, wenn weder Gerät noch Netz eins liefern; leer = automatisch
 	ReadOnly  bool      `json:"read_only"`
 	DataDir   string    `json:"data_dir"`
+	Language  string    `json:"language"` // "de" oder "en": Sprache, wenn Browser bzw. Anfrage keine nennt
 	Discovery Discovery `json:"discovery"`
 	Status    Status    `json:"status"`
 	Auth      Auth      `json:"auth"`
@@ -75,10 +77,11 @@ type Auth struct {
 
 func Default() Config {
 	return Config{
-		Host:    "0.0.0.0",
-		Port:    8089,
-		VDir:    "/",
-		DataDir: "data",
+		Host:     "0.0.0.0",
+		Port:     8089,
+		VDir:     "/",
+		DataDir:  "data",
+		Language: "de",
 		Discovery: Discovery{
 			Interval: "30m",
 			MaxHosts: 1024,
@@ -140,6 +143,7 @@ func applyEnv(c *Config) {
 	str(&c.BcastIP, "WOLWEBBCASTIP", "WOLWEB_BCASTIP")
 	boolean(&c.ReadOnly, "WOLWEBREADONLY", "WOLWEB_READONLY")
 	str(&c.DataDir, "WOLWEB_DATA_DIR")
+	str(&c.Language, "WOLWEB_LANGUAGE")
 	if v, ok := os.LookupEnv("WOLWEB_NETWORKS"); ok {
 		c.Discovery.Networks = splitList(v)
 	}
@@ -172,6 +176,13 @@ func splitList(s string) []string {
 func (c *Config) normalize() error {
 	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("ungültiger Port %d", c.Port)
+	}
+	if l, ok := i18n.Parse(c.Language); ok {
+		c.Language = string(l)
+	} else if c.Language != "" {
+		return fmt.Errorf("language: %q wird nicht unterstützt (de, en)", c.Language)
+	} else {
+		c.Language = string(i18n.DE)
 	}
 	v := "/" + strings.Trim(strings.TrimSpace(c.VDir), "/")
 	if v != "/" {
@@ -251,11 +262,11 @@ func NormalizeBroadcast(s string) (string, error) {
 	}
 	ip, err := netip.ParseAddr(host)
 	if err != nil || !ip.Is4() {
-		return "", fmt.Errorf("%q ist keine IPv4-Adresse", host)
+		return "", i18n.M("val.not_ipv4", host)
 	}
 	p, err := strconv.Atoi(port)
 	if err != nil || p <= 0 || p > 65535 {
-		return "", fmt.Errorf("ungültiger Port %q", port)
+		return "", i18n.M("val.bad_port", port)
 	}
 	return net.JoinHostPort(ip.String(), strconv.Itoa(p)), nil
 }

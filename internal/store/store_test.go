@@ -225,7 +225,7 @@ func TestExportImport(t *testing.T) {
 	dst, _, _ := Open(t.TempDir(), "")
 	dst.Create(Input{Name: "NAS", MAC: "00:AA:BB:CC:DD:EE"}) // gleicher Name, andere MAC
 	dst.Create(Input{Name: "Alt", MAC: "00:11:22:33:44:66"}) // gleiche MAC
-	res, err := dst.Import(b)
+	res, err := dst.Import(b, "de")
 	if err != nil || res.Added != 1 || res.Skipped != 1 {
 		t.Fatalf("%+v %v", res, err)
 	}
@@ -233,7 +233,7 @@ func TestExportImport(t *testing.T) {
 	if !ok || d.IP != "192.168.1.5" || len(d.Ports) != 1 || d.SecureOn != "01:02:03:04:05:06" {
 		t.Errorf("importiert: %+v", d)
 	}
-	if _, err := dst.Import([]byte("kein json")); err == nil {
+	if _, err := dst.Import([]byte("kein json"), "de"); err == nil {
 		t.Error("kaputte Datei angenommen")
 	}
 }

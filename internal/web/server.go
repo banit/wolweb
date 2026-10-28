@@ -7,7 +7,6 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
@@ -21,6 +20,7 @@ import (
 
 	"wolweb/internal/config"
 	"wolweb/internal/discovery"
+	"wolweb/internal/i18n"
 	"wolweb/internal/notify"
 	"wolweb/internal/status"
 	"wolweb/internal/store"
@@ -42,6 +42,7 @@ type Server struct {
 	limiter     wakeLimiter
 	hub         hub
 	notify      *notify.Notifier
+	defLang     i18n.Lang // Sprache, wenn die Anfrage keine nennt (config language)
 
 	wakesMu sync.Mutex
 	wakes   map[[2]string]int // {Geräte-ID, "ok"/"error"} -> Anzahl seit dem Start (für /metrics)
@@ -55,11 +56,16 @@ func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.
 	if wt <= 0 {
 		wt = 3 * time.Minute
 	}
+	defLang, ok := i18n.Parse(cfg.Language)
+	if !ok {
+		defLang = i18n.DE
+	}
 	s := &Server{
 		cfg: cfg, store: st, monitor: mon, scanner: sc, icmp: icmp, version: version, wakeTimeout: wt,
-		tmpl:   template.Must(template.ParseFS(assets, "templates/*.html")),
-		notify: notify.New(cfg.Notify.Webhook, cfg.Notify.Ntfy, cfg.Notify.Events, version),
-		wakes:  map[[2]string]int{},
+		tmpl:    template.Must(template.ParseFS(assets, "templates/*.html")),
+		notify:  notify.New(cfg.Notify.Webhook, cfg.Notify.Ntfy, cfg.Notify.Events, version, defLang),
+		wakes:   map[[2]string]int{},
+		defLang: defLang,
 	}
 	// Live-Updates (und Benachrichtigungen) hängen an Monitor und Suche – daher vor deren Start.
 	mon.OnChange = s.statusChanged
@@ -143,7 +149,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		if s.cfg.Auth.Username != "" {
 			w.Header().Set("WWW-Authenticate", `Basic realm="wolweb", charset="UTF-8"`)
 		}
-		writeError(w, http.StatusUnauthorized, "Anmeldung erforderlich.")
+		s.fail(w, r, http.StatusUnauthorized, "err.auth_required")
 	})
 }
 
@@ -170,7 +176,7 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 		default:
 			if r.Header.Get("X-WolWeb") == "" && !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
-				writeError(w, http.StatusForbidden, `Anfrage abgelehnt: Kopfzeile "X-WolWeb: 1" fehlt.`)
+				s.fail(w, r, http.StatusForbidden, "err.csrf")
 				return
 			}
 		}
@@ -194,7 +200,7 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 		defer func() {
 			if v := recover(); v != nil {
 				log.Printf("Fehler bei %s %s: %v", r.Method, r.URL.Path, v)
-				writeError(w, http.StatusInternalServerError, "Interner Fehler.")
+				s.fail(w, r, http.StatusInternalServerError, "err.internal")
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -211,7 +217,7 @@ func cacheControl(h http.Handler) http.Handler {
 func (s *Server) writable(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.ReadOnly {
-			writeError(w, http.StatusForbidden, "Nur-Lese-Modus: Änderungen sind abgeschaltet.")
+			s.fail(w, r, http.StatusForbidden, "err.read_only")
 			return
 		}
 		h(w, r)
@@ -233,30 +239,40 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"success": false, "message": msg})
 }
 
+// fail antwortet mit einer Fehlermeldung in der Sprache der Anfrage.
+func (s *Server) fail(w http.ResponseWriter, r *http.Request, code int, key string, args ...any) {
+	writeError(w, code, i18n.T(s.lang(r), key, args...))
+}
+
+// lang ist die Sprache einer Anfrage (?lang=, Cookie des Umschalters, Accept-Language,
+// sonst die Einstellung language).
+func (s *Server) lang(r *http.Request) i18n.Lang { return i18n.FromRequest(r, s.defLang) }
+
 func readJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 64<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		return store.ValidationError{Msg: "Ungültige Daten: " + err.Error()}
+		return store.Invalid("err.invalid_json", err.Error())
 	}
 	if dec.More() {
-		return store.ValidationError{Msg: "Ungültige Daten: mehr als ein JSON-Wert"}
+		return store.Invalid("err.json_multiple")
 	}
 	return nil
 }
 
-func storeError(w http.ResponseWriter, err error) {
+// storeError übersetzt Fehler des Store; Eingabefehler nennen das betroffene Feld ("field").
+func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
 	var ve store.ValidationError
 	switch {
 	case errors.As(err, &ve):
-		writeError(w, http.StatusBadRequest, ve.Msg)
+		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": ve.In(s.lang(r)), "field": ve.Field})
 	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "Gerät nicht gefunden.")
+		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 	case errors.Is(err, store.ErrConflict):
-		writeError(w, http.StatusConflict, err.Error())
+		s.fail(w, r, http.StatusConflict, "err.conflict")
 	default:
 		log.Printf("Speichern fehlgeschlagen: %v", err)
-		writeError(w, http.StatusInternalServerError, "Speichern fehlgeschlagen: "+err.Error())
+		s.fail(w, r, http.StatusInternalServerError, "err.save_failed", err)
 	}
 }
 
@@ -270,10 +286,33 @@ type pageData struct {
 	Missing string
 	Key     string // Weckschlüssel, den die Weckseite bei ihren Aufrufen mitschickt
 	Group   *groupView
+
+	Lang      i18n.Lang         // Sprache der Seite
+	OtherLang i18n.Lang         // Ziel des Umschalters
+	I18N      map[string]string // Katalog für die Skripte (als JSON in der Seite)
 }
 
-func (s *Server) render(w http.ResponseWriter, code int, name string, d pageData) {
+// T übersetzt in Vorlagen: {{.T "page.save"}}, {{.T "wake.title.starting" .Device.Name}}.
+func (p pageData) T(key string, args ...any) string { return i18n.T(p.Lang, key, args...) }
+
+// TN wählt Einzahl/Mehrzahl (key.one / key.other) nach n.
+func (p pageData) TN(key string, n int) string {
+	if n == 1 {
+		return i18n.T(p.Lang, key+".one", n)
+	}
+	return i18n.T(p.Lang, key+".other", n)
+}
+
+func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, name string, d pageData) {
 	d.Base, d.Version = s.cfg.VDir, s.version
+	d.Lang = s.lang(r)
+	d.OtherLang = i18n.EN
+	if d.Lang == i18n.EN {
+		d.OtherLang = i18n.DE
+	}
+	d.I18N = i18n.Catalog(d.Lang)
+	w.Header().Set("Content-Language", string(d.Lang))
+	w.Header().Add("Vary", "Accept-Language, Cookie")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
@@ -283,7 +322,7 @@ func (s *Server) render(w http.ResponseWriter, code int, name string, d pageData
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
-	s.render(w, http.StatusOK, "index.html", pageData{})
+	s.render(w, r, http.StatusOK, "index.html", pageData{})
 }
 
 // --- Geräte ---
@@ -356,12 +395,12 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 	var in store.Input
 	if err := readJSON(r, &in); err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	d, err := s.store.Create(in)
 	if err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	log.Printf("Gerät angelegt: %s (%s)", d.Name, d.MAC)
@@ -376,12 +415,12 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt *time.Time `json:"updated_at"`
 	}
 	if err := readJSON(r, &in); err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	d, err := s.store.Update(r.PathValue("id"), in.Input, in.UpdatedAt)
 	if err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	log.Printf("Gerät geändert: %s (%s)", d.Name, d.MAC)
@@ -392,7 +431,7 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Delete(r.PathValue("id")); err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	s.devicesChanged()
@@ -402,7 +441,7 @@ func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rotateWakeKey(w http.ResponseWriter, r *http.Request) {
 	d, err := s.store.RotateWakeKey(r.PathValue("id"))
 	if err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	log.Printf("Neuer Weckschlüssel für %s", d.Name)
@@ -413,7 +452,7 @@ func (s *Server) rotateWakeKey(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.store.Get(r.PathValue("id"))
 	if !ok {
-		writeError(w, http.StatusNotFound, "Gerät nicht gefunden.")
+		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
 	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
@@ -467,20 +506,35 @@ func clip(s string, n int) string {
 	return s
 }
 
+// Quellen eines Weckauftrags (Schlüssel im Verlauf, die Oberfläche übersetzt sie als ui.src.*).
+const (
+	srcUI        = "ui"         // Übersicht
+	srcPage      = "page"       // Weckseite
+	srcLink      = "link"       // Wecklink (GET, Automationen)
+	srcAPI       = "api"        // REST-API mit Token
+	srcSchedule  = "schedule"   // Zeitplan
+	srcGroup     = "group"      // "Gruppe wecken" in der Übersicht bzw. API
+	srcGroupPage = "group_page" // Gruppenseite
+	srcGroupLink = "group_link" // Gruppen-Wecklink
+)
+
 // wake sendet das Magic Packet und trägt den Versuch in den Verlauf ein. r darf nil sein
-// (Zeitplan); source sagt, woher der Auftrag kam.
-func (s *Server) wake(r *http.Request, d store.Device, source string) (wakeResult, int) {
+// (Zeitplan); source sagt, woher der Auftrag kam, group nennt bei Gruppen deren Namen.
+func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wakeResult, int) {
+	l := s.lang(r)
 	target := s.wakeTarget(d)
 	client, user := s.caller(r)
-	ev := store.Event{ID: d.ID, Device: d.Name, Source: source, Client: client, User: user, Target: target}
+	ev := store.Event{ID: d.ID, Device: d.Name, Source: source, Group: group, Client: client, User: user, Target: target}
 	defer func() {
 		if err := s.store.RecordWake(ev); err != nil {
 			log.Printf("Verlauf speichern: %v", err)
 		}
 		s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
-		result, kind, msg := "ok", notify.Wake, fmt.Sprintf("Magic Packet an %s gesendet (%s).", d.Name, source)
+		// Benachrichtigungen in der eingestellten Sprache – sie gehen an niemand Bestimmtes.
+		src := i18n.T(s.defLang, "ui.src."+source, group)
+		result, kind, msg := "ok", notify.Wake, i18n.T(s.defLang, "notify.wake", d.Name, src)
 		if !ev.Success {
-			result, kind, msg = "error", notify.WakeFailed, fmt.Sprintf("Wecken von %s fehlgeschlagen: %s", d.Name, ev.Error)
+			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.defLang, "notify.wake_failed", d.Name, ev.Error)
 		}
 		s.wakesMu.Lock()
 		s.wakes[[2]string{d.ID, result}]++
@@ -498,29 +552,29 @@ func (s *Server) wake(r *http.Request, d store.Device, source string) (wakeResul
 	}
 	if err != nil {
 		log.Printf("Wecken von %s fehlgeschlagen: %v", d.Name, err)
-		res.Message, res.Error = fmt.Sprintf("Magic Packet für %s konnte nicht gesendet werden.", d.Name), err.Error()
-		ev.Error = err.Error()
+		res.Message, res.Error = i18n.T(l, "msg.wake_failed", d.Name), i18n.Text(l, err)
+		ev.Error = res.Error
 		return res, http.StatusInternalServerError
 	}
 	log.Printf("Magic Packet an %s (%s) über %s gesendet (%s)", d.Name, d.MAC, target, source)
 	ev.Success = true
 	res.Success = true
-	res.Message = fmt.Sprintf("Magic Packet an %s gesendet.", d.Name)
+	res.Message = i18n.T(l, "msg.wake_sent", d.Name)
 	return res, http.StatusOK
 }
 
 func (s *Server) wakeDevice(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.store.Get(r.PathValue("id"))
 	if !ok {
-		writeError(w, http.StatusNotFound, "Gerät nicht gefunden.")
+		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
 	// Die Oberfläche schickt X-WolWeb ohne Token; Automationen nutzen meist ein Token.
-	source := "API"
+	source := srcAPI
 	if r.Header.Get("X-WolWeb") != "" && !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
-		source = "Übersicht"
+		source = srcUI
 	}
-	res, code := s.wake(r, d, source)
+	res, code := s.wake(r, d, source, "")
 	writeJSON(w, code, res)
 }
 
@@ -546,7 +600,7 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 	// HEAD über die GET-Route, daher hier ausdrücklich nur die Seite.
 	if sfs := r.Header.Get("Sec-Fetch-Site"); r.Method == http.MethodHead || wantsHTML(r) || sfs == "cross-site" || sfs == "same-site" {
 		if !ok {
-			s.render(w, http.StatusNotFound, "wake.html", pageData{Missing: name})
+			s.render(w, r, http.StatusNotFound, "wake.html", pageData{Missing: name})
 			return
 		}
 		v := s.view(d)
@@ -554,28 +608,28 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		if s.needsKey(r) {
 			pd.Key = d.WakeKey
 		}
-		s.render(w, http.StatusOK, "wake.html", pd)
+		s.render(w, r, http.StatusOK, "wake.html", pd)
 		return
 	}
 	if !ok {
-		writeJSON(w, http.StatusNotFound, wakeResult{Message: fmt.Sprintf("Gerät %q nicht gefunden.", name), Error: "not found"})
+		writeJSON(w, http.StatusNotFound, wakeResult{Message: i18n.T(s.lang(r), "err.device_not_found_name", name), Error: "not found"})
 		return
 	}
 	if s.limitPublic(w, r, d) {
 		return
 	}
-	res, code := s.wake(r, d, "Wecklink")
+	res, code := s.wake(r, d, srcLink, "")
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); res.Success && wait > 0 {
 		if ip, _ := s.monitor.Target(d); !ip.IsValid() {
 			// Ohne IP lässt sich nichts prüfen – "online" bleibt weg statt eines falschen false.
-			res.Message = fmt.Sprintf("Magic Packet an %s gesendet. Ohne bekannte IP-Adresse lässt sich der Start nicht prüfen.", d.Name)
+			res.Message = i18n.T(s.lang(r), "msg.wake_no_ip", d.Name)
 		} else {
 			online := s.waitOnline(r.Context(), d, time.Duration(min(wait, 600))*time.Second)
 			res.Online = &online
 			if online {
-				res.Message = fmt.Sprintf("%s ist online.", d.Name)
+				res.Message = i18n.T(s.lang(r), "msg.wake_online", d.Name)
 			} else {
-				res.Message = fmt.Sprintf("Magic Packet an %s gesendet, das Gerät hat sich aber noch nicht gemeldet.", d.Name)
+				res.Message = i18n.T(s.lang(r), "msg.wake_no_answer", d.Name)
 			}
 		}
 	}
@@ -600,20 +654,20 @@ func (s *Server) waitOnline(ctx context.Context, d store.Device, max time.Durati
 func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.findForLink(r)
 	if !ok {
-		writeError(w, http.StatusNotFound, "Gerät nicht gefunden.")
+		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
 	if s.limitPublic(w, r, d) {
 		return
 	}
-	res, code := s.wake(r, d, "Weckseite")
+	res, code := s.wake(r, d, srcPage, "")
 	writeJSON(w, code, res)
 }
 
 func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.findForLink(r)
 	if !ok {
-		writeError(w, http.StatusNotFound, "Gerät nicht gefunden.")
+		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
 	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
@@ -632,7 +686,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	b, err := s.store.Export()
 	if err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -644,12 +698,12 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 func (s *Server) importDevices(w http.ResponseWriter, r *http.Request) {
 	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Datei zu groß oder unvollständig.")
+		s.fail(w, r, http.StatusBadRequest, "err.file_too_large")
 		return
 	}
-	res, err := s.store.Import(b)
+	res, err := s.store.Import(b, s.lang(r))
 	if err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	log.Printf("Import: %d Gerät(e) übernommen, %d schon vorhanden, %d fehlerhaft", res.Added, res.Skipped, len(res.Errors))
@@ -689,29 +743,31 @@ func (s *Server) discovery(w http.ResponseWriter, r *http.Request) {
 	for _, f := range list {
 		out = append(out, foundView{FoundEntry: f, Broadcast: discovery.BroadcastFor(f.IP)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"job": s.scanner.Job(), "found": out})
+	writeJSON(w, http.StatusOK, map[string]any{"job": s.scanner.Job().Localized(s.lang(r)), "found": out})
 }
 
 func (s *Server) startScan(w http.ResponseWriter, r *http.Request) {
 	switch err := s.scanner.Start(false); {
 	case errors.Is(err, discovery.ErrBusy):
-		writeError(w, http.StatusConflict, err.Error())
+		s.fail(w, r, http.StatusConflict, "scan.busy")
+	case errors.Is(err, discovery.ErrNoNetworks):
+		s.fail(w, r, http.StatusBadRequest, "scan.no_networks")
 	case err != nil:
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, i18n.Text(s.lang(r), err))
 	default:
-		writeJSON(w, http.StatusAccepted, s.scanner.Job())
+		writeJSON(w, http.StatusAccepted, s.scanner.Job().Localized(s.lang(r)))
 	}
 }
 
 func (s *Server) cancelScan(w http.ResponseWriter, r *http.Request) {
 	s.scanner.Cancel()
-	writeJSON(w, http.StatusOK, s.scanner.Job())
+	writeJSON(w, http.StatusOK, s.scanner.Job().Localized(s.lang(r)))
 }
 
 func macParam(r *http.Request) (string, error) {
 	hw, err := wol.ParseMAC(r.PathValue("mac"))
 	if err != nil {
-		return "", store.ValidationError{Msg: err.Error()}
+		return "", store.Invalid("val.mac_param", r.PathValue("mac"))
 	}
 	return wol.FormatMAC(hw), nil
 }
@@ -719,18 +775,18 @@ func macParam(r *http.Request) (string, error) {
 func (s *Server) ignoreFound(w http.ResponseWriter, r *http.Request) {
 	mac, err := macParam(r)
 	if err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	var in struct {
 		Ignored bool `json:"ignored"`
 	}
 	if err := readJSON(r, &in); err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	if err := s.store.SetIgnored(mac, in.Ignored); err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -739,11 +795,11 @@ func (s *Server) ignoreFound(w http.ResponseWriter, r *http.Request) {
 func (s *Server) forgetFound(w http.ResponseWriter, r *http.Request) {
 	mac, err := macParam(r)
 	if err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	if err := s.store.ForgetFound(mac); err != nil {
-		storeError(w, err)
+		s.storeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
