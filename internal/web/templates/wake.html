@@ -26,9 +26,9 @@
   <div class="wake-visual">
     <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
     <div class="wake-icon">
-      <svg class="ico dev-ico"><use href="#i-{{.Device.Icon}}"/></svg>
-      <svg class="ico done-ico" viewBox="0 0 24 24"><path class="check-path" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
-      <svg class="ico warn-ico"><use href="#i-alert"/></svg>
+      <svg aria-hidden="true" class="ico dev-ico"><use href="#i-{{.Device.Icon}}"/></svg>
+      <svg aria-hidden="true" class="ico done-ico" viewBox="0 0 24 24"><path class="check-path" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+      <svg aria-hidden="true" class="ico warn-ico"><use href="#i-alert"/></svg>
     </div>
   </div>
   <h1 id="wake-title">{{.T "wake.title.starting" .Device.Name}}</h1>
@@ -41,20 +41,21 @@
     <li data-step="online"><span class="step-dot"></span><div><strong>{{.T "ui.online"}}</strong><small class="muted" data-detail></small></div></li>
   </ol>
 
+  <p class="sr-only" id="wake-live" role="status"></p>
   <div class="wake-result" id="wake-result" hidden></div>
 
   <div class="wake-actions">
-    <a class="btn btn-ghost" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.overview"}}</a>
-    <button class="btn btn-secondary" id="wake-again" hidden><svg class="ico"><use href="#i-refresh"/></svg><span>{{.T "wake.btn.again"}}</span></button>
+    <a class="btn btn-ghost" href="./"><svg aria-hidden="true" class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.overview"}}</a>
+    <button class="btn btn-secondary" id="wake-again" hidden><svg aria-hidden="true" class="ico"><use href="#i-refresh"/></svg><span>{{.T "wake.btn.again"}}</span></button>
   </div>
 {{else}}
   <div class="wake-visual static">
-    <div class="wake-icon warn"><svg class="ico"><use href="#i-alert"/></svg></div>
+    <div class="wake-icon warn"><svg aria-hidden="true" class="ico"><use href="#i-alert"/></svg></div>
   </div>
   <h1>{{.T "page.missing.title"}}</h1>
   <p class="muted">{{.T "page.missing.text"}}</p>
   <p class="mono">{{.Missing}}</p>
-  <div class="wake-actions"><a class="btn btn-primary" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.to_overview"}}</a></div>
+  <div class="wake-actions"><a class="btn btn-primary" href="./"><svg aria-hidden="true" class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.to_overview"}}</a></div>
 {{end}}
 </main>
 </body>

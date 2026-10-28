@@ -12,6 +12,7 @@
   const title = document.getElementById("wake-title");
   const result = document.getElementById("wake-result");
   const again = document.getElementById("wake-again");
+  const live = document.getElementById("wake-live"); // sagt Screenreadern die Phasen an
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function step(id, state, detail) {
@@ -60,6 +61,7 @@
   }
   function setTitle(t, tab) {
     title.textContent = t;
+    live.textContent = t;
     document.title = (tab || t) + " · Wake on LAN";
   }
 

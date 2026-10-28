@@ -38,6 +38,7 @@
   function icon(name, cls) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "ico" + (cls ? " " + cls : ""));
+    svg.setAttribute("aria-hidden", "true"); // Schmuck – die Knöpfe haben eigene Namen
     const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
     use.setAttribute("href", "#i-" + name);
     svg.append(use);
@@ -108,7 +109,7 @@
 
   function toast(kind, title, text) {
     const box = $("#toasts");
-    const t = el("div", { class: "toast " + kind, role: "status" },
+    const t = el("div", { class: "toast " + kind }, // der Kasten selbst ist die Ansage (role=status)
       icon(kind === "ok" ? "check" : kind === "err" ? "x" : "alert"),
       el("div", {}, el("strong", { text: title }), text ? el("p", { text }) : null));
     box.append(t);
@@ -183,12 +184,21 @@
   function groupHead(g) {
     const members = state.devices.filter((d) => d.group && d.group.toLowerCase() === g.name.toLowerCase());
     const online = members.filter((d) => deviceState(d) === "online").length;
+    const nameID = "gn-" + groupIDs(g.name);
     return el("div", { class: "group-head", "data-id": "gruppe:" + g.name },
-      el("h2", { text: g.name }),
+      el("h2", { id: nameID, text: g.name }),
       el("span", { class: "muted", text: t("ui.x_of_y_online", online, members.length) }),
       el("span", { class: "spacer" }),
-      el("button", { class: "btn btn-secondary btn-sm", "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: t("ui.wake_group") })),
-      el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.copy_group_link"), "aria-label": t("ui.copy_group_link"), "data-focus": "copy", onclick: () => copyURL(groupURL(g), t("ui.group_link_copied"), t("ui.copy_group_link")) }, icon("link")));
+      el("button", { class: "btn btn-secondary btn-sm", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: t("ui.wake_group") })),
+      state.simple ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.copy_group_link"), "aria-label": t("ui.copy_group_link"), "aria-describedby": nameID, "data-focus": "copy", onclick: () => copyURL(groupURL(g), t("ui.group_link_copied"), t("ui.copy_group_link")) }, icon("link")));
+  }
+
+  // groupIDs vergibt je Gruppenname eine feste Nummer für IDs (Namen dürfen Leerzeichen enthalten).
+  const groupIDMap = new Map();
+  function groupIDs(name) {
+    const k = name.toLowerCase();
+    if (!groupIDMap.has(k)) groupIDMap.set(k, groupIDMap.size + 1);
+    return groupIDMap.get(k);
   }
 
   function groupURL(g) {
@@ -227,32 +237,36 @@
   }
 
   function buildCard(d) {
-    const ro = state.info.read_only;
+    const simple = state.simple; // einfache Ansicht: nur Name, Status und der Weckknopf
+    const ro = state.info.read_only || simple;
     const s = deviceState(d);
     const ip = d.ip || d.check_ip;
-    const card = el("article", { class: "card", "data-id": d.id, "data-state": s },
+    // Die Knöpfe heißen auf jeder Karte gleich ("Wecken") – der Gerätename als Beschreibung sagt
+    // Screenreadern, wozu sie gehören.
+    const nameID = "dn-" + d.id;
+    const card = el("article", { class: "card", "data-id": d.id, "data-state": s, "aria-labelledby": nameID },
       el("div", { class: "card-top" },
         el("div", { class: "dev-icon", title: vendorText(d.vendor) }, icon(d.icon || "desktop")),
         el("div", { class: "card-title" },
-          el("h3", { text: d.name, title: d.name }),
-          el("div", { class: "card-meta" },
+          el("h3", { id: nameID, text: d.name, title: d.name }),
+          simple ? null : el("div", { class: "card-meta" },
             ip ? el("span", { class: "mono", text: ip, title: d.ip ? t("ui.ip_address") : t("ui.ip_from_scan") }) : null,
             el("span", { class: "mono", text: d.mac, title: vendorText(d.vendor) || t("ui.mac_address") }),
             d.next_wake ? el("span", { class: "sched", title: t("ui.schedule_title", (d.schedule || []).map(scheduleText).join("; ")) }, icon("clock"), nextWakeText(d.next_wake)) : null)),
-        ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.edit"), "aria-label": t("ui.edit"), "data-focus": "edit", onclick: () => openDialog(d) }, icon("edit"))),
-      d.note ? el("p", { class: "card-note", text: d.note }) : null,
+        ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.edit"), "aria-label": t("ui.edit"), "aria-describedby": nameID, "data-focus": "edit", onclick: () => openDialog(d) }, icon("edit"))),
+      d.note && !simple ? el("p", { class: "card-note", text: d.note }) : null,
       el("div", { class: "status-line" }, statusLine(d)),
       el("div", { class: "card-actions" },
-        el("button", { class: "btn btn-primary btn-wake", disabled: s === "waking", "data-focus": "wake", onclick: () => wake(d) },
+        el("button", { class: "btn btn-primary btn-wake", disabled: s === "waking", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wake(d) },
           icon("power"), el("span", { text: s === "waking" ? t("ui.being_started") : s === "online" ? t("ui.wake_again") : t("ui.wake") })),
-        el("button", { class: "btn btn-secondary icon-only", title: t("ui.copy_link"), "aria-label": t("ui.copy_link"), "data-focus": "copy", onclick: () => copyLink(d) }, icon("link")),
-        el("a", { class: "btn btn-secondary icon-only", href: d.wake_path, target: "_blank", rel: "noopener", title: t("ui.open_wake_page"), "aria-label": t("ui.open_wake_page"), "data-focus": "open" }, icon("external"))));
+        simple ? null : el("button", { class: "btn btn-secondary icon-only", title: t("ui.copy_link"), "aria-label": t("ui.copy_link"), "aria-describedby": nameID, "data-focus": "copy", onclick: () => copyLink(d) }, icon("link")),
+        simple ? null : el("a", { class: "btn btn-secondary icon-only", href: d.wake_path, target: "_blank", rel: "noopener", title: t("ui.open_wake_page"), "aria-label": t("ui.open_wake_page"), "aria-describedby": nameID, "data-focus": "open" }, icon("external"))));
     if (s === "waking") {
       const w = state.waking.get(d.id);
       const pct = Math.min(100, ((Date.now() - w.start) / (state.info.wake_timeout * 1000)) * 100);
       const bar = el("div", { class: "progress-bar" });
       bar.style.width = pct + "%";
-      card.append(el("div", { class: "progress" }, bar));
+      card.append(el("div", { class: "progress", "aria-hidden": "true" }, bar)); // die Zeit steht als Text daneben
     }
     return card;
   }
@@ -490,15 +504,25 @@
   const drawerOpen = () => drawer.classList.contains("open");
   let discoveryTimer = null;
 
+  // Solange die Leiste offen ist, ist die Seite dahinter für Tastatur und Screenreader gesperrt –
+  // sonst führte Tab aus dem Dialog heraus.
+  const behindDrawer = () => [$(".topbar"), $("main.container"), $(".skip-link")];
+  let drawerOpener = null; // dorthin kehrt der Fokus beim Schließen zurück
   function openDrawer() {
+    if (!drawerOpen()) drawerOpener = document.activeElement;
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
+    for (const n of behindDrawer()) n.inert = true;
     loadDiscovery();
     setTimeout(() => $("#scan-btn").focus(), 50);
   }
   function closeDrawer() {
     // Fokus zurück auf den Knopf, sonst landet er im unsichtbar werdenden Bereich.
-    if (drawer.contains(document.activeElement)) $("#open-discovery").focus();
+    for (const n of behindDrawer()) n.inert = false;
+    const a = document.activeElement;
+    if (drawer.contains(a) || a === document.body) {
+      (drawerOpener && drawerOpener.isConnected && drawerOpener !== document.body ? drawerOpener : $("#open-discovery")).focus();
+    }
     drawer.classList.remove("open");
     drawer.setAttribute("aria-hidden", "true");
   }
@@ -700,7 +724,7 @@
     box.addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (!b) return;
-      for (const x of box.children) x.setAttribute("aria-selected", x === b ? "true" : "false");
+      for (const x of box.children) x.setAttribute("aria-pressed", x === b ? "true" : "false");
       state[key] = b.dataset.filter;
       onChange();
     });
@@ -728,6 +752,25 @@
     document.documentElement.setAttribute("data-theme", next);
     try { localStorage.setItem("wolweb-theme", next); } catch (e) { /* egal */ }
     updateThemeIcon();
+  });
+
+  // Einfache Ansicht: große Weckknöpfe, nichts zum Bearbeiten. theme.js setzt die Klasse schon vor
+  // dem ersten Zeichnen (gespeicherte Wahl oder ?view=simple / ?view=normal im Link).
+  state.simple = document.documentElement.classList.contains("simple");
+  function updateViewToggle() { $("#view-toggle").setAttribute("aria-pressed", state.simple ? "true" : "false"); }
+  $("#view-toggle").addEventListener("click", () => {
+    state.simple = !state.simple;
+    document.documentElement.classList.toggle("simple", state.simple);
+    try { localStorage.setItem("wolweb-view", state.simple ? "simple" : "normal"); } catch (e) { /* egal */ }
+    updateViewToggle();
+    renderDevices();
+  });
+  updateViewToggle();
+  // Sprunglink: "#devices" löst sich wegen <base> gegen die Basisadresse auf und lüde die Seite
+  // neu (ohne ?view=…) – daher selbst springen.
+  $(".skip-link").addEventListener("click", (e) => {
+    e.preventDefault();
+    $("#devices").focus();
   });
 
   // Sprache: Wahl im Cookie (gilt auch für Meldungen des Servers), dann neu laden.

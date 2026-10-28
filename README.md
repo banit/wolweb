@@ -223,6 +223,24 @@ nennen zusätzlich das betroffene Feld (`"field": "mac"`). Die Texte stehen in `
 `en.json`; ein Test prüft, dass beide dieselben Schlüssel haben und alles Benutzte vorhanden ist. Das Protokoll
 (Log) bleibt deutsch.
 
+## Barrierefreiheit
+
+wolweb soll sich auch mit eingeschränkter Feinmotorik, nur mit der Tastatur oder mit einem Screenreader bedienen
+lassen:
+
+- **Einfache Ansicht** (Knopf mit dem großen Schalter oben rechts): nur Name, Status und ein großer Weckknopf je
+  Gerät, nichts zum Bearbeiten oder Verschieben. Die Wahl merkt sich der Browser; ein Link mit `?view=simple`
+  schaltet sie ein (etwa als Lesezeichen, das man jemandem einrichtet), `?view=normal` wieder aus.
+- **Große Ziele auf Touchscreens**: Auf Geräten mit Touch sind alle Knöpfe, Felder und Filter mindestens
+  44 × 44 Pixel groß und weiter auseinander – auch ein unruhiger Finger trifft.
+- **Ein Tipp genügt**: Der Wecklink eines Geräts (`/wake/<Name>`) weckt schon beim Öffnen. Als Symbol auf dem
+  Startbildschirm des Handys ist das ein einziger Tipp, ohne die Übersicht zu bedienen.
+- **Tastatur**: alles per Tab erreichbar, sichtbarer Fokus, Sprunglink „Zu den Geräten“, `/` springt in die
+  Suche, Escape schließt Dialoge und die Suchleiste; solange die Leiste offen ist, bleibt der Fokus darin.
+- **Screenreader**: Knöpfe nennen das Gerät, zu dem sie gehören; Weck- und Gruppenseite sagen die Phasen an
+  (sendet, wartet, online); Filter melden, welcher aktiv ist.
+- **Kontrast** nach WCAG AA (4,5:1) in hell und dunkel; Animationen entfallen bei „Bewegung reduzieren“.
+
 ## API
 
 Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site-Requests) oder ein Bearer-Token.
@@ -292,6 +310,10 @@ in **English and German**; it follows the browser language and can be switched i
   protection against DNS rebinding
 - Per-device ports for the online check, SecureOn passwords, sending via a specific network interface,
   home-screen icons (web app manifest)
+- **Accessibility**: a **simple view** with only name, status and one large wake button per device (toggle at the
+  top right, or `?view=simple` in a bookmark), touch targets of at least 44 × 44 px on touch screens, full keyboard
+  operation, screen reader announcements on the wake pages, WCAG AA contrast.
+  A device's wake link wakes it as soon as it is opened, so a home-screen icon is a single tap
 - Imports the `devices.json` and settings of the original wolweb
 
 ### Quick start (Docker)

@@ -24,9 +24,9 @@
   <div class="wake-visual">
     <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
     <div class="wake-icon">
-      <svg class="ico dev-ico"><use href="#i-power"/></svg>
-      <svg class="ico done-ico" viewBox="0 0 24 24"><path class="check-path" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
-      <svg class="ico warn-ico"><use href="#i-alert"/></svg>
+      <svg aria-hidden="true" class="ico dev-ico"><use href="#i-power"/></svg>
+      <svg aria-hidden="true" class="ico done-ico" viewBox="0 0 24 24"><path class="check-path" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+      <svg aria-hidden="true" class="ico warn-ico"><use href="#i-alert"/></svg>
     </div>
   </div>
   <h1 id="group-title">{{.T "group.title.starting" .Group.Name}}</h1>
@@ -35,18 +35,19 @@
   <ul class="members" id="members">
     {{range .Group.Members}}
     <li data-id="{{.ID}}" data-has-ip="{{if .CheckIP}}1{{end}}" data-s="">
-      <span class="dev-icon"><svg class="ico"><use href="#i-{{.Icon}}"/></svg></span>
+      <span class="dev-icon"><svg aria-hidden="true" class="ico"><use href="#i-{{.Icon}}"/></svg></span>
       <div><strong>{{.Name}}</strong><small class="muted" data-detail>{{if .CheckIP}}{{.CheckIP}}{{else}}{{$.T "group.no_ip"}}{{end}}</small></div>
       <span class="pill" data-pill>{{$.T "group.pill.waiting"}}</span>
     </li>
     {{end}}
   </ul>
 
+  <p class="sr-only" id="group-live" role="status"></p>
   <div class="wake-result" id="group-result" hidden></div>
 
   <div class="wake-actions">
-    <a class="btn btn-ghost" href="./"><svg class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.overview"}}</a>
-    <button class="btn btn-secondary" id="group-again" hidden><svg class="ico"><use href="#i-refresh"/></svg><span>{{.T "wake.btn.again"}}</span></button>
+    <a class="btn btn-ghost" href="./"><svg aria-hidden="true" class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.overview"}}</a>
+    <button class="btn btn-secondary" id="group-again" hidden><svg aria-hidden="true" class="ico"><use href="#i-refresh"/></svg><span>{{.T "wake.btn.again"}}</span></button>
   </div>
 </main>
 </body>

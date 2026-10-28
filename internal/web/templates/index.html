@@ -19,24 +19,28 @@
 </head>
 <body class="app">
 {{template "icons"}}
+<a class="skip-link" href="#devices">{{.T "page.skip"}}</a>
 <header class="topbar">
   <div class="brand">
-    <span class="brand-mark"><svg class="ico"><use href="#i-power"/></svg></span>
+    <span class="brand-mark"><svg aria-hidden="true" class="ico"><use href="#i-power"/></svg></span>
     <div>
       <h1>Wake on LAN</h1>
       <p class="muted" id="summary">{{.T "page.loading"}}</p>
     </div>
   </div>
   <div class="topbar-actions">
-    <button class="btn btn-ghost lang-toggle" id="lang-toggle" data-lang="{{.OtherLang}}" title="{{.T "page.lang_switch"}}" aria-label="{{.T "page.lang_switch"}}" lang="{{.OtherLang}}">{{.OtherLang}}</button>
+    <button class="btn btn-ghost lang-toggle" id="lang-toggle" data-lang="{{.OtherLang}}" title="{{.T "page.lang_switch"}}" aria-label="{{.OtherLang}} – {{.T "page.lang_switch"}}" lang="{{.OtherLang}}">{{.OtherLang}}</button>
+    <button class="btn btn-ghost icon-only" id="view-toggle" aria-pressed="false" title="{{.T "page.view.simple"}}" aria-label="{{.T "page.view.simple"}}">
+      <svg aria-hidden="true" class="ico"><use href="#i-bigbutton"/></svg>
+    </button>
     <button class="btn btn-ghost icon-only" id="theme-toggle" title="{{.T "page.theme"}}" aria-label="{{.T "page.theme"}}">
-      <svg class="ico"><use href="#i-moon"/></svg>
+      <svg aria-hidden="true" class="ico"><use href="#i-moon"/></svg>
     </button>
-    <button class="btn btn-secondary" id="open-discovery">
-      <svg class="ico"><use href="#i-radar"/></svg><span>{{.T "page.network"}}</span><span class="badge" id="new-badge" hidden>0</span>
+    <button class="btn btn-secondary not-simple" id="open-discovery">
+      <svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg><span>{{.T "page.network"}}</span><span class="badge" id="new-badge" hidden>0</span>
     </button>
-    <button class="btn btn-primary" id="add-device">
-      <svg class="ico"><use href="#i-plus"/></svg><span>{{.T "page.device"}}</span>
+    <button class="btn btn-primary not-simple" id="add-device">
+      <svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg><span>{{.T "page.device"}}</span>
     </button>
   </div>
 </header>
@@ -44,33 +48,33 @@
 <main class="container">
   <div class="toolbar">
     <label class="search">
-      <svg class="ico"><use href="#i-search"/></svg>
+      <svg aria-hidden="true" class="ico"><use href="#i-search"/></svg>
       <input type="search" id="search" placeholder="{{.T "page.search"}}" autocomplete="off">
     </label>
-    <div class="segmented" role="tablist" id="filter">
-      <button role="tab" data-filter="all" aria-selected="true">{{.T "page.filter.all"}}</button>
-      <button role="tab" data-filter="online">{{.T "ui.online"}}</button>
-      <button role="tab" data-filter="offline">{{.T "ui.offline"}}</button>
+    <div class="segmented" role="group" id="filter" aria-label="{{.T "page.filter.label"}}">
+      <button type="button" data-filter="all" aria-pressed="true">{{.T "page.filter.all"}}</button>
+      <button type="button" data-filter="online" aria-pressed="false">{{.T "ui.online"}}</button>
+      <button type="button" data-filter="offline" aria-pressed="false">{{.T "ui.offline"}}</button>
     </div>
   </div>
 
-  <section id="devices" aria-live="polite"></section>
+  <section id="devices" aria-label="{{.T "page.devices"}}" tabindex="-1"></section>
 
   <div class="empty" id="empty" hidden>
-    <div class="empty-art"><svg class="ico"><use href="#i-power"/></svg></div>
+    <div class="empty-art"><svg aria-hidden="true" class="ico"><use href="#i-power"/></svg></div>
     <h2>{{.T "page.empty.title"}}</h2>
     <p class="muted">{{.T "page.empty.text"}}</p>
     <div class="row gap">
-      <button class="btn btn-secondary" data-action="discovery"><svg class="ico"><use href="#i-radar"/></svg>{{.T "page.empty.scan"}}</button>
-      <button class="btn btn-primary" data-action="add"><svg class="ico"><use href="#i-plus"/></svg>{{.T "page.empty.add"}}</button>
+      <button class="btn btn-secondary" data-action="discovery"><svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg>{{.T "page.empty.scan"}}</button>
+      <button class="btn btn-primary" data-action="add"><svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg>{{.T "page.empty.add"}}</button>
     </div>
   </div>
   <p class="empty-filter muted" id="empty-filter" hidden>{{.T "page.no_match"}}</p>
 
-  <footer class="page-foot">
-    <button class="btn btn-ghost btn-sm" id="open-history"><svg class="ico"><use href="#i-clock"/></svg>{{.T "page.history"}}</button>
-    <a class="btn btn-ghost btn-sm" href="api/v1/export" download><svg class="ico"><use href="#i-download"/></svg>{{.T "page.export"}}</a>
-    <button class="btn btn-ghost btn-sm" id="import-btn"><svg class="ico"><use href="#i-upload"/></svg>{{.T "page.import"}}</button>
+  <footer class="page-foot not-simple">
+    <button class="btn btn-ghost btn-sm" id="open-history"><svg aria-hidden="true" class="ico"><use href="#i-clock"/></svg>{{.T "page.history"}}</button>
+    <a class="btn btn-ghost btn-sm" href="api/v1/export" download><svg aria-hidden="true" class="ico"><use href="#i-download"/></svg>{{.T "page.export"}}</a>
+    <button class="btn btn-ghost btn-sm" id="import-btn"><svg aria-hidden="true" class="ico"><use href="#i-upload"/></svg>{{.T "page.import"}}</button>
     <input type="file" id="import-file" accept="application/json,.json" hidden>
     <span class="spacer"></span>
     <span class="muted small" id="version"></span>
@@ -78,15 +82,15 @@
 </main>
 
 <!-- Netzwerksuche -->
-<aside class="drawer" id="discovery" aria-hidden="true" aria-labelledby="discovery-title">
+<aside class="drawer" id="discovery" aria-hidden="true">
   <div class="drawer-backdrop" data-close></div>
-  <div class="drawer-panel" role="dialog" aria-modal="true">
+  <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="discovery-title">
     <header class="drawer-head">
       <div>
         <h2 id="discovery-title">{{.T "page.scan.title"}}</h2>
         <p class="muted small" id="discovery-networks"></p>
       </div>
-      <button class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg class="ico"><use href="#i-x"/></svg></button>
+      <button class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
     </header>
     <div class="drawer-body">
       <div class="scan-box">
@@ -95,15 +99,15 @@
             <strong id="scan-title">{{.T "ui.scan.ready"}}</strong>
             <p class="muted small" id="scan-detail"></p>
           </div>
-          <button class="btn btn-primary" id="scan-btn"><svg class="ico"><use href="#i-radar"/></svg><span>{{.T "ui.scan.start"}}</span></button>
+          <button class="btn btn-primary" id="scan-btn"><svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg><span>{{.T "ui.scan.start"}}</span></button>
         </div>
         <div class="progress" id="scan-progress" hidden><div class="progress-bar"></div></div>
       </div>
       <div class="list-head">
-        <div class="segmented small" role="tablist" id="found-filter">
-          <button role="tab" data-filter="new" aria-selected="true">{{.T "page.found.new"}}</button>
-          <button role="tab" data-filter="known">{{.T "page.found.known"}}</button>
-          <button role="tab" data-filter="ignored">{{.T "page.found.ignored"}}</button>
+        <div class="segmented small" role="group" id="found-filter" aria-label="{{.T "page.found.label"}}">
+          <button type="button" data-filter="new" aria-pressed="true">{{.T "page.found.new"}}</button>
+          <button type="button" data-filter="known" aria-pressed="false">{{.T "page.found.known"}}</button>
+          <button type="button" data-filter="ignored" aria-pressed="false">{{.T "page.found.ignored"}}</button>
         </div>
       </div>
       <ul class="found-list" id="found-list"></ul>
@@ -118,7 +122,7 @@
   <form method="dialog" id="device-form" novalidate>
     <header class="modal-head">
       <h2 id="device-dialog-title">{{.T "ui.dialog.add"}}</h2>
-      <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg class="ico"><use href="#i-x"/></svg></button>
+      <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
     </header>
     <div class="modal-body">
       <fieldset class="icon-picker" id="icon-picker">
@@ -186,8 +190,8 @@
       <p class="form-error" id="form-error" hidden></p>
     </div>
     <footer class="modal-foot">
-      <button type="button" class="btn btn-danger-ghost" id="delete-device" hidden><svg class="ico"><use href="#i-trash"/></svg>{{.T "ui.delete"}}</button>
-      <button type="button" class="btn btn-ghost" id="rotate-key" hidden title="{{.T "page.rotate_title"}}"><svg class="ico"><use href="#i-refresh"/></svg>{{.T "page.rotate"}}</button>
+      <button type="button" class="btn btn-danger-ghost" id="delete-device" hidden><svg aria-hidden="true" class="ico"><use href="#i-trash"/></svg>{{.T "ui.delete"}}</button>
+      <button type="button" class="btn btn-ghost" id="rotate-key" hidden title="{{.T "page.rotate_title"}}"><svg aria-hidden="true" class="ico"><use href="#i-refresh"/></svg>{{.T "page.rotate"}}</button>
       <span class="spacer"></span>
       <button type="button" class="btn btn-ghost" data-close>{{.T "ui.cancel"}}</button>
       <button type="submit" class="btn btn-primary" id="save-device">{{.T "page.save"}}</button>
@@ -199,16 +203,16 @@
 <dialog class="modal" id="history-dialog" aria-labelledby="history-title">
   <header class="modal-head">
     <h2 id="history-title">{{.T "page.history"}}</h2>
-    <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg class="ico"><use href="#i-x"/></svg></button>
+    <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
   </header>
   <div class="modal-body">
-    <ul class="history" id="history-list"></ul>
+    <ul class="history" id="history-list" tabindex="0" aria-labelledby="history-title"></ul>
     <p class="muted small center" id="history-empty" hidden>{{.T "page.history_empty"}}</p>
   </div>
 </dialog>
 
 <!-- Bestätigen -->
-<dialog class="modal modal-small" id="confirm-dialog">
+<dialog class="modal modal-small" id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
   <form method="dialog">
     <div class="modal-body">
       <h2 id="confirm-title"></h2>
@@ -222,6 +226,6 @@
   </form>
 </dialog>
 
-<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>
 </html>

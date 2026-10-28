@@ -8,16 +8,16 @@
   --border: #e2e5ec;
   --border-strong: #cfd4de;
   --text: #151821;
-  --muted: #677084;
+  --muted: #5f6878;
   --accent: #4f46e5;
   --accent-hover: #4338ca;
   --accent-soft: #eef0ff;
   --accent-contrast: #ffffff;
-  --ok: #15a34a;
+  --ok: #137a3a;
   --ok-soft: #e3f7ea;
-  --warn: #c77700;
+  --warn: #9a5800;
   --warn-soft: #fff4dc;
-  --err: #d92d20;
+  --err: #c4271b;
   --err-soft: #fdecea;
   --idle: #98a2b3;
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, .05);
@@ -113,6 +113,18 @@ a { color: var(--accent); }
   fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
 }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+/* Sprunglink: erst sichtbar, wenn er per Tastatur den Fokus bekommt */
+.skip-link {
+  position: absolute; left: 16px; top: -100px; z-index: 100;
+  padding: .8rem 1rem; border-radius: 10px; background: var(--accent); color: var(--accent-contrast);
+  font-weight: 600; text-decoration: none;
+}
+.skip-link:focus { top: 12px; }
+#devices:focus { outline: none; }
 
 /* --- Knöpfe --- */
 .btn {
@@ -185,7 +197,7 @@ a { color: var(--accent); }
   border: 0; background: transparent; color: var(--muted); font: inherit; font-size: .88rem; font-weight: 560;
   height: 32px; padding: 0 .85rem; border-radius: 8px; cursor: pointer;
 }
-.segmented button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
 .segmented.small button { height: 28px; font-size: .82rem; padding: 0 .7rem; }
 .segmented .count { margin-left: .35rem; color: var(--muted); font-weight: 500; }
 
@@ -258,6 +270,7 @@ a { color: var(--accent); }
 .empty-filter { text-align: center; padding: 2rem; }
 
 /* Sprachumschalter: zeigt die andere Sprache als Kürzel */
+#view-toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .lang-toggle { min-width: 38px; padding: 0 .55rem; font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 
 /* --- Gruppen --- */
@@ -504,6 +517,36 @@ textarea { resize: vertical; }
   .found { grid-template-columns: 34px 1fr; }
   .found-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .wake-card { padding: 1.6rem 1.1rem 1.2rem; }
+}
+/* --- Einfache Ansicht: Name, Status und ein großer Weckknopf – nichts zum Bearbeiten --- */
+.simple .not-simple { display: none !important; }
+.simple .grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 18px; }
+.simple .card { padding: 1.2rem; gap: 1rem; }
+.simple .card-title h3 { font-size: 1.35rem; white-space: normal; overflow-wrap: anywhere; }
+.simple .dev-icon { width: 56px; height: 56px; border-radius: 16px; }
+.simple .dev-icon .ico { width: 30px; height: 30px; }
+.simple .status-line { font-size: 1rem; }
+.simple .pill { height: 28px; font-size: .9rem; padding: 0 .7rem; }
+.simple .btn-wake { min-height: 76px; font-size: 1.3rem; border-radius: 16px; }
+.simple .btn-wake .ico { width: 1.5em; height: 1.5em; }
+.simple .group-head h2 { font-size: 1.25rem; }
+.simple .group-head .btn { min-height: 56px; padding: 0 1.2rem; font-size: 1.05rem; border-radius: 14px; }
+.simple .toolbar .search, .simple .toolbar .segmented button { min-height: 48px; font-size: 1rem; }
+.simple .wake-actions .btn { min-height: 64px; padding: 0 1.4rem; font-size: 1.15rem; border-radius: 14px; }
+
+/* --- Touch (auch Laptops mit Touchscreen): Ziele mindestens 44 × 44 px (WCAG 2.5.5), mehr Abstand --- */
+@media (any-pointer: coarse) {
+  .btn, .btn-sm { height: auto; min-height: 44px; }
+  .btn.icon-only, .btn-sm.icon-only, .topbar-actions .btn { width: 44px; min-width: 44px; }
+  .lang-toggle { min-width: 44px; }
+  .segmented button, .segmented.small button { height: auto; min-height: 44px; }
+  .card-actions, .found-actions, .topbar-actions, .wake-actions, .group-head { gap: .6rem; }
+  .page-foot { gap: .5rem; }
+  .icon-picker { gap: 8px; }
+  .icon-picker span { width: 48px; height: 48px; }
+  input, textarea { min-height: 44px; }
+  .search { height: 48px; }
+  .advanced summary { padding: .75rem 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

@@ -13,6 +13,7 @@
   const result = document.getElementById("group-result");
   const again = document.getElementById("group-again");
   const items = [...document.querySelectorAll("#members li")];
+  const live = document.getElementById("group-live"); // sagt Screenreadern die Phasen an
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function mark(li, s, pill, detail) {
@@ -21,6 +22,10 @@
     p.className = "pill " + ({ online: "online", sent: "waking", error: "warn", skip: "unknown" }[s] || "offline");
     p.textContent = pill;
     if (detail !== undefined) li.querySelector("[data-detail]").textContent = detail;
+  }
+  function setTitle(text) {
+    title.textContent = text;
+    live.textContent = text;
   }
   function fmt(ms) {
     const s = Math.floor(ms / 1000);
@@ -60,13 +65,13 @@
     again.hidden = true;
     result.hidden = true;
     card.dataset.state = "send";
-    title.textContent = t("group.title.starting", name);
+    setTitle(t("group.title.starting", name));
     let sent;
     try {
       sent = await call("POST", path + query);
     } catch (e) {
       card.dataset.state = "error";
-      title.textContent = t("wake.send.failed");
+      setTitle(t("wake.send.failed"));
       show("err", t("group.result.send_failed"), e.message);
       again.hidden = false;
       running = false;
@@ -100,11 +105,11 @@
     sub.textContent = t("ui.x_of_y_online", online, watch.length);
     if (!failed && online === watch.length) {
       card.dataset.state = watch.length ? "online" : "sent";
-      title.textContent = watch.length ? t("group.title.online", name) : t("group.title.sent");
+      setTitle(watch.length ? t("group.title.online", name) : t("group.title.sent"));
       show("ok", watch.length ? t("group.result.all_online") : t("wake.result.sent"), watch.length ? "" : t("group.result.no_ip"));
     } else {
       card.dataset.state = "timeout";
-      title.textContent = t("group.title.partial");
+      setTitle(t("group.title.partial"));
       for (const li of watch) if (li.dataset.s === "sent") mark(li, "sent", t("group.pill.no_answer"));
       show("warn", t("ui.x_of_y_online", online, watch.length) + (failed ? " · " + t("group.n_errors", failed) : ""), t("group.result.partial_text"));
     }
