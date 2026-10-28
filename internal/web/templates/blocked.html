@@ -21,12 +21,15 @@
   <p>{{.T "blocked.text" .Host}}</p>
   <div class="blocked-ways">
     <h2>{{.T "blocked.how"}}</h2>
-    <ol>
-      <li>{{.T "blocked.way_settings" .Host}}</li>
-      <li>{{.T "blocked.way_config"}}<pre tabindex="0"><code>"allowed_hosts": ["{{.Host}}"]</code></pre></li>
-      <li>{{.T "blocked.way_env"}}<pre tabindex="0"><code>WOLWEB_ALLOWED_HOSTS={{.Host}}</code></pre></li>
-    </ol>
-    <p class="muted small">{{.T "blocked.auth"}}</p>
+    <p>{{.T "blocked.way_settings" .Host}}</p>
+    <details>
+      <summary>{{.T "blocked.more"}}</summary>
+      <ul>
+        <li>{{.T "blocked.way_config"}}<pre tabindex="0"><code>"allowed_hosts": ["{{.Host}}"]</code></pre></li>
+        <li>{{.T "blocked.way_env"}}<pre tabindex="0"><code>WOLWEB_ALLOWED_HOSTS={{.Host}}</code></pre></li>
+      </ul>
+      <p class="muted small">{{.T "blocked.auth"}}</p>
+    </details>
   </div>
 </main>
 </body>
