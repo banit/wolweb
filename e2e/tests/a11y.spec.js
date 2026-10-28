@@ -2,7 +2,7 @@
 // Screenreader-Namen und Touch-Ziele.
 const { test, expect, devices } = require("@playwright/test");
 const AxeBuilder = require("@axe-core/playwright").default;
-const { reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets } = require("./helpers");
+const { reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets, contrast } = require("./helpers");
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"];
 
@@ -65,6 +65,18 @@ for (const colorScheme of ["light", "dark"]) {
       await expectAccessible(page);
       await next.getByRole("button", { name: "Auf dem Handy einrichten" }).click();
       await expect(page.locator("#phone-dialog")).toBeVisible();
+      await expectAccessible(page);
+    });
+
+    test("Löschen bestätigen und Treffer-Plakette (gefüllte Fehlerflächen)", async ({ page }) => {
+      await overview(page);
+      await expect(page.locator("#new-badge")).toBeVisible(); // Testserver: zwei neue Suchtreffer
+      expect(await contrast(page, "#new-badge")).toBeGreaterThanOrEqual(4.5);
+      await expectAccessible(page);
+      await page.locator(".card", { hasText: "Büro-PC" }).locator('[data-focus="edit"]').click();
+      await page.click("#delete-device");
+      await expect(page.locator("#confirm-dialog")).toBeVisible();
+      expect(await contrast(page, "#confirm-ok")).toBeGreaterThanOrEqual(4.5);
       await expectAccessible(page);
     });
 

@@ -51,4 +51,19 @@ async function smallTargets(page) {
   });
 }
 
-module.exports = { HEADERS, PORT, reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets };
+// Kontrast von Schrift- zu Hintergrundfarbe eines Elements mit eigener, deckender Füllfarbe (WCAG-Formel).
+// Für gefüllte Flächen wie Plaketten, die axe mangels eindeutigem Hintergrund nur als „unvollständig“ meldet.
+function contrast(page, selector) {
+  return page.locator(selector).evaluate((n) => {
+    const rgb = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+    const lum = (c) => {
+      const [r, g, b] = rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const cs = getComputedStyle(n);
+    const [a, b] = [lum(cs.color), lum(cs.backgroundColor)].sort((x, y) => y - x);
+    return Math.round(((a + 0.05) / (b + 0.05)) * 100) / 100;
+  });
+}
+
+module.exports = { HEADERS, PORT, reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets, contrast };
