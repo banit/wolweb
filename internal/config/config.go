@@ -25,6 +25,9 @@ type Config struct {
 	Discovery Discovery `json:"discovery"`
 	Status    Status    `json:"status"`
 	Auth      Auth      `json:"auth"`
+	// AllowedHosts sind zusätzliche Hostnamen, unter denen wolweb aufgerufen werden darf (Schutz
+	// vor DNS-Rebinding), z. B. "wol.example.com" oder "*.example.com"; "*" schaltet die Prüfung ab.
+	AllowedHosts []string `json:"allowed_hosts"`
 }
 
 type Discovery struct {
@@ -51,6 +54,9 @@ type Auth struct {
 	APIToken string `json:"api_token"`
 	// PublicWake: feste Wecklinks (/wake/...) funktionieren ohne Anmeldung.
 	PublicWake bool `json:"public_wake"`
+	// WakeKeys: Wecklinks ohne Anmeldung brauchen zusätzlich den Schlüssel des Geräts (?key=…),
+	// damit niemand Geräte über erratene Namen ("NAS", "PC") weckt.
+	WakeKeys bool `json:"wake_keys"`
 }
 
 func Default() Config {
@@ -130,6 +136,10 @@ func applyEnv(c *Config) {
 	str(&c.Auth.Password, "WOLWEB_PASSWORD")
 	str(&c.Auth.APIToken, "WOLWEB_TOKEN")
 	boolean(&c.Auth.PublicWake, "WOLWEB_PUBLIC_WAKE")
+	boolean(&c.Auth.WakeKeys, "WOLWEB_WAKE_KEYS")
+	if v, ok := os.LookupEnv("WOLWEB_ALLOWED_HOSTS"); ok {
+		c.AllowedHosts = splitList(v)
+	}
 }
 
 func splitList(s string) []string {

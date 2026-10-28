@@ -33,6 +33,7 @@ type Device struct {
 	Note      string    `json:"note,omitempty"`
 	Ports     []int     `json:"ports,omitempty"` // eigene Ports für die Online-Prüfung, leer = Standard
 	SecureOn  string    `json:"secureon,omitempty"`
+	WakeKey   string    `json:"wake_key,omitempty"` // Schlüssel für Wecklinks ohne Anmeldung (auth.wake_keys)
 	Vendor    string    `json:"vendor,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -174,7 +175,14 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 			return nil, nil, err
 		}
 	}
-	if len(migratedWake) > 0 { // erst nach dem Speichern von state.json aus devices.json entfernen
+	missingKey := false
+	for i := range s.devices {
+		if s.devices[i].WakeKey == "" {
+			s.devices[i].WakeKey, missingKey = newWakeKey(), true
+		}
+	}
+	// last_wake erst nach dem Speichern von state.json aus devices.json entfernen.
+	if len(migratedWake) > 0 || missingKey {
 		if err := s.saveDevices(); err != nil {
 			return nil, nil, err
 		}
@@ -260,6 +268,12 @@ func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note
 
 func newID() string {
 	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func newWakeKey() string {
+	b := make([]byte, 12)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
@@ -472,7 +486,7 @@ func (s *Store) Create(in Input) (Device, error) {
 		return d, ValidationError{fmt.Sprintf("Es gibt schon ein Gerät namens %q.", d.Name)}
 	}
 	now := time.Now().UTC()
-	d.ID, d.CreatedAt, d.UpdatedAt = newID(), now, now
+	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
 	prev := s.devices
 	s.devices = append(slices.Clone(s.devices), d)
 	if err := s.saveDevices(); err != nil {
@@ -503,7 +517,7 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 	if s.nameTaken(d.Name, id) {
 		return d, ValidationError{fmt.Sprintf("Es gibt schon ein Gerät namens %q.", d.Name)}
 	}
-	d.ID, d.CreatedAt, d.UpdatedAt = old.ID, old.CreatedAt, time.Now().UTC()
+	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = old.ID, old.CreatedAt, time.Now().UTC(), old.WakeKey
 	prev := s.devices
 	s.devices = slices.Clone(s.devices)
 	s.devices[i] = d
@@ -533,6 +547,26 @@ func (s *Store) Delete(id string) error {
 	delete(s.state.LastSeen, id)
 	s.stateDirty = true
 	return nil
+}
+
+// RotateWakeKey gibt einem Gerät einen neuen Weckschlüssel; der alte Wecklink gilt nicht mehr.
+func (s *Store) RotateWakeKey(id string) (Device, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.devices, func(x Device) bool { return x.ID == id })
+	if i < 0 {
+		return Device{}, ErrNotFound
+	}
+	prev := s.devices
+	s.devices = slices.Clone(s.devices)
+	s.devices[i].WakeKey = newWakeKey()
+	s.devices[i].UpdatedAt = time.Now().UTC()
+	if err := s.saveDevices(); err != nil {
+		s.devices = prev
+		return Device{}, err
+	}
+	s.revision++
+	return s.devices[i], nil
 }
 
 // Export liefert alle Geräte im Format von devices.json (zum Sichern oder Umziehen).
@@ -577,7 +611,7 @@ func (s *Store) Import(b []byte) (ImportResult, error) {
 		for i := 2; nameTakenIn(next, d.Name, ""); i++ {
 			d.Name = fmt.Sprintf("%s %d", base, i)
 		}
-		d.ID, d.CreatedAt, d.UpdatedAt = newID(), now, now
+		d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
 		next = append(next, d)
 		res.Added++
 	}

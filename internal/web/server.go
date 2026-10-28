@@ -37,6 +37,7 @@ type Server struct {
 	version     string
 	wakeTimeout time.Duration
 	tmpl        *template.Template
+	limiter     wakeLimiter
 }
 
 func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.Scanner, icmp bool, version string) *Server {
@@ -82,6 +83,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE "+api+"devices/{id}", s.writable(s.deleteDevice))
 	mux.HandleFunc("POST "+api+"devices/{id}/wake", s.wakeDevice)
 	mux.HandleFunc("GET "+api+"devices/{id}/status", s.deviceStatus)
+	mux.HandleFunc("POST "+api+"devices/{id}/wake-key", s.writable(s.rotateWakeKey))
 	mux.HandleFunc("GET "+api+"history", s.history)
 	mux.HandleFunc("GET "+api+"export", s.export)
 	mux.HandleFunc("POST "+api+"import", s.writable(s.importDevices))
@@ -94,7 +96,7 @@ func (s *Server) Handler() http.Handler {
 	// Kompatibel zum Original: Geräteliste im alten Format
 	mux.HandleFunc("GET "+base+"data/get", s.legacyData)
 
-	return s.recoverer(s.auth(s.csrf(securityHeaders(mux))))
+	return s.recoverer(s.hostGuard(s.auth(s.csrf(securityHeaders(mux)))))
 }
 
 // --- Middleware ---
@@ -106,10 +108,13 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	base := s.cfg.VDir
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		public := p == base+"health" || strings.HasPrefix(p, base+"static/") ||
-			(s.cfg.Auth.PublicWake && strings.HasPrefix(p, base+"wake/"))
-		if public || s.authorized(r) {
+		if s.authorized(r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if p == base+"health" || strings.HasPrefix(p, base+"static/") ||
+			(s.cfg.Auth.PublicWake && strings.HasPrefix(p, base+"wake/")) {
+			next.ServeHTTP(w, markPublic(r)) // ohne Anmeldung: Schlüssel und Begrenzung greifen
 			return
 		}
 		if s.cfg.Auth.Username != "" {
@@ -240,6 +245,7 @@ type pageData struct {
 	Device  *deviceView
 	Timeout int
 	Missing string
+	Key     string // Weckschlüssel, den die Weckseite bei ihren Aufrufen mitschickt
 }
 
 func (s *Server) render(w http.ResponseWriter, code int, name string, d pageData) {
@@ -364,6 +370,16 @@ func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
+func (s *Server) rotateWakeKey(w http.ResponseWriter, r *http.Request) {
+	d, err := s.store.RotateWakeKey(r.PathValue("id"))
+	if err != nil {
+		storeError(w, err)
+		return
+	}
+	log.Printf("Neuer Weckschlüssel für %s", d.Name)
+	writeJSON(w, http.StatusOK, s.view(d))
+}
+
 func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.store.Get(r.PathValue("id"))
 	if !ok {
@@ -483,7 +499,7 @@ func wantsHTML(r *http.Request) bool {
 // ?wait=<Sekunden> wartet zusätzlich, bis das Gerät erreichbar ist.
 func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	d, ok := s.store.FindByName(name)
+	d, ok := s.findForLink(r)
 	// Browser schicken Sec-Fetch-Site mit. Kommt der Aufruf von einer fremden Seite (z. B. als
 	// eingebettetes Bild), wird nicht direkt geweckt, sondern nur die Weckseite ausgeliefert –
 	// sie weckt dann selbst per POST. curl, Home Assistant & Co. senden den Kopf nicht.
@@ -495,11 +511,18 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		v := s.view(d)
-		s.render(w, http.StatusOK, "wake.html", pageData{Device: &v, Timeout: int(s.wakeTimeout.Seconds())})
+		pd := pageData{Device: &v, Timeout: int(s.wakeTimeout.Seconds())}
+		if s.needsKey(r) {
+			pd.Key = d.WakeKey
+		}
+		s.render(w, http.StatusOK, "wake.html", pd)
 		return
 	}
 	if !ok {
 		writeJSON(w, http.StatusNotFound, wakeResult{Message: fmt.Sprintf("Gerät %q nicht gefunden.", name), Error: "not found"})
+		return
+	}
+	if s.limitPublic(w, r, d) {
 		return
 	}
 	res, code := s.wake(r, d, "Wecklink")
@@ -536,9 +559,12 @@ func (s *Server) waitOnline(ctx context.Context, d store.Device, max time.Durati
 }
 
 func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
-	d, ok := s.store.FindByName(r.PathValue("name"))
+	d, ok := s.findForLink(r)
 	if !ok {
 		writeError(w, http.StatusNotFound, "Gerät nicht gefunden.")
+		return
+	}
+	if s.limitPublic(w, r, d) {
 		return
 	}
 	res, code := s.wake(r, d, "Weckseite")
@@ -546,7 +572,7 @@ func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
-	d, ok := s.store.FindByName(r.PathValue("name"))
+	d, ok := s.findForLink(r)
 	if !ok {
 		writeError(w, http.StatusNotFound, "Gerät nicht gefunden.")
 		return
@@ -608,6 +634,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"public_wake":       s.cfg.Auth.PublicWake,
 		"wake_timeout":      int(s.wakeTimeout.Seconds()),
 		"ports":             s.cfg.Status.Ports,
+		"wake_keys":         s.cfg.Auth.WakeKeys && s.cfg.AuthEnabled(),
 	})
 }
 

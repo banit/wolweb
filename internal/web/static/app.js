@@ -74,7 +74,12 @@
     const s = Math.round(ms / 1000);
     return s < 60 ? s + " s" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + " min";
   }
-  function wakeURL(d) { return new URL(d.wake_path, document.baseURI).href; }
+  // Mit auth.wake_keys gehört der Schlüssel in jeden Link, der ohne Anmeldung funktionieren soll.
+  function wakeURL(d) {
+    const u = new URL(d.wake_path, document.baseURI);
+    if (state.info.wake_keys && d.wake_key) u.searchParams.set("key", d.wake_key);
+    return u.href;
+  }
 
   // Neu zeichnen, ohne den Tastaturfokus zu verlieren: Karten und Listeneinträge werden komplett
   // neu gebaut; der fokussierte Knopf wird über data-id (Eintrag) und data-focus (Knopf) wiedergefunden.
@@ -295,6 +300,7 @@
     form.broadcast.placeholder = "automatisch" + (state.info.default_broadcast ? " (" + state.info.default_broadcast + ")" : "");
     $(".advanced").open = !!(v.broadcast || v.interface || v.note || v.secureon || (v.ports && v.ports.length));
     $("#delete-device").hidden = !d;
+    $("#rotate-key").hidden = !(d && state.info.wake_keys);
     dlg.showModal();
     (v.name ? form.mac : form.name).focus();
     if (prefill && !prefill.name) form.name.focus();
@@ -348,6 +354,21 @@
     }
   });
 
+  $("#rotate-key").addEventListener("click", async () => {
+    const d = state.editing;
+    if (!d) return;
+    const ok = await confirmDialog("Neuen Weckschlüssel für „" + d.name + "“?", "Der bisherige Wecklink funktioniert danach ohne Anmeldung nicht mehr.", "Erneuern");
+    if (!ok) return;
+    try {
+      const nd = await api("POST", "devices/" + encodeURIComponent(d.id) + "/wake-key");
+      state.editing = nd;
+      toast("ok", "Neuer Weckschlüssel", wakeURL(nd));
+      loadDevices();
+    } catch (e) {
+      toast("err", "Nicht möglich", e.message);
+    }
+  });
+
   $("#delete-device").addEventListener("click", async () => {
     const d = state.editing;
     if (!d) return;
@@ -363,10 +384,11 @@
     }
   });
 
-  function confirmDialog(title, text) {
+  function confirmDialog(title, text, okLabel) {
     const c = $("#confirm-dialog");
     $("#confirm-title").textContent = title;
     $("#confirm-text").textContent = text;
+    $("#confirm-ok").textContent = okLabel || "Löschen";
     c.returnValue = "";
     c.showModal();
     return new Promise((resolve) => c.addEventListener("close", () => resolve(c.returnValue === "ok"), { once: true }));

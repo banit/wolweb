@@ -39,6 +39,9 @@ func main() {
 		os.Exit(runHealthcheck(cfg))
 	}
 	log.Printf("wolweb %s", version)
+	if cfg.Auth.WakeKeys && !cfg.AuthEnabled() {
+		log.Print("Hinweis: auth.wake_keys wirkt nur zusammen mit einer Anmeldung (auth.username/password oder api_token)")
+	}
 	if found {
 		log.Printf("Konfiguration aus %s geladen", *configPath)
 	} else {

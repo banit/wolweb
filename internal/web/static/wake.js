@@ -4,6 +4,7 @@
   const card = document.getElementById("wake");
   const name = card.dataset.name;
   const path = card.dataset.path; // "wake/<Name>", relativ zu <base>
+  const query = card.dataset.key ? "?key=" + encodeURIComponent(card.dataset.key) : ""; // Weckschlüssel
   const hasIP = card.dataset.hasIp === "1";
   const timeout = (parseInt(card.dataset.timeout, 10) || 180) * 1000;
   const title = document.getElementById("wake-title");
@@ -77,7 +78,7 @@
       clearTimeout(timer);
     }
   }
-  const status = () => call("GET", path + "/status");
+  const status = () => call("GET", path + "/status" + query);
 
   let running = false;
   async function run(force) {
@@ -120,7 +121,7 @@
     step("send", "active", "Sende an " + card.dataset.target + " …");
     let sent;
     try {
-      sent = await call("POST", path);
+      sent = await call("POST", path + query);
       if (sent.success !== true) throw Object.assign(new Error(sent.message || "Senden fehlgeschlagen"), { body: sent });
       await sleep(450);
     } catch (e) {

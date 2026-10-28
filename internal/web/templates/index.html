@@ -167,6 +167,7 @@
     </div>
     <footer class="modal-foot">
       <button type="button" class="btn btn-danger-ghost" id="delete-device" hidden><svg class="ico"><use href="#i-trash"/></svg>Löschen</button>
+      <button type="button" class="btn btn-ghost" id="rotate-key" hidden title="Neuer Schlüssel für den öffentlichen Wecklink"><svg class="ico"><use href="#i-refresh"/></svg>Schlüssel</button>
       <span class="spacer"></span>
       <button type="button" class="btn btn-ghost" data-close>Abbrechen</button>
       <button type="submit" class="btn btn-primary" id="save-device">Speichern</button>
@@ -196,7 +197,7 @@
     <footer class="modal-foot">
       <span class="spacer"></span>
       <button value="cancel" class="btn btn-ghost">Abbrechen</button>
-      <button value="ok" class="btn btn-danger">Löschen</button>
+      <button value="ok" class="btn btn-danger" id="confirm-ok">Löschen</button>
     </footer>
   </form>
 </dialog>
