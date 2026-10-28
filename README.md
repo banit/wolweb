@@ -38,6 +38,7 @@ wolweb eine Schnittstelle in jedem VLAN (oder je VLAN eine eigene Instanz).
 - Hostnamen aus Reverse-DNS, mDNS (Apple, Linux/Avahi, Drucker …) und NetBIOS (Windows, Samba),
   Hersteller aus der eingebetteten IEEE-Liste (Wireshark `manuf`).
 - Ausgeschaltete Geräte findet keine Suche – Geräte also übernehmen, solange sie laufen.
+- Treffer, die 30 Tage lang nicht mehr gesehen wurden, verschwinden aus der Liste (ignorierte bleiben).
 
 ## Installation
 
@@ -48,9 +49,19 @@ docker compose up -d --build
 ```
 
 `docker-compose.yml` nutzt `network_mode: host` (nötig für Broadcasts und ARP) und gibt dem Container nur
-`NET_RAW`. Daten liegen in `./data`. Eine alte `devices.json` als `./data/legacy-devices.json` ablegen – sie wird beim
-ersten Start übernommen. Docker Desktop (Windows/macOS) kann kein echtes Host-Netz, dort funktionieren Wecken und
-Suche nicht.
+`NET_RAW`. Daten liegen in `./data`. Docker Desktop (Windows/macOS) kann kein echtes Host-Netz, dort funktionieren
+Wecken und Suche nicht.
+
+wolweb läuft im Container als root, aber ohne jede Sonderberechtigung – es darf daher nur in Ordner schreiben, die
+root gehören. Am einfachsten legt Docker `./data` beim ersten Start selbst an. Wer den Ordner vorher anlegt, etwa um
+die alte `devices.json` zu übernehmen, gibt ihn root:
+
+```sh
+mkdir -p data && cp /pfad/zum/alten/devices.json data/legacy-devices.json
+sudo chown -R root:root data
+```
+
+Die `legacy-devices.json` wird beim ersten Start übernommen.
 
 ### Direkt / Proxmox-LXC
 

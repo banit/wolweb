@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -46,6 +47,11 @@ func main() {
 
 	legacy, _ := filepath.Abs(*legacyPath)
 	st, notes, err := store.Open(cfg.DataDir, legacy)
+	if errors.Is(err, fs.ErrPermission) {
+		log.Fatalf("Datenverzeichnis %s ist nicht beschreibbar: %v\n"+
+			"Docker: Der Container hat keine Sonderrechte – der Ordner muss root gehören (sudo chown -R root:root data).\n"+
+			"systemd: Der Dienstbenutzer braucht Schreibrecht (chown -R wolweb: data).", cfg.DataDir, err)
+	}
 	if err != nil {
 		log.Fatalf("Datenverzeichnis %s: %v", cfg.DataDir, err)
 	}

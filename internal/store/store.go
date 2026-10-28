@@ -100,7 +100,13 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 			return nil, nil, fmt.Errorf("%s: %w", path, err)
 		}
 		if n != "" {
-			notes = append(notes, n)
+			// Die Datei im alten Format wird gleich überschrieben – vorher sichern, damit ein
+			// Zurück zum alten wolweb möglich bleibt.
+			bak := path + ".alt-" + time.Now().Format("20060102-150405")
+			if err := os.WriteFile(bak, b, 0o640); err != nil {
+				return nil, nil, fmt.Errorf("Sicherung %s: %w", bak, err)
+			}
+			notes = append(notes, n, "Datei im alten Format gesichert als "+bak)
 			if err := s.saveDevices(); err != nil {
 				return nil, nil, err
 			}
@@ -479,7 +485,13 @@ func (s *Store) MarkWoken(id string) {
 
 // --- Suchergebnisse ---
 
-// MergeFound übernimmt die Treffer eines Scans und liefert die Anzahl neu entdeckter MACs.
+// FoundRetention: So lange bleibt ein Suchtreffer ohne neue Sichtung erhalten. Ohne Grenze
+// sammelten sich z. B. Handys mit wechselnder Zufalls-MAC dauerhaft unter "Neu".
+// Ignorierte Treffer bleiben, sonst tauchten sie beim nächsten Mal wieder als neu auf.
+const FoundRetention = 30 * 24 * time.Hour
+
+// MergeFound übernimmt die Treffer eines Scans, entfernt lange nicht gesehene Treffer und
+// liefert die Anzahl neu entdeckter MACs.
 func (s *Store) MergeFound(hits []Found) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -498,6 +510,11 @@ func (s *Store) MergeFound(hits []Found) (int, error) {
 		f.IP, f.LastSeen, f.Vendor, f.Interface, f.Network = h.IP, h.LastSeen, h.Vendor, h.Interface, h.Network
 		if h.Hostname != "" {
 			f.Hostname, f.HostnameSource = h.Hostname, h.HostnameSource
+		}
+	}
+	for mac, f := range s.found {
+		if !f.Ignored && time.Since(f.LastSeen) > FoundRetention {
+			delete(s.found, mac)
 		}
 	}
 	return newCount, s.saveFound()

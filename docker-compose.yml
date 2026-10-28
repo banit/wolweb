@@ -21,5 +21,7 @@ services:
       # WOLWEB_PUBLIC_WAKE: "true"               # feste Wecklinks ohne Anmeldung
       TZ: Europe/Berlin
     volumes:
+      # Der Ordner muss root gehören (der Container hat keine Sonderrechte, siehe README):
+      # am besten von Docker anlegen lassen, sonst "sudo chown -R root:root data".
       - ./data:/data
       # optional: - ./config.json:/config/config.json:ro

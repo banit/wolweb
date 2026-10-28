@@ -122,3 +122,38 @@ func TestBrokenDiscoveredFileStopsStart(t *testing.T) {
 		t.Error("Eintrag nicht normalisiert übernommen")
 	}
 }
+
+func TestOldFoundEntriesExpire(t *testing.T) {
+	s, _, _ := Open(t.TempDir(), "")
+	s.MergeFound([]Found{{MAC: "00:00:00:00:00:01", IP: "10.0.0.1", LastSeen: time.Now()}, {MAC: "00:00:00:00:00:02", IP: "10.0.0.2", LastSeen: time.Now()}})
+	s.SetIgnored("00:00:00:00:00:02", true)
+	for _, f := range s.found { // beide seit über 30 Tagen nicht mehr gesehen
+		f.LastSeen = time.Now().Add(-FoundRetention - time.Hour)
+	}
+	s.MergeFound([]Found{{MAC: "00:00:00:00:00:03", IP: "10.0.0.3", LastSeen: time.Now()}})
+	if _, ok := s.FoundByMAC("00:00:00:00:00:01"); ok {
+		t.Error("alter Treffer nicht entfernt")
+	}
+	if _, ok := s.FoundByMAC("00:00:00:00:00:02"); !ok {
+		t.Error("ignorierter Treffer entfernt")
+	}
+	if _, ok := s.FoundByMAC("00:00:00:00:00:03"); !ok {
+		t.Error("neuer Treffer fehlt")
+	}
+}
+
+func TestLegacyFileInDataDirIsBackedUp(t *testing.T) {
+	dir := t.TempDir()
+	orig := []byte(`{"devices":[{"name":"NAS","mac":"28:c6:8e:36:dc:38","ip":"192.168.1.255:9"}]}`)
+	os.WriteFile(filepath.Join(dir, "devices.json"), orig, 0o644)
+	if _, _, err := Open(dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	baks, _ := filepath.Glob(filepath.Join(dir, "devices.json.alt-*"))
+	if len(baks) != 1 {
+		t.Fatalf("Sicherungen: %v", baks)
+	}
+	if b, _ := os.ReadFile(baks[0]); string(b) != string(orig) {
+		t.Errorf("Sicherung weicht ab: %s", b)
+	}
+}
