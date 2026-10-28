@@ -5,6 +5,38 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
 
 *English: see [below](#english).*
 
+## Schnellstart
+
+**Voraussetzungen:** ein Rechner, der ständig läuft und im selben Netz hängt wie die Geräte, die geweckt werden
+sollen – z. B. ein Raspberry Pi, ein NAS oder ein Proxmox-Container – mit Linux (für Docker: Docker mit Compose).
+Auf den Zielrechnern muss Wake on LAN eingeschaltet sein (BIOS/UEFI, unter Windows zusätzlich bei der
+Netzwerkkarte).
+
+1. **Starten**
+
+   mit Docker:
+
+   ```sh
+   git clone https://github.com/banit/wolweb.git && cd wolweb
+   docker compose up -d --build
+   ```
+
+   oder ohne Docker: die passende Datei unter [Releases](https://github.com/banit/wolweb/releases) laden
+   (z. B. `wolweb-1.2.0-linux-arm64` für einen Raspberry Pi 4/5) und starten:
+
+   ```sh
+   chmod +x wolweb-1.2.0-linux-arm64 && sudo ./wolweb-1.2.0-linux-arm64
+   ```
+
+2. **Öffnen:** `http://<Adresse>:8089` im Browser, z. B. `http://192.168.1.10:8089`.
+3. **Gerät übernehmen:** den Zielrechner einschalten, „Geräte suchen“ → „Übernehmen“. Das Heimnetz erkennt wolweb
+   selbst; Name, IP- und MAC-Adresse kommen aus der Suche.
+4. **Wecklink kopieren:** Die neue Karte bietet „Wecklink kopieren“ und „Auf dem Handy einrichten“. Ab dann weckt
+   das Öffnen von `http://<Adresse>:8089/wake/<Name>` den Rechner, und die Seite zeigt, wann er wirklich läuft.
+
+Alles Weitere – Dauerbetrieb mit systemd, Update, mehrere Netze und VLANs, Konfiguration, Benachrichtigungen,
+Metriken und die API – steht weiter unten.
+
 ![Übersicht mit Gruppen, Online-Status und nächster geplanter Weckzeit](docs/screenshots/overview-light.png)
 
 <table>
@@ -452,6 +484,37 @@ erzeugt ein Release mit fertigen Programmen und das Image auf ghcr.io – das Pa
 a single binary (or a 23 MB Docker image) with no external dependencies in the browser. The interface is available
 in **English and German**; it follows the browser language and can be switched in the top right corner.
 
+### Quick start
+
+**Requirements:** a machine that is always on and sits in the same network as the devices you want to wake – e.g. a
+Raspberry Pi, a NAS or a Proxmox container – running Linux (for Docker: Docker with Compose). Wake on LAN must be
+enabled on the target computers (BIOS/UEFI, on Windows also for the network adapter).
+
+1. **Start**
+
+   with Docker:
+
+   ```sh
+   git clone https://github.com/banit/wolweb.git && cd wolweb
+   docker compose up -d --build
+   ```
+
+   or without Docker: download the matching file from [Releases](https://github.com/banit/wolweb/releases)
+   (e.g. `wolweb-1.2.0-linux-arm64` for a Raspberry Pi 4/5) and run it:
+
+   ```sh
+   chmod +x wolweb-1.2.0-linux-arm64 && sudo ./wolweb-1.2.0-linux-arm64
+   ```
+
+2. **Open** `http://<address>:8089` in a browser, e.g. `http://192.168.1.10:8089`.
+3. **Add a device:** switch the target computer on, then "Find devices" → "Add". wolweb detects the home network by
+   itself; name, IP and MAC address come from the scan.
+4. **Copy the wake link:** the new card offers "Copy wake link" and "Set up on your phone". From then on, opening
+   `http://<address>:8089/wake/<name>` wakes the computer, and the page shows when it is really up.
+
+Everything else – running it permanently with systemd, updating, multiple networks and VLANs, configuration,
+notifications, metrics and the API – follows below.
+
 ### Features
 
 - **Overview** with the online status of every device (ping and TCP ports), search and filters, light/dark mode –
@@ -493,11 +556,7 @@ in **English and German**; it follows the browser language and can be switched i
   A device's wake link wakes it as soon as it is opened, so a home-screen icon is a single tap
 - Imports the `devices.json` and settings of the original wolweb
 
-### Quick start (Docker)
-
-```sh
-docker compose up -d --build
-```
+### Installation
 
 `docker-compose.yml` uses `network_mode: host` (required for broadcasts and ARP) and grants only `NET_RAW`. Data is
 stored in `./data`; the folder must belong to root (let Docker create it, or `sudo chown -R root:root data`). To import
