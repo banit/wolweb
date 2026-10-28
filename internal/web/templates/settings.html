@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{.Lang}}">
+<html lang="{{.Lang}}" data-accent="{{.Accent}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,7 +8,7 @@
 <title>{{.T "set.title"}} · Wake on LAN</title>
 <base href="{{.Base}}">
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#4f46e5">
+<meta name="theme-color" content="{{.ThemeColor}}">
 <link rel="stylesheet" href="static/app.css?v={{.Version}}">
 <script id="i18n" type="application/json">{{.I18N}}</script>
 <script src="static/theme.js?v={{.Version}}"></script>
@@ -183,6 +183,11 @@ ip link set eth0.20 up</code></pre>
         </select>
         <small class="muted" id="hint-language">{{.T "set.general.language_hint"}}</small>
       </label>
+      <fieldset class="accent-field" data-key="accent" aria-describedby="hint-accent">
+        <legend>{{.T "set.general.accent"}}</legend>
+        <div class="swatches" id="accent-swatches"></div>
+        <small class="muted" id="hint-accent">{{.T "set.general.accent_hint"}}</small>
+      </fieldset>
     </section>
 
     <p class="form-error" id="set-error" role="alert" hidden></p>

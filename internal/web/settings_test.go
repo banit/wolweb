@@ -14,6 +14,7 @@ import (
 
 	"wolweb/internal/config"
 	"wolweb/internal/discovery"
+	"wolweb/internal/i18n"
 	"wolweb/internal/probe"
 	"wolweb/internal/status"
 	"wolweb/internal/store"
@@ -232,5 +233,31 @@ func TestChooseNetwork(t *testing.T) {
 	json.Unmarshal(call(h, "GET", "/api/v1/info", "").Body.Bytes(), &info)
 	if info["scan_off"] != true || len(info["networks"].([]any)) != 0 || len(info["network_choices"].([]any)) != 0 {
 		t.Errorf("info: %v %v %v", info["scan_off"], info["networks"], info["network_choices"])
+	}
+}
+
+// Jede wählbare Akzentfarbe hat Farben in app.css und einen Namen in beiden Sprachen; die Seiten
+// tragen die gewählte als data-accent und theme-color.
+func TestAccents(t *testing.T) {
+	css, _ := assets.ReadFile("static/app.css")
+	for _, a := range config.Accents {
+		if !strings.Contains(string(css), `[data-accent="`+a.Name+`"] { --a-l: `+a.Color+`;`) {
+			t.Errorf("app.css: keine Farben für %q (hell %s)", a.Name, a.Color)
+		}
+		for _, l := range []i18n.Lang{i18n.DE, i18n.EN} {
+			if _, ok := i18n.Catalog(l)["set.accent."+a.Name]; !ok {
+				t.Errorf("%s: set.accent.%s fehlt", l, a.Name)
+			}
+		}
+	}
+	_, h, _ := settingsServer(t, `{"accent": "teal"}`)
+	for _, path := range []string{"/", "/settings", "/wake/gibtsnicht?format=html"} {
+		body := call(h, "GET", path, "").Body.String()
+		if !strings.Contains(body, `data-accent="teal"`) || !strings.Contains(body, `<meta name="theme-color" content="#0f766e">`) {
+			t.Errorf("%s: Akzentfarbe fehlt", path)
+		}
+	}
+	if rec := call(h, "PUT", "/api/v1/settings", `{"accent":"neon"}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), `"field":"accent"`) {
+		t.Errorf("ungültige Farbe: %d %s", rec.Code, rec.Body)
 	}
 }

@@ -528,7 +528,7 @@ func TestEnglish(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	if !strings.Contains(body, `<html lang="en">`) || !strings.Contains(body, "Scan network") || !strings.Contains(body, `data-lang="de"`) {
+	if !strings.Contains(body, `<html lang="en" `) || !strings.Contains(body, "Scan network") || !strings.Contains(body, `data-lang="de"`) {
 		t.Errorf("Seite nicht englisch:\n%.400s", body)
 	}
 	// Katalog als JSON in der Seite

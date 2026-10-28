@@ -340,9 +340,11 @@ type pageData struct {
 	Host    string // abgelehnter Hostname (blocked.html)
 	Group   *groupView
 
-	Lang      i18n.Lang         // Sprache der Seite
-	OtherLang i18n.Lang         // Ziel des Umschalters
-	I18N      map[string]string // Katalog für die Skripte (als JSON in der Seite)
+	Lang       i18n.Lang         // Sprache der Seite
+	OtherLang  i18n.Lang         // Ziel des Umschalters
+	I18N       map[string]string // Katalog für die Skripte (als JSON in der Seite)
+	Accent     string            // Akzentfarbe (data-accent) und ihre Farbe für theme-color
+	ThemeColor string
 }
 
 // T übersetzt in Vorlagen: {{.T "page.save"}}, {{.T "wake.title.starting" .Device.Name}}.
@@ -364,6 +366,8 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, name s
 		d.OtherLang = i18n.DE
 	}
 	d.I18N = i18n.Catalog(d.Lang)
+	d.Accent = s.conf().Accent
+	d.ThemeColor = config.AccentColor(d.Accent)
 	w.Header().Set("Content-Language", string(d.Lang))
 	w.Header().Add("Vary", "Accept-Language, Cookie")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -892,7 +896,9 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"wake_retry":        int(s.rt().wakeRetry.Seconds()),
 		"ports":             s.conf().Status.Ports,
 		"wake_keys":         s.conf().Auth.WakeKeys && s.conf().AuthEnabled(),
-		"timezone":          localZone(),           // Zeitpläne laufen in der Ortszeit des Servers
+		"timezone":          localZone(), // Zeitpläne laufen in der Ortszeit des Servers
+		"accent":            s.conf().Accent,
+		"theme_color":       config.AccentColor(s.conf().Accent),
 		"password":          s.store.HasPassword(), // Bearbeitungsschutz eingerichtet
 		"locked":            !s.unlocked(r),        // diese Anfrage darf nichts ändern
 	})

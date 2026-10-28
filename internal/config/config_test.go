@@ -99,3 +99,28 @@ func TestReadmeNamesEveryVariable(t *testing.T) {
 		}
 	}
 }
+
+func TestAccentValidated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	for js, want := range map[string]string{`{}`: "indigo", `{"accent":" Teal "}`: "teal", `{"accent":""}`: "indigo", `{"accent":"neon"}`: ""} {
+		os.WriteFile(path, []byte(js), 0o644)
+		c, _, err := Load(path)
+		if want == "" {
+			if err == nil || !strings.Contains(err.Error(), "neon") {
+				t.Errorf("%s: Fehler %v", js, err)
+			}
+			continue
+		}
+		if err != nil || c.Accent != want {
+			t.Errorf("%s: %q, Fehler %v", js, c.Accent, err)
+		}
+	}
+	t.Setenv("WOLWEB_ACCENT", "rose")
+	m, err := Open(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil || m.Config().Accent != "rose" || m.Locked()["accent"] != "WOLWEB_ACCENT" {
+		t.Errorf("Umgebung: %v", err)
+	}
+	if AccentColor("rose") != "#be123c" || AccentColor("gibtsnicht") != AccentColor(DefaultAccent) {
+		t.Error("AccentColor")
+	}
+}

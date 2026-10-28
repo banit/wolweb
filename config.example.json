@@ -5,6 +5,7 @@
   "bcastip": "",
   "read_only": false,
   "language": "en",
+  "accent": "indigo",
   "data_dir": "data",
   "discovery": {
     "networks": [],

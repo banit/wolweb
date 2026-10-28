@@ -28,6 +28,7 @@ type Config struct {
 	ReadOnly  bool      `json:"read_only"`
 	DataDir   string    `json:"data_dir"`
 	Language  string    `json:"language"` // "de" oder "en": Sprache, wenn Browser bzw. Anfrage keine nennt
+	Accent    string    `json:"accent"`   // Akzentfarbe der Oberfläche (accent.go)
 	Discovery Discovery `json:"discovery"`
 	Status    Status    `json:"status"`
 	Auth      Auth      `json:"auth"`
@@ -148,6 +149,7 @@ func Default() Config {
 		VDir:     "/",
 		DataDir:  "data",
 		Language: "en",
+		Accent:   DefaultAccent,
 		Discovery: Discovery{
 			Interval: "30m",
 			MaxHosts: 1024,
@@ -194,6 +196,7 @@ var envKeys = []struct {
 	{"read_only", []string{"WOLWEBREADONLY", "WOLWEB_READONLY"}},
 	{"data_dir", []string{"WOLWEB_DATA_DIR"}},
 	{"language", []string{"WOLWEB_LANGUAGE"}},
+	{"accent", []string{"WOLWEB_ACCENT"}},
 	{"discovery.networks", []string{"WOLWEB_NETWORKS"}},
 	{"discovery.interval", []string{"WOLWEB_SCAN_INTERVAL"}},
 	{"status.interval", []string{"WOLWEB_STATUS_INTERVAL"}},
@@ -232,7 +235,7 @@ func applyEnv(c *Config) map[string]string {
 // werden wie bisher übergangen (und sperren dann auch nichts).
 func setEnv(c *Config, key, v string) bool {
 	str := map[string]*string{
-		"host": &c.Host, "vdir": &c.VDir, "bcastip": &c.BcastIP, "data_dir": &c.DataDir, "language": &c.Language,
+		"host": &c.Host, "vdir": &c.VDir, "bcastip": &c.BcastIP, "data_dir": &c.DataDir, "language": &c.Language, "accent": &c.Accent,
 		"discovery.interval": &c.Discovery.Interval, "status.interval": &c.Status.Interval,
 		"status.wake_timeout": &c.Status.WakeTimeout, "status.wake_retry": &c.Status.WakeRetry,
 		"auth.username": &c.Auth.Username, "auth.password": &c.Auth.Password, "auth.api_token": &c.Auth.APIToken,
@@ -310,6 +313,12 @@ func (c *Config) normalize() error {
 		return invalid("language", "cfg.language", c.Language)
 	} else {
 		c.Language = string(i18n.EN)
+	}
+	c.Accent = strings.ToLower(strings.TrimSpace(c.Accent))
+	if c.Accent == "" {
+		c.Accent = DefaultAccent
+	} else if !slices.Contains(accentNames(), c.Accent) {
+		return invalid("accent", "cfg.accent", c.Accent, strings.Join(accentNames(), ", "))
 	}
 	v := "/" + strings.Trim(strings.TrimSpace(c.VDir), "/")
 	if v != "/" {

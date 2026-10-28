@@ -90,6 +90,7 @@
     setField("auth.wake_keys", s.auth.wake_keys);
     setField("allowed_hosts", (s.allowed_hosts || []).join("\n"));
     setField("language", s.language);
+    renderAccents(s.accent);
     renderEvents(s.notify.events || []);
     renderRejected(v.rejected_hosts || []);
     nets = (v.networks || []).map((n) => ({ cidr: n.cidr, name: n.name || "", vlan: n.vlan || "", scan: n.scan, orig: n }));
@@ -149,6 +150,15 @@
     note.hidden = false;
     f.focus();
   }
+
+  // Akzentfarben als Farbfelder; die Wahl gilt sofort als Vorschau, gespeichert mit „Speichern“.
+  function renderAccents(current) {
+    $("#accent-swatches").replaceChildren(...view.accents.map((a) => el("label", { class: "swatch", "data-accent": a.name, title: t("set.accent." + a.name) },
+      el("input", { type: "radio", name: "accent", value: a.name, checked: a.name === current, "aria-label": t("set.accent." + a.name) }),
+      el("span", { "aria-hidden": "true" }))));
+    document.documentElement.dataset.accent = current;
+  }
+  $("#accent-swatches").addEventListener("change", (e) => { document.documentElement.dataset.accent = e.target.value; });
 
   function renderEvents(selected) {
     const box = $("#event-checks");
@@ -299,6 +309,7 @@
     if (!checked.length) throw { key: "notify.events", message: t("set.err.events") };
     return {
       language: form.elements.language.value,
+      accent: (form.querySelector('input[name="accent"]:checked') || {}).value || view.settings.accent,
       bcastip: v("bcastip"),
       allowed_hosts: splitList(form.elements.allowed_hosts.value),
       discovery: { networks, interval: v("discovery.interval") },

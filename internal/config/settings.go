@@ -26,7 +26,7 @@ import (
 // Datenverzeichnis, Nur-Lesen und Zugangsdaten bleiben config.json und Umgebung vorbehalten: Über
 // die Oberfläche könnte man sich sonst aussperren – oder ohne Anmeldung einfach eine setzen.
 var EditableKeys = []string{
-	"language", "bcastip", "allowed_hosts",
+	"language", "accent", "bcastip", "allowed_hosts",
 	"discovery.networks", "discovery.interval",
 	"status.interval", "status.ports", "status.wake_timeout", "status.wake_retry",
 	"auth.public_wake", "auth.wake_keys",
@@ -36,6 +36,7 @@ var EditableKeys = []string{
 // Editable sind die Einstellungen, die die Oberfläche ändern darf (Aufbau wie in config.json).
 type Editable struct {
 	Language     string   `json:"language"`
+	Accent       string   `json:"accent"`
 	BcastIP      string   `json:"bcastip"`
 	AllowedHosts []string `json:"allowed_hosts"`
 	Discovery    struct {
@@ -55,7 +56,7 @@ type Editable struct {
 func (c Config) Editable() Editable {
 	c = c.clone()
 	var e Editable
-	e.Language, e.BcastIP, e.AllowedHosts = c.Language, c.BcastIP, nonNil(c.AllowedHosts)
+	e.Language, e.Accent, e.BcastIP, e.AllowedHosts = c.Language, c.Accent, c.BcastIP, nonNil(c.AllowedHosts)
 	e.Discovery.Networks, e.Discovery.Interval = nonNil(c.Discovery.Networks), c.Discovery.Interval
 	e.Status = c.Status
 	e.Status.Ports = nonNil(e.Status.Ports)
@@ -66,7 +67,7 @@ func (c Config) Editable() Editable {
 }
 
 func (e Editable) applyTo(c *Config) {
-	c.Language, c.BcastIP, c.AllowedHosts = e.Language, e.BcastIP, slices.Clone(e.AllowedHosts)
+	c.Language, c.Accent, c.BcastIP, c.AllowedHosts = e.Language, e.Accent, e.BcastIP, slices.Clone(e.AllowedHosts)
 	c.Discovery.Networks, c.Discovery.Interval = slices.Clone(e.Discovery.Networks), e.Discovery.Interval
 	c.Status = e.Status
 	c.Status.Ports = slices.Clone(e.Status.Ports)

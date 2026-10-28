@@ -172,3 +172,27 @@ test.describe("Touch", () => {
     expect(await smallTargets(page)).toEqual([]);
   });
 });
+
+test("Akzentfarbe: Vorschau sofort, gespeichert für alle Seiten", async ({ page, browser }) => {
+  await open(page);
+  const html = page.locator("html");
+  await expect(html).toHaveAttribute("data-accent", "indigo");
+  await expect(page.getByRole("radio", { name: "Indigo" })).toBeChecked();
+  await page.getByRole("radio", { name: "Petrol" }).check();
+  await expect(html).toHaveAttribute("data-accent", "teal"); // Vorschau
+  await expect(page.locator("#set-dirty")).toBeVisible();
+  await page.click("#set-save");
+  await expect(page.locator("#toasts")).toContainText("Gespeichert");
+  // Andere Seiten und Fenster: data-accent und theme-color
+  const other = await (await browser.newContext({ locale: "de-DE" })).newPage();
+  await other.goto("./");
+  await expect(other.locator("html")).toHaveAttribute("data-accent", "teal");
+  await expect(other.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#0f766e");
+  const bg = await other.locator("#add-device").evaluate((n) => getComputedStyle(n).backgroundColor);
+  expect(bg).toBe("rgb(15, 118, 110)");
+  // Ein offenes Fenster übernimmt eine neue Wahl ohne Neuladen.
+  await page.getByRole("radio", { name: "Himbeere" }).check();
+  await page.click("#set-save");
+  await expect(other.locator("html")).toHaveAttribute("data-accent", "rose");
+  await other.context().close();
+});

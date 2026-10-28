@@ -294,7 +294,9 @@ geändert wurde, fehlt danach.
 
 Das Zahnrad oben rechts öffnet die Einstellungsseite (`/settings`). Dort lassen sich die Netze und VLANs,
 Netzwerksuche, Online-Prüfung, Wartezeiten, Benachrichtigungen (mit „Testnachricht senden“), öffentliche Wecklinks,
-erlaubte Hostnamen und die Standardsprache ändern. Änderungen gelten sofort, ohne Neustart.
+erlaubte Hostnamen, die Standardsprache und die Akzentfarbe ändern (17 Farben, jeweils hell und dunkel). Änderungen
+gelten sofort, ohne Neustart. Gruppen und das Passwort für Änderungen haben dort eigene Bereiche, die sofort
+speichern.
 
 - **Reihenfolge** (das Spätere gewinnt): Standardwerte, `config.json`, die Einstellungsseite, Umgebungsvariablen.
 - **Gespeichert** wird in `data/settings.json` – im Datenverzeichnis, weil das immer beschreibbar ist (`config.json`
@@ -443,6 +445,7 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `bcastip` | `WOLWEBBCASTIP` / `WOLWEB_BCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
 | `read_only` | `WOLWEBREADONLY` / `WOLWEB_READONLY` | `false` | nur wecken, nichts ändern |
 | `language` | `WOLWEB_LANGUAGE` | `en` | `en` oder `de`: Sprache, wenn weder Umschalter noch Browser eine nennen (auch für Benachrichtigungen) |
+| `accent` | `WOLWEB_ACCENT` | `indigo` | Akzentfarbe der Oberfläche (Knöpfe, Auswahl, Markierungen) auf allen Seiten: indigo, blue, sky, cyan, teal, emerald, green, lime, amber, orange, red, rose, pink, fuchsia, purple, violet, slate – am einfachsten auf der Einstellungsseite gewählt |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`), Suchergebnisse (`discovered.json`) und Änderungen der Einstellungsseite (`settings.json`) |
 | `discovery.networks` | `WOLWEB_NETWORKS` | automatisch | Netze (CIDR, Variable kommagetrennt); leer = das eine Heimnetz automatisch, bei mehreren Auswahl in der Oberfläche; auch mit Namen: `{"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus (mindestens `1m`) |

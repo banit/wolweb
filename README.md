@@ -281,7 +281,9 @@ Changes made since the update are lost.
 
 The gear in the top right corner opens the settings page (`/settings`). There you can change the networks and VLANs,
 the network scan, the online check, wait times, notifications (with “Send test message”), public wake links, allowed
-host names and the default language. Changes apply immediately, without a restart.
+host names, the default language and the accent color (17 colors, each in a light and a dark variant). Changes
+apply immediately, without a restart. Groups and the password for changes have sections of their own there that
+save right away.
 
 - **Order** (the later one wins): defaults, `config.json`, the settings page, environment variables.
 - **Stored** in `data/settings.json` – in the data directory, because it is always writable (`config.json` is often
@@ -426,6 +428,7 @@ variable names are given, the first is the one of the original wolweb – both w
 | `bcastip` | `WOLWEBBCASTIP` / `WOLWEB_BCASTIP` | automatic | default target when neither the device nor a network provide one |
 | `read_only` | `WOLWEBREADONLY` / `WOLWEB_READONLY` | `false` | wake only, change nothing |
 | `language` | `WOLWEB_LANGUAGE` | `en` | `en` or `de`: language when neither the switch nor the browser name one (also for notifications) |
+| `accent` | `WOLWEB_ACCENT` | `indigo` | accent color of the interface (buttons, selection, highlights) on every page: indigo, blue, sky, cyan, teal, emerald, green, lime, amber, orange, red, rose, pink, fuchsia, purple, violet, slate – easiest picked on the settings page |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | devices (`devices.json`), runtime data (`state.json`), scan results (`discovered.json`) and changes made on the settings page (`settings.json`) |
 | `discovery.networks` | `WOLWEB_NETWORKS` | automatic | networks (CIDR, the variable comma separated); empty = the one home network automatically, with several a choice in the interface; also with a name: `{"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` means show, but do not scan |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off (at least `1m`) |

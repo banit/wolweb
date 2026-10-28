@@ -1580,6 +1580,10 @@
   // applyInfo übernimmt, was von den Einstellungen abhängt (auch nach einer Änderung im Betrieb).
   function applyInfo() {
     $("#open-settings").hidden = !state.info.settings;
+    if (state.info.accent) { // auf der Einstellungsseite geändert: gleich übernehmen
+      document.documentElement.dataset.accent = state.info.accent;
+      $('meta[name="theme-color"]').setAttribute("content", state.info.theme_color);
+    }
     applyLock();
     // Broadcast-Vorschläge im Gerätedialog: die eingetragenen Netze
     $("#broadcast-list").replaceChildren(...(state.info.segments || []).map((s) => el("option", { value: s.broadcast, label: s.label })));
