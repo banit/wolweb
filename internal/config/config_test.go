@@ -76,18 +76,18 @@ func TestURLErrorsRedacted(t *testing.T) {
 	}
 }
 
-// Beide Konfigurationstabellen im README (deutsch und englisch) nennen jede Umgebungsvariable –
-// auch beide Schreibweisen wie WOLWEBPORT und WOLWEB_PORT.
+// Beide Konfigurationstabellen (README.md englisch, README.de.md deutsch) nennen jede
+// Umgebungsvariable – auch beide Schreibweisen wie WOLWEBPORT und WOLWEB_PORT.
 func TestReadmeNamesEveryVariable(t *testing.T) {
-	b, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Skip(err)
-	}
-	readme := string(b)
-	for _, head := range []string{"| Schlüssel | Variable |", "| Key | Variable |"} {
+	for file, head := range map[string]string{"README.md": "| Key | Variable |", "README.de.md": "| Schlüssel | Variable |"} {
+		b, err := os.ReadFile("../../" + file)
+		if err != nil {
+			t.Skip(err)
+		}
+		readme := string(b)
 		i := strings.Index(readme, head)
 		if i < 0 {
-			t.Fatalf("Tabelle %q fehlt", head)
+			t.Fatalf("%s: Tabelle %q fehlt", file, head)
 		}
 		table, _, _ := strings.Cut(readme[i:], "\n\n")
 		for _, e := range envKeys {
