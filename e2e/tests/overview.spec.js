@@ -339,3 +339,27 @@ test("Verlauf in Worten: je Eintrag ein Ergebnissatz, Einzelheiten unter „Deta
   await expect(details).toContainText("Gesendet an 127.0.0.1:9");
   await expect(item("Drucker").locator("details")).toContainText("Ohne IP-Adresse lässt sich der Start nicht prüfen.");
 });
+
+test("Import: Ergebnis bleibt stehen, mit allen Einträgen", async ({ page, request }) => {
+  await addDevice(request, { name: "NAS", mac: "02:00:00:00:20:01" });
+  await page.goto("./");
+  const file = JSON.stringify({ version: 2, devices: [
+    { name: "Speicher", mac: "02:00:00:00:20:01" },
+    { name: "NAS", mac: "02:00:00:00:20:02" },
+    { name: "Kaputt", mac: "xyz" },
+    { name: "Drucker", mac: "02:00:00:00:20:03" },
+  ] });
+  await page.setInputFiles("#import-file", { name: "geraete.json", mimeType: "application/json", buffer: Buffer.from(file) });
+  const dlg = page.locator("#import-dialog");
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator("#import-summary")).toHaveText("2 Geräte übernommen, 1 bereits vorhanden, 1 konnte nicht übernommen werden.");
+  await expect(dlg).toContainText("NAS – als „NAS 2“, der Name war vergeben");
+  await expect(dlg).toContainText("Drucker");
+  await expect(dlg).toContainText("Speicher – ist schon als „NAS“ angelegt");
+  await expect(dlg).toContainText("Kaputt:");
+  await page.waitForTimeout(5000); // früher eine Meldung, die nach Sekunden verschwand
+  await expect(dlg).toBeVisible();
+  await dlg.getByRole("button", { name: "Fertig" }).click();
+  await expect(dlg).toBeHidden();
+  await expect(page.locator(".card")).toHaveCount(3);
+});

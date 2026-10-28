@@ -1159,16 +1159,35 @@
     if (!file) return;
     try {
       const res = await api("POST", "import", await file.text(), true);
-      const parts = [t("ui.import.added", res.added)];
-      if (res.skipped) parts.push(t("ui.import.skipped", res.skipped));
-      if (res.errors && res.errors.length) parts.push(t("ui.import.faulty", res.errors.length));
-      if (res.secret_restored) parts.push(t("ui.import.secret"));
-      toast(res.errors && res.errors.length ? "warn" : "ok", t("ui.import.done"), parts.join(", ") + (res.errors && res.errors.length ? ": " + res.errors.slice(0, 3).join("; ") : ""));
+      showImport(res);
       loadDevices();
     } catch (err) {
       toast("err", t("ui.import.failed"), err.message);
     }
   });
+
+  // showImport zeigt das Ergebnis dauerhaft (bis zum Schließen): eine Zusammenfassung und je Ergebnis
+  // die vollständige Liste der Einträge – nicht nur die ersten Fehler.
+  const importDlg = $("#import-dialog");
+  function showImport(res) {
+    const items = res.items || [];
+    const of = (r) => items.filter((it) => it.result === r);
+    const added = of("added"), skipped = of("skipped"), failed = of("error");
+    const sum = [tn("ui.import.sum_added", added.length)];
+    if (skipped.length) sum.push(tn("ui.import.sum_skipped", skipped.length));
+    if (failed.length) sum.push(tn("ui.import.sum_failed", failed.length));
+    $("#import-summary").textContent = sum.join(", ") + "." + (res.secret_restored ? " " + t("ui.import.secret") + "." : "");
+    const section = (list, kind, head, line) => list.length ? el("section", { class: "import-part " + kind },
+      el("h3", {}, icon(kind === "ok" ? "check" : kind === "warn" ? "x" : "alert"), el("span", { text: head })),
+      el("ul", {}, list.map((it) => el("li", { text: line(it) })))) : null;
+    $("#import-lists").replaceChildren(...[
+      section(added, "ok", t("ui.import.h_added"), (it) => it.new_name ? t("ui.import.renamed", it.name, it.new_name) : it.name),
+      section(skipped, "info", t("ui.import.h_skipped"), (it) => it.detail && it.detail !== it.name ? t("ui.import.same_mac", it.name, it.detail) : it.name),
+      section(failed, "warn", t("ui.import.h_failed"), (it) => it.name ? it.name + ": " + it.detail : it.detail),
+    ].filter(Boolean));
+    importDlg.showModal();
+  }
+  for (const b of importDlg.querySelectorAll("[data-close]")) b.addEventListener("click", () => importDlg.close());
 
   // ---------- Filter, Suche, Theme ----------
   function segmented(box, key, onChange) {

@@ -458,3 +458,29 @@ func TestAliasesCappedAndImported(t *testing.T) {
 		t.Errorf("importiert: %v", got.Aliases)
 	}
 }
+
+// Das Importergebnis nennt jeden Eintrag: übernommen (ggf. umbenannt), schon vorhanden, fehlerhaft.
+func TestImportListsEveryEntry(t *testing.T) {
+	st, _, _ := Open(t.TempDir(), "")
+	st.Create(Input{Name: "NAS", MAC: "02:00:00:00:00:01"})
+	b := []byte(`{"version":2,"devices":[
+		{"name":"Speicher","mac":"02:00:00:00:00:01"},
+		{"name":"NAS","mac":"02:00:00:00:00:02"},
+		{"name":"Kaputt","mac":"xyz"},
+		{"name":"Drucker","mac":"02:00:00:00:00:03"}]}`)
+	res, err := st.Import(b, i18n.DE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, it := range res.Items {
+		got = append(got, it.Name+"|"+it.Result+"|"+it.NewName)
+	}
+	want := []string{"Speicher|skipped|", "NAS|added|NAS 2", "Kaputt|error|", "Drucker|added|"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("%v", got)
+	}
+	if res.Items[0].Detail != "NAS" || res.Items[2].Detail == "" || res.Added != 2 || res.Skipped != 1 || len(res.Errors) != 1 {
+		t.Errorf("%+v", res)
+	}
+}

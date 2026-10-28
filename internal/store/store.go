@@ -791,6 +791,18 @@ type ImportResult struct {
 	Skipped        int      `json:"skipped"`
 	Errors         []string `json:"errors,omitempty"`
 	SecretRestored bool     `json:"secret_restored,omitempty"` // Gruppen-Wecklinks der Sicherung gelten wieder
+	// Items nennt jeden Eintrag der Datei mit seinem Ergebnis – für eine vollständige Liste statt
+	// nur der Zahlen.
+	Items []ImportItem `json:"items"`
+}
+
+// ImportItem ist ein Eintrag der Importdatei: übernommen ("added", ggf. unter neuem Namen),
+// schon vorhanden ("skipped", mit dem vorhandenen Gerät) oder fehlerhaft ("error", mit Grund).
+type ImportItem struct {
+	Name    string `json:"name"`
+	Result  string `json:"result"`
+	NewName string `json:"new_name,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 // Import übernimmt Geräte aus einem Export (oder einer devices.json des alten wolweb). Geräte,
@@ -805,9 +817,10 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 		Secret string `json:"secret"`
 	}
 	_ = json.Unmarshal(b, &exp)
-	var res ImportResult
+	res := ImportResult{Items: []ImportItem{}}
 	for _, p := range problems {
 		res.Errors = append(res.Errors, i18n.Text(l, p))
+		res.Items = append(res.Items, ImportItem{Result: "error", Detail: i18n.Text(l, p)})
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -820,10 +833,12 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 		d, err := in.validate()
 		if err != nil {
 			res.Errors = append(res.Errors, src.Name+": "+i18n.Text(l, err))
+			res.Items = append(res.Items, ImportItem{Name: src.Name, Result: "error", Detail: i18n.Text(l, err)})
 			continue
 		}
-		if slices.ContainsFunc(next, func(x Device) bool { return x.MAC == d.MAC }) {
+		if i := slices.IndexFunc(next, func(x Device) bool { return x.MAC == d.MAC }); i >= 0 {
 			res.Skipped++
+			res.Items = append(res.Items, ImportItem{Name: src.Name, Result: "skipped", Detail: next[i].Name})
 			continue
 		}
 		base := string([]rune(d.Name)[:min(utf8.RuneCountInString(d.Name), 60)])
@@ -846,6 +861,11 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 		releaseAlias(next, d.Name, "")
 		next = append(next, d)
 		res.Added++
+		item := ImportItem{Name: src.Name, Result: "added"}
+		if d.Name != src.Name {
+			item.NewName = d.Name // Name war vergeben (oder hatte unerlaubte Zeichen)
+		}
+		res.Items = append(res.Items, item)
 	}
 	if res.Added == 0 {
 		return res, nil

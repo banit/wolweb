@@ -408,7 +408,7 @@ Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site
 | GET | `/api/v1/groups` | Gruppen mit Mitgliedern (und Schlüssel des Gruppen-Wecklinks) |
 | POST | `/api/v1/groups/{name}/wake` | alle Geräte einer Gruppe wecken |
 | GET | `/api/v1/history` | Weckverlauf, neueste zuerst (`?limit=`) |
-| GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen |
+| GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen; die Antwort nennt jeden Eintrag (`items`: `added` – ggf. mit `new_name` –, `skipped`, `error` mit Grund), die Oberfläche zeigt die vollständige Liste |
 | GET | `/api/v1/discovery` | letzte Suche und Treffer |
 | POST | `/api/v1/discovery/scan`, `/cancel` | Suche starten / abbrechen |
 | POST | `/api/v1/discovery/{mac}/ignore` | `{"ignored":true}` |

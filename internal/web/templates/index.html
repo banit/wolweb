@@ -259,6 +259,22 @@
   </div>
 </dialog>
 
+<!-- Importergebnis: bleibt, bis es geschlossen wird, mit allen Einträgen -->
+<dialog class="modal" id="import-dialog" aria-labelledby="import-title" aria-describedby="import-summary">
+  <header class="modal-head">
+    <h2 id="import-title">{{.T "ui.import.done"}}</h2>
+    <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
+  </header>
+  <div class="modal-body">
+    <p id="import-summary"></p>
+    <div id="import-lists"></div>
+  </div>
+  <footer class="modal-foot">
+    <span class="spacer"></span>
+    <button type="button" class="btn btn-primary" data-close>{{.T "page.sel.done"}}</button>
+  </footer>
+</dialog>
+
 <!-- Wecklink auf dem Handy einrichten -->
 <dialog class="modal modal-small" id="phone-dialog" aria-labelledby="phone-title" aria-describedby="phone-intro">
   <header class="modal-head">

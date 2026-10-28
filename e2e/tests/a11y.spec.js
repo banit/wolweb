@@ -80,6 +80,14 @@ for (const colorScheme of ["light", "dark"]) {
       await expectAccessible(page);
     });
 
+    test("Importergebnis", async ({ page }) => {
+      await overview(page);
+      const file = JSON.stringify({ version: 2, devices: [{ name: "Neu", mac: "02:00:00:00:30:01" }, { name: "Kaputt", mac: "xyz" }] });
+      await page.setInputFiles("#import-file", { name: "geraete.json", mimeType: "application/json", buffer: Buffer.from(file) });
+      await expect(page.locator("#import-dialog")).toBeVisible();
+      await expectAccessible(page);
+    });
+
     test("Mehrfachauswahl", async ({ page }) => {
       await overview(page);
       await page.click("#select-toggle");
