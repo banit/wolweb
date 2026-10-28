@@ -311,6 +311,12 @@ Mit `notify.webhook` bekommt eine URL jedes Ereignis als JSON, z. B. für einen 
 Mit `notify.ntfy` kommt eine Push-Nachricht aufs Handy (App „ntfy“, Thema abonnieren). Gemeldet werden nur echte
 Wechsel online ↔ offline, nicht das erste Ergebnis nach dem Start.
 
+wolweb schickt Benachrichtigungen genau an die eingetragene Adresse – auch an Server im eigenen Netz, etwa ein
+selbst gehostetes ntfy oder Home Assistant. **Weiterleitungen folgt es nicht**: Antwortet das Ziel mit einer
+Umleitung (3xx), geht die Nachricht nicht weiter, sondern es steht ein Fehler im Log (und bei „Testnachricht
+senden“). Sonst könnte ein umgeleiteter Server die Nachricht an ein Ziel schicken lassen, das niemand eingetragen
+hat. Abhilfe: die endgültige Adresse direkt eintragen (z. B. mit `https://` statt `http://`).
+
 `/metrics` liefert Kennzahlen im Prometheus-Format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
 `wolweb_device_last_seen_timestamp_seconds`, `wolweb_wakes_total`, `wolweb_discovery_found` …). Mit Anmeldung
 braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_token>}`.
@@ -439,8 +445,9 @@ in **English and German**; it follows the browser language and can be switched i
 - **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`;
   **schedules** such as `Mon-Fri 07:30; Sat,Sun 09:00` wake devices automatically (German spellings work too;
   devices.json always stores the canonical German form, the UI shows it in the chosen language)
-- **Notifications** via webhook (JSON) or ntfy push when a device goes online/offline or is woken;
-  **Prometheus metrics** at `/metrics`
+- **Notifications** via webhook (JSON) or ntfy push when a device goes online/offline or is woken – sent exactly to
+  the configured address (servers on your LAN included); redirects (3xx) are not followed but logged as an error, so
+  a redirecting server cannot divert messages to a target nobody configured; **Prometheus metrics** at `/metrics`
 - **History** of every wake attempt (who, when, from where, result), **export/import** of devices as JSON
 - **Security**: optional login (HTTP Basic, API token), per-device keys for public wake links, no double waking (one
   wake-up call per device every 10 s on all paths; a second call reports `"already": true`),

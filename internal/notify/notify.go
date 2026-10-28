@@ -66,7 +66,7 @@ func New(webhook, ntfy string, kinds []string, version string, lang i18n.Lang) *
 		kinds = Kinds
 	}
 	n := &Notifier{webhook: webhook, ntfy: ntfy, kinds: kinds, agent: "wolweb/" + version, lang: lang,
-		client: &http.Client{Timeout: 10 * time.Second}, queue: make(chan Event, 100), done: make(chan struct{})}
+		client: newClient(), queue: make(chan Event, 100), done: make(chan struct{})}
 	go n.run()
 	return n
 }
@@ -158,6 +158,17 @@ func ntfyStyle(ev Event, l i18n.Lang) (title, tag, priority string) {
 	}
 }
 
+// newClient folgt keinen Weiterleitungen. Bei 307/308 schickte Go den POST samt Nachricht sonst
+// an ein beliebiges anderes Ziel weiter – auch an eins im internen Netz, das niemand eingetragen hat.
+// Das eingetragene Ziel selbst gilt als vertrauenswürdig: selbst gehostete ntfy- und
+// Home-Assistant-Server im LAN sind der Normalfall, private Adressen bleiben daher erlaubt.
+func newClient() *http.Client {
+	return &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
 func (n *Notifier) post(target, contentType string, body []byte) error {
 	req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
@@ -174,6 +185,10 @@ func (n *Notifier) post(target, contentType string, body []byte) error {
 		return fmt.Errorf("Benachrichtigung an %s: %w", redact(target), err)
 	}
 	resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return fmt.Errorf("Benachrichtigung an %s: Weiterleitung (HTTP %d) nach %s wird nicht befolgt – bitte die Zieladresse direkt eintragen",
+			redact(target), resp.StatusCode, redact(resp.Header.Get("Location")))
+	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("Benachrichtigung an %s: HTTP %d", redact(target), resp.StatusCode)
 	}
