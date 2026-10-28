@@ -1,0 +1,15 @@
+{
+  "name": "wolweb-e2e",
+  "private": true,
+  "description": "Browsertests f\u00fcr wolweb (Playwright, axe-core)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0"
+  },
+  "overrides": {
+    "playwright-core": "1.63.0"
+  }
+}

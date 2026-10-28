@@ -241,6 +241,10 @@ lassen:
   (sendet, wartet, online); Filter melden, welcher aktiv ist.
 - **Kontrast** nach WCAG AA (4,5:1) in hell und dunkel; Animationen entfallen bei „Bewegung reduzieren“.
 
+Die Browsertests (siehe Entwicklung) prüfen das bei jedem Push: [axe-core](https://github.com/dequelabs/axe-core)
+nach WCAG 2.2 AA auf allen Seiten und Dialogen in hell und dunkel, die Tastaturbedienung und die Größe aller
+Touch-Ziele auf einem Handy.
+
 ## API
 
 Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site-Requests) oder ein Bearer-Token.
@@ -275,8 +279,20 @@ go run . -c config.json
 Die Oberfläche liegt in `internal/web/` (Vorlagen und statische Dateien, eingebettet per `go:embed`).
 Herstellerliste aktualisieren: `sh tools/gen-oui.sh`.
 
+Browsertests (Playwright mit Chromium, braucht Go und Node.js) liegen in `e2e/`. Sie bauen wolweb selbst, starten
+es mit leerem Datenverzeichnis auf Port 8399 (Pakete gehen nur an 127.0.0.1) und prüfen Übersicht, Gerätedialog,
+Suche und Filter, Sprache, einfache Ansicht, Weck- und Gruppenseite mit allen Ausgängen samt automatischer
+Wiederholung sowie die Barrierefreiheit:
+
+```sh
+cd e2e
+npm ci
+npx playwright install chromium
+npx playwright test
+```
+
 GitHub Actions prüft jeden Push und Pull Request (gofmt, `go vet`, `go test -race`, Builds für Linux amd64/arm64/
-armv7, Windows, macOS, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.1.0 && git push --tags`)
+armv7, Windows, macOS, Browsertests, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.1.0 && git push --tags`)
 erzeugt ein Release mit fertigen Programmen und das Image auf ghcr.io – das Paket danach einmal unter
 „Packages“ auf öffentlich stellen.
 
@@ -312,7 +328,7 @@ in **English and German**; it follows the browser language and can be switched i
   home-screen icons (web app manifest)
 - **Accessibility**: a **simple view** with only name, status and one large wake button per device (toggle at the
   top right, or `?view=simple` in a bookmark), touch targets of at least 44 × 44 px on touch screens, full keyboard
-  operation, screen reader announcements on the wake pages, WCAG AA contrast.
+  operation, screen reader announcements on the wake pages, WCAG AA contrast – checked with axe-core in CI.
   A device's wake link wakes it as soon as it is opened, so a home-screen icon is a single tap
 - Imports the `devices.json` and settings of the original wolweb
 
@@ -363,5 +379,8 @@ affected field (`"field": "mac"`). Wake links stay compatible with the original:
 ### Development
 
 `go test ./...` runs all tests; translations live in `internal/i18n/de.json` and `en.json` (a test makes sure both
-contain the same keys and every key used by the templates and scripts). GitHub Actions checks formatting, `go vet`,
-the race detector and builds for all platforms.
+contain the same keys and every key used by the templates and scripts). Browser tests (Playwright, axe-core) live in
+`e2e/`: `cd e2e && npm ci && npx playwright install chromium && npx playwright test` builds wolweb, starts it on
+port 8399 with an empty data directory and checks the overview, dialogs, wake and group pages, keyboard use, touch
+target sizes and WCAG 2.2 AA. GitHub Actions checks formatting, `go vet`, the race detector, builds for all
+platforms and runs the browser tests.
