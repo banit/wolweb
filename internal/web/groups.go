@@ -238,7 +238,7 @@ func (s *Server) wakeDue(t time.Time) []string {
 		entries, _ := schedule.ParseList(d.Schedule)
 		for _, e := range entries {
 			if e.Due(t) && s.schedRan.first(d.ID+"|"+e.String()+"|"+day, t) {
-				log.Printf("Zeitplan: wecke %s (%s)", d.Name, e)
+				log.Printf("Schedule: waking %s (%s)", d.Name, e)
 				_, _, a := s.sendWake(nil, d, srcSchedule, "")
 				attempts = append(attempts, a)
 				woken = append(woken, d.Name)

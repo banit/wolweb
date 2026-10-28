@@ -44,7 +44,7 @@
   }
   function via(st) {
     if (!st || !st.method) return "";
-    const port = /^tcp\/(\d+)( \(abgelehnt\))?/.exec(st.method);
+    const port = /^tcp\/(\d+)( \((?:refused|abgelehnt)\))?/.exec(st.method);
     const m = st.method === "icmp" ? "Ping" : port ? t(port[2] ? "wake.port_closed" : "ui.port", port[1]) : st.method;
     return m + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "");
   }

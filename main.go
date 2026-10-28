@@ -26,14 +26,14 @@ import (
 var version = "dev"
 
 func main() {
-	configPath := flag.String("c", "config.json", "Konfigurationsdatei (fehlt sie, gelten Standardwerte)")
-	legacyPath := flag.String("d", "devices.json", "devices.json des alten wolweb, wird beim ersten Start übernommen")
-	healthcheck := flag.Bool("healthcheck", false, "prüft /health des laufenden Servers (für Docker) und beendet sich")
+	configPath := flag.String("c", "config.json", "configuration file (defaults apply if it is missing)")
+	legacyPath := flag.String("d", "devices.json", "devices.json of the original wolweb, imported on first start")
+	healthcheck := flag.Bool("healthcheck", false, "checks /health of the running server (for Docker) and exits")
 	flag.Parse()
 
 	settings, err := config.Open(*configPath)
 	if err != nil {
-		log.Fatalf("Konfiguration: %v", err)
+		log.Fatalf("Configuration: %v", err)
 	}
 	cfg, found := settings.Config(), settings.FileFound()
 	if *healthcheck {
@@ -41,46 +41,46 @@ func main() {
 	}
 	log.Printf("wolweb %s", version)
 	if !cfg.AuthEnabled() && len(cfg.AllowedHosts) == 0 {
-		log.Print("Hinweis: Ohne Anmeldung nimmt wolweb nur Aufrufe über IP-Adressen und lokale Namen (nas, *.lan, " +
-			"*.local, *.fritz.box …) an – Schutz vor DNS-Rebinding. Läuft es hinter einem Reverse-Proxy mit eigener " +
-			`Domain, diese erlauben: in den Einstellungen unter Sicherheit oder mit "allowed_hosts" bzw. WOLWEB_ALLOWED_HOSTS.`)
+		log.Print("Note: without login, wolweb only accepts requests via IP addresses and local names (nas, *.lan, " +
+			"*.local, *.fritz.box …) – protection against DNS rebinding. Behind a reverse proxy with its own domain, " +
+			`allow that domain: in the settings under Security, or with "allowed_hosts" or WOLWEB_ALLOWED_HOSTS.`)
 	}
 	if cfg.Auth.WakeKeys && !cfg.AuthEnabled() {
-		log.Print("Hinweis: auth.wake_keys wirkt nur zusammen mit einer Anmeldung (auth.username/password oder api_token)")
+		log.Print("Note: auth.wake_keys only takes effect together with a login (auth.username/password or api_token)")
 	}
 	if found {
-		log.Printf("Konfiguration aus %s geladen", *configPath)
+		log.Printf("Configuration loaded from %s", *configPath)
 	} else {
-		log.Printf("Keine %s gefunden – Standardwerte und Umgebungsvariablen", *configPath)
+		log.Printf("No %s found – using defaults and environment variables", *configPath)
 	}
 	if keys := settings.Stored(); len(keys) > 0 {
-		log.Printf("In der Oberfläche geändert (%s): %v", settings.SettingsPath(), keys)
+		log.Printf("Changed on the settings page (%s): %v", settings.SettingsPath(), keys)
 	}
 
 	legacy, _ := filepath.Abs(*legacyPath)
 	store.AppVersion = version
 	st, notes, err := store.Open(cfg.DataDir, legacy)
 	if errors.Is(err, fs.ErrPermission) {
-		log.Fatalf("Datenverzeichnis %s ist nicht beschreibbar: %v\n"+
-			"Docker: Der Container hat keine Sonderrechte – der Ordner muss root gehören (sudo chown -R root:root data).\n"+
-			"systemd: Der Dienstbenutzer braucht Schreibrecht (chown -R wolweb: data).", cfg.DataDir, err)
+		log.Fatalf("Data directory %s is not writable: %v\n"+
+			"Docker: the container has no extra privileges – the folder must belong to root (sudo chown -R root:root data).\n"+
+			"systemd: the service user needs write access (chown -R wolweb: data).", cfg.DataDir, err)
 	}
 	if err != nil {
-		log.Fatalf("Datenverzeichnis %s: %v", cfg.DataDir, err)
+		log.Fatalf("Data directory %s: %v", cfg.DataDir, err)
 	}
 	for _, n := range notes {
 		log.Print(n)
 	}
 	devices, _ := st.Devices()
-	log.Printf("%d Gerät(e) geladen aus %s", len(devices), cfg.DataDir)
+	log.Printf("%d device(s) loaded from %s", len(devices), cfg.DataDir)
 
 	scanInterval, statusInterval, _, _ := cfg.Durations()
 	prober := probe.New(cfg.Status.Ports, 1500*time.Millisecond)
 	prober.OnLink = discovery.OnLink
 	if prober.ICMPAvailable() {
-		log.Print("Online-Prüfung: ICMP-Ping und TCP")
+		log.Print("Online check: ICMP ping and TCP")
 	} else {
-		log.Print("Online-Prüfung: nur TCP (für Ping fehlt das Recht CAP_NET_RAW bzw. ping_group_range)")
+		log.Print("Online check: TCP only (ping needs CAP_NET_RAW or ping_group_range)")
 	}
 	mon := status.New(st, prober, statusInterval)
 	scanner := discovery.New(st, cfg.Discovery.ScanCIDRs(), cfg.Discovery.MaxHosts)
@@ -96,14 +96,14 @@ func main() {
 	switch home := discovery.HomeNets(cfg.Discovery.MaxHosts); {
 	case len(cfg.Discovery.Networks) > 0:
 	case len(home) == 1:
-		log.Printf("Netzwerksuche: Heimnetz %s (%s) automatisch erkannt", home[0].Prefix, home[0].Interface)
+		log.Printf("Network scan: home network %s (%s) detected automatically", home[0].Prefix, home[0].Interface)
 	case len(home) > 1:
-		log.Printf("Netzwerksuche: %d mögliche Heimnetze – in der Oberfläche unter „Geräte suchen“ eins wählen", len(home))
+		log.Printf("Network scan: %d possible home networks – choose one under “Find devices” in the web interface", len(home))
 	default:
-		log.Print("Netzwerksuche: kein Heimnetz erkannt – in den Einstellungen ein Netz eintragen")
+		log.Print("Network scan: no home network detected – add a network on the settings page")
 	}
 	if nets := scanner.Networks(); scanInterval > 0 && len(nets) > 0 {
-		log.Printf("Automatische Suche alle %s in %v", scanInterval, nets)
+		log.Printf("Automatic scan every %s in %v", scanInterval, nets)
 	}
 	go scanner.RunAuto(ctx) // ruht, solange kein Abstand eingestellt ist
 
@@ -117,9 +117,9 @@ func main() {
 	}
 	srv.RegisterOnShutdown(ws.Close) // offene Live-Verbindungen beenden, sonst wartet Shutdown
 	go func() {
-		log.Printf("Weboberfläche auf http://%s%s", cfg.Listen(), cfg.VDir)
+		log.Printf("Web interface on http://%s%s", cfg.Listen(), cfg.VDir)
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Webserver: %v", err)
+			log.Fatalf("Web server: %v", err)
 		}
 	}()
 	<-ctx.Done()
@@ -127,9 +127,9 @@ func main() {
 	defer cancel()
 	_ = srv.Shutdown(shutdown)
 	if err := st.FlushState(); err != nil {
-		log.Printf("Laufzeitdaten speichern: %v", err)
+		log.Printf("Saving runtime data: %v", err)
 	}
-	log.Print("Beendet.")
+	log.Print("Stopped.")
 }
 
 func runHealthcheck(cfg config.Config) int {

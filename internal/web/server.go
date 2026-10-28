@@ -68,7 +68,7 @@ func (s *Server) newLive(cfg config.Config) *live {
 	_, _, wt, wr := cfg.Durations()
 	l, ok := i18n.Parse(cfg.Language)
 	if !ok {
-		l = i18n.DE
+		l = i18n.EN
 	}
 	return &live{cfg: cfg, wakeTimeout: wt, wakeRetry: wr, lang: l,
 		notify: notify.New(cfg.Notify.Webhook, cfg.Notify.Ntfy, cfg.Notify.Events, s.version, l)}
@@ -229,7 +229,7 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if v := recover(); v != nil {
-				log.Printf("Fehler bei %s %s: %v", r.Method, r.URL.Path, v)
+				log.Printf("Error in %s %s: %v", r.Method, r.URL.Path, v)
 				s.fail(w, r, http.StatusInternalServerError, "err.internal")
 			}
 		}()
@@ -301,7 +301,7 @@ func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, store.ErrConflict):
 		s.fail(w, r, http.StatusConflict, "err.conflict")
 	default:
-		log.Printf("Speichern fehlgeschlagen: %v", err)
+		log.Printf("Saving failed: %v", err)
 		s.fail(w, r, http.StatusInternalServerError, "err.save_failed", err)
 	}
 }
@@ -349,7 +349,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, name s
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
 	if err := s.tmpl.ExecuteTemplate(w, name, d); err != nil {
-		log.Printf("Vorlage %s: %v", name, err)
+		log.Printf("Template %s: %v", name, err)
 	}
 }
 
@@ -442,7 +442,7 @@ func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	log.Printf("Gerät angelegt: %s (%s)", d.Name, d.MAC)
+	log.Printf("Device added: %s (%s)", d.Name, d.MAC)
 	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
 	writeJSON(w, http.StatusCreated, s.view(d))
@@ -462,7 +462,7 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	log.Printf("Gerät geändert: %s (%s)", d.Name, d.MAC)
+	log.Printf("Device changed: %s (%s)", d.Name, d.MAC)
 	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
 	writeJSON(w, http.StatusOK, s.view(d))
@@ -492,7 +492,7 @@ func (s *Server) setGroup(w http.ResponseWriter, r *http.Request) {
 	if len(devs) > 0 {
 		group = devs[0].Group // Schreibweise einer schon vorhandenen Gruppe
 	}
-	log.Printf("Gruppe %q für %d Geräte gesetzt", group, len(devs))
+	log.Printf("Group %q set for %d devices", group, len(devs))
 	s.devicesChanged()
 	out := make([]deviceView, 0, len(devs))
 	for _, d := range devs {
@@ -516,7 +516,7 @@ func (s *Server) rotateWakeKey(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	log.Printf("Neuer Weckschlüssel für %s", d.Name)
+	log.Printf("New wake key for %s", d.Name)
 	s.devicesChanged()
 	writeJSON(w, http.StatusOK, s.view(d))
 }
@@ -560,7 +560,7 @@ func (s *Server) caller(r *http.Request) (client, user string) {
 		client = h
 	}
 	if xff, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ","); strings.TrimSpace(xff) != "" {
-		client = clip(strings.TrimSpace(xff), 64) + " über " + client
+		client = clip(strings.TrimSpace(xff), 64) + " via " + client
 	}
 	if s.conf().AuthEnabled() && s.authorized(r) {
 		if u, _, ok := r.BasicAuth(); ok {
@@ -630,7 +630,7 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 		}
 	}
 	if err := s.store.RecordWake(evs...); err != nil {
-		log.Printf("Verlauf speichern: %v", err)
+		log.Printf("Saving history: %v", err)
 	}
 	s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
 	for _, a := range as {
@@ -671,12 +671,12 @@ func (s *Server) sendWake(r *http.Request, d store.Device, source, group string)
 		err = wol.Send(hw, target, d.Interface, pass)
 	}
 	if err != nil {
-		log.Printf("Wecken von %s fehlgeschlagen: %v", d.Name, err)
+		log.Printf("Waking %s failed: %v", d.Name, err)
 		res.Message, res.Error = i18n.T(l, "msg.wake_failed", d.Name), i18n.Text(l, err)
 		a.ev.SetError(l, err) // im Verlauf später in der Sprache des Betrachters
 		return res, http.StatusInternalServerError, a
 	}
-	log.Printf("Magic Packet an %s (%s) über %s gesendet (%s)", d.Name, d.MAC, target, source)
+	log.Printf("Magic packet to %s (%s) sent via %s (%s)", d.Name, d.MAC, target, source)
 	a.ev.Success = true
 	res.Success = true
 	res.Message = i18n.T(l, "msg.wake_sent", d.Name)
@@ -834,7 +834,7 @@ func (s *Server) importDevices(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	log.Printf("Import: %d Gerät(e) übernommen, %d schon vorhanden, %d fehlerhaft", res.Added, res.Skipped, len(res.Errors))
+	log.Printf("Import: %d device(s) added, %d already present, %d invalid", res.Added, res.Skipped, len(res.Errors))
 	if res.Added > 0 {
 		s.devicesChanged()
 		go s.monitor.CheckAll(context.Background())

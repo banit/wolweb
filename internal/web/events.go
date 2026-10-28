@@ -62,7 +62,7 @@ func (h *hub) publishLocalized(event string, data func(i18n.Lang) any) {
 		if !ok {
 			b, err := json.Marshal(data(l))
 			if err != nil {
-				log.Printf("Ereignis %s: %v", event, err)
+				log.Printf("Event %s: %v", event, err)
 				return
 			}
 			msg = []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event, b))

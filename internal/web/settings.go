@@ -32,10 +32,10 @@ func (s *Server) Apply(cfg config.Config) {
 	s.monitor.SetPorts(cfg.Status.Ports)
 	s.monitor.SetInterval(check)
 	if err := s.scanner.SetNetworks(cfg.Discovery.ScanCIDRs()); err != nil {
-		log.Printf("Einstellungen: Suchsegmente: %v", err) // geprüft – sollte nie vorkommen
+		log.Printf("Settings: scan networks: %v", err) // geprüft – sollte nie vorkommen
 	}
 	s.scanner.SetInterval(scan)
-	log.Printf("Einstellungen übernommen")
+	log.Print("Settings applied")
 	s.hub.publish("settings", struct{}{}) // offene Fenster laden Info und Geräte neu
 	go s.monitor.CheckAll(context.Background())
 }
@@ -189,7 +189,7 @@ func (s *Server) settingsError(w http.ResponseWriter, r *http.Request, err error
 		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": i18n.Text(s.lang(r), fe.Err), "field": fe.Field})
 		return
 	}
-	log.Printf("Einstellungen speichern: %v", err)
+	log.Printf("Saving settings: %v", err)
 	s.fail(w, r, http.StatusInternalServerError, "err.save_failed", err)
 }
 
@@ -218,7 +218,7 @@ func (s *Server) testNotify(w http.ResponseWriter, r *http.Request) {
 	defer n.Close()
 	ev := notify.Event{Event: notify.Test, Device: "wolweb", Message: i18n.T(l, "notify.test")}
 	if err := n.Test(ev); err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"success": false, "message": i18n.T(l, "msg.notify_failed", err)})
+		writeJSON(w, http.StatusBadGateway, map[string]any{"success": false, "message": i18n.T(l, "msg.notify_failed", i18n.ErrorText(l, err))})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": i18n.T(l, "msg.notify_sent")})

@@ -73,14 +73,14 @@ func TestSettingsAPI(t *testing.T) {
 	e := v.Settings
 	e.Status.WakeRetry = "10s"
 	e.Discovery.Networks = append(e.Discovery.Networks, config.Network{CIDR: "10.0.0.0/24", Name: "IoT", VLAN: 20, Scan: true})
-	e.Language = "en"
+	e.Language = "de"
 	b, _ := json.Marshal(e)
 	rec = call(h, "PUT", "/api/v1/settings", string(b))
 	if rec.Code != 200 {
 		t.Fatalf("PUT: %d %s", rec.Code, rec.Body)
 	}
 	json.Unmarshal(rec.Body.Bytes(), &v)
-	if s.rt().wakeRetry != 10*time.Second || s.rt().lang != "en" || len(s.scanner.Networks()) != 2 {
+	if s.rt().wakeRetry != 10*time.Second || s.rt().lang != "de" || len(s.scanner.Networks()) != 2 {
 		t.Errorf("nicht übernommen: %v %v %v", s.rt().wakeRetry, s.rt().lang, s.scanner.Networks())
 	}
 	if len(v.Stored) != 3 || v.Networks[1].Label != "IoT (VLAN 20)" || v.Networks[1].Local != nil {

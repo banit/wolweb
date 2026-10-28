@@ -23,7 +23,7 @@ type State struct {
 	RTTMillis int64     `json:"rtt_ms,omitempty"`
 	CheckedAt time.Time `json:"checked_at,omitzero"`
 	LastSeen  time.Time `json:"last_seen,omitzero"`
-	Note      string    `json:"note,omitempty"`         // Hinweis auf Deutsch (API wie bisher)
+	Note      string    `json:"note,omitempty"`         // Hinweis auf Englisch (Sprache der API ohne Anfrage)
 	Conflict  string    `json:"conflict_mac,omitempty"` // MAC des Geräts, das stattdessen unter der IP antwortet
 
 	started time.Time // Beginn der Prüfung – ein älteres Ergebnis überschreibt kein neueres
@@ -158,7 +158,7 @@ func (m *Monitor) Check(ctx context.Context, d store.Device) State {
 		// Antwortet unter der IP ein anderes Gerät (andere MAC in der Nachbartabelle), zählt das nicht.
 		if mac := discovery.NeighborMAC(ip); mac != nil && !strings.EqualFold(mac.String(), d.MAC) {
 			st.Conflict = strings.ToUpper(mac.String())
-			st.Note = i18n.T(i18n.DE, "notify.conflict", ip.String(), st.Conflict)
+			st.Note = i18n.T(i18n.EN, "notify.conflict", ip.String(), st.Conflict)
 		} else {
 			st.State, st.Method, st.RTTMillis, st.LastSeen = "online", r.Method, r.RTT.Milliseconds(), st.CheckedAt
 			m.store.SeenAt(d.ID, st.CheckedAt)

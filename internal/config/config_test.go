@@ -43,7 +43,7 @@ func TestNotifyValidated(t *testing.T) {
 func TestExampleLoads(t *testing.T) {
 	c, found, err := Load("../../config.example.json")
 	// Keine Netze: wolweb erkennt das Heimnetz selbst – ein festes Beispielnetz passte bei kaum jemandem.
-	if err != nil || !found || c.Language != "de" || len(c.Discovery.Networks) != 0 {
+	if err != nil || !found || c.Language != "en" || len(c.Discovery.Networks) != 0 {
 		t.Fatalf("%v %v %+v", err, found, c)
 	}
 }

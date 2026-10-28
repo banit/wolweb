@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -92,7 +91,7 @@ func (n *Notifier) Send(ev Event) {
 	select {
 	case n.queue <- ev:
 	default:
-		n.logErr("Warteschlange voll, Ereignis %s für %s verworfen", ev.Event, ev.Device)
+		n.logErr("queue full, event %s for %s dropped", ev.Event, ev.Device)
 	}
 }
 
@@ -129,7 +128,7 @@ func (n *Notifier) deliver(ev Event) error {
 		title, tag, prio := ntfyStyle(ev, n.lang)
 		u, err := url.Parse(n.ntfy)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("ntfy-Adresse %s: %w", redact(n.ntfy), err))
+			errs = append(errs, i18n.M("notify.err.url", redact(n.ntfy), err))
 		} else {
 			q := u.Query()
 			q.Set("title", title)
@@ -172,7 +171,7 @@ func newClient() *http.Client {
 func (n *Notifier) post(target, contentType string, body []byte) error {
 	req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("Benachrichtigung an %s: %w", redact(target), err)
+		return i18n.M("notify.err.send", redact(target), err)
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", n.agent)
@@ -182,15 +181,14 @@ func (n *Notifier) post(target, contentType string, body []byte) error {
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		return fmt.Errorf("Benachrichtigung an %s: %w", redact(target), err)
+		return i18n.M("notify.err.send", redact(target), err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		return fmt.Errorf("Benachrichtigung an %s: Weiterleitung (HTTP %d) nach %s wird nicht befolgt – bitte die Zieladresse direkt eintragen",
-			redact(target), resp.StatusCode, redact(resp.Header.Get("Location")))
+		return i18n.M("notify.err.redirect", redact(target), resp.StatusCode, redact(resp.Header.Get("Location")))
 	}
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("Benachrichtigung an %s: HTTP %d", redact(target), resp.StatusCode)
+		return i18n.M("notify.err.status", redact(target), resp.StatusCode)
 	}
 	return nil
 }

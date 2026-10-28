@@ -147,7 +147,7 @@ func Default() Config {
 		Port:     8089,
 		VDir:     "/",
 		DataDir:  "data",
-		Language: "de",
+		Language: "en",
 		Discovery: Discovery{
 			Interval: "30m",
 			MaxHosts: 1024,
@@ -309,7 +309,7 @@ func (c *Config) normalize() error {
 	} else if c.Language != "" {
 		return invalid("language", "cfg.language", c.Language)
 	} else {
-		c.Language = string(i18n.DE)
+		c.Language = string(i18n.EN)
 	}
 	v := "/" + strings.Trim(strings.TrimSpace(c.VDir), "/")
 	if v != "/" {
