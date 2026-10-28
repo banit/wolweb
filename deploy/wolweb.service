@@ -1,5 +1,5 @@
 [Unit]
-Description=wolweb – Wake on LAN mit Weboberfläche
+Description=wolweb – Wake on LAN with a web interface
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +9,7 @@ Group=wolweb
 WorkingDirectory=/opt/wolweb
 ExecStart=/opt/wolweb/wolweb -c /opt/wolweb/config.json
 Restart=on-failure
-# ARP-Scan und Ping ohne root:
+# ARP scan and ping without root:
 AmbientCapabilities=CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_RAW
 NoNewPrivileges=true

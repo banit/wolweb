@@ -3,13 +3,13 @@ services:
     build:
       context: .
       args:
-        VERSION: "1.2.0" # steht unten in der Übersicht und benennt die Sicherung beim nächsten Update
+        VERSION: "1.2.0" # shown at the bottom of the overview; names the backup at the next update
     image: wolweb:latest
-    # Statt selbst zu bauen das fertige Image (amd64, arm64, armv7) eines Releases nehmen:
-    # image: ghcr.io/banit/wolweb:latest   – und den Block "build:" entfernen
+    # Instead of building it yourself, use the ready-made image (amd64, arm64, armv7) of a release:
+    # image: ghcr.io/banit/wolweb:latest   – and remove the "build:" block
     container_name: wolweb
     restart: unless-stopped
-    # Magic Packets (Broadcast) und ARP-Scan brauchen das Netz des Hosts – Port-Mappings gibt es dann nicht.
+    # Magic packets (broadcast) and the ARP scan need the host's network – there are no port mappings then.
     network_mode: host
     cap_drop: [ALL]
     cap_add: [NET_RAW]
@@ -17,18 +17,19 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       WOLWEB_PORT: "8089"
-      # Netze für die Suche: ohne Angabe erkennt wolweb das Heimnetz selbst (bei mehreren fragt die
-      # Oberfläche). Gesetzte Variablen haben Vorrang und sind auf der Einstellungsseite gesperrt.
-      # WOLWEB_NETWORKS: "192.168.1.0/24"   # nur nötig, um das Netz fest vorzugeben (kommagetrennt)
+      # Networks to scan: without a value wolweb detects the home network itself (with several, the
+      # web interface asks). Variables that are set take precedence and are locked on the settings page.
+      # WOLWEB_NETWORKS: "192.168.1.0/24"   # only needed to pin the network (comma separated)
       # WOLWEB_SCAN_INTERVAL: "30m"
-      # WOLWEB_BCASTIP: "192.168.1.255:9"      # leer = automatisch (Netz der Geräte-IP bzw. des Suchsegments)
+      # WOLWEB_BCASTIP: "192.168.1.255:9"      # empty = automatic (network of the device IP or of the scanned segment)
+      # WOLWEB_LANGUAGE: "de"                  # "en" (default) or "de": notifications and answers to clients without a browser language
       # WOLWEB_USER: "admin"
-      # WOLWEB_PASSWORD: "bitte-ändern"
-      # WOLWEB_TOKEN: "langes-zufälliges-token"   # für Home Assistant & Co.
-      # WOLWEB_PUBLIC_WAKE: "true"               # feste Wecklinks ohne Anmeldung
-      TZ: Europe/Berlin
+      # WOLWEB_PASSWORD: "please-change"
+      # WOLWEB_TOKEN: "long-random-token"      # for Home Assistant & co.
+      # WOLWEB_PUBLIC_WAKE: "true"             # fixed wake links without login
+      TZ: Europe/Berlin                        # your time zone – schedules run in it
     volumes:
-      # Der Ordner muss root gehören (der Container hat keine Sonderrechte, siehe README):
-      # am besten von Docker anlegen lassen, sonst "sudo chown -R root:root data".
+      # The folder must belong to root (the container has no extra privileges, see README):
+      # best let Docker create it, otherwise "sudo chown -R root:root data".
       - ./data:/data
       # optional: - ./config.json:/config/config.json:ro
