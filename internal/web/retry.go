@@ -123,7 +123,7 @@ func (s *Server) runRetry(g uint64, as []wakeAttempt) {
 		if !ok || base.Err() != nil || states[i].State != "offline" { // online oder nicht mehr prüfbar
 			continue
 		}
-		log.Printf("%s antwortet %v nach dem Wecken nicht – Weckruf erneut", d.Name, s.rt().wakeRetry)
+		log.Printf("%s did not respond within %v after waking – sending the wake-up call again", d.Name, s.rt().wakeRetry)
 		_, _, b := s.sendWake(nil, d, a.ev.Source, a.ev.Group)
 		b.ev.Client, b.ev.User, b.ev.Retry = a.ev.Client, a.ev.User, true
 		again = append(again, b)

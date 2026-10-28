@@ -159,7 +159,7 @@ func TestLegacyFileInDataDirIsBackedUp(t *testing.T) {
 	if _, _, err := Open(dir, ""); err != nil {
 		t.Fatal(err)
 	}
-	baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-original-*", "devices.json"))
+	baks, _ := filepath.Glob(filepath.Join(dir, "backup-original-*", "devices.json"))
 	if len(baks) != 1 {
 		t.Fatalf("Sicherungen: %v", baks)
 	}
@@ -184,7 +184,7 @@ func TestUpdateFrom10BacksUpOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-1.0.x-*"))
+	baks, _ := filepath.Glob(filepath.Join(dir, "backup-1.0.x-*"))
 	if len(baks) != 1 || !strings.Contains(strings.Join(notes, " "), "1.0.x") {
 		t.Fatalf("Sicherungen: %v, Hinweise %v", baks, notes)
 	}
@@ -206,7 +206,7 @@ func TestUpdateFrom10BacksUpOnce(t *testing.T) {
 	if _, _, err := Open(dir, ""); err != nil {
 		t.Fatal(err)
 	}
-	if baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-*")); len(baks) != 1 {
+	if baks, _ := filepath.Glob(filepath.Join(dir, "backup-*")); len(baks) != 1 {
 		t.Errorf("weitere Sicherung: %v", baks)
 	}
 	// Nächstes Update (1.2.0 → 1.3.0): wieder eine Sicherung, jetzt mit der alten Version im Namen
@@ -214,7 +214,7 @@ func TestUpdateFrom10BacksUpOnce(t *testing.T) {
 	if _, _, err := Open(dir, ""); err != nil {
 		t.Fatal(err)
 	}
-	if baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-1.2.0-*")); len(baks) != 1 {
+	if baks, _ := filepath.Glob(filepath.Join(dir, "backup-1.2.0-*")); len(baks) != 1 {
 		t.Errorf("keine Sicherung von 1.2.0: %v", baks)
 	}
 }

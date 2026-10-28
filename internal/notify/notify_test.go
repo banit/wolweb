@@ -69,7 +69,7 @@ func TestRedirectNotFollowed(t *testing.T) {
 		}))
 		for _, n := range []*Notifier{New(outer.URL+"/hook", "", nil, "test", i18n.DE), New("", outer.URL+"/thema", nil, "test", i18n.DE)} {
 			err := n.Test(Event{Event: Test, Device: "wolweb", Message: "Test"})
-			if err == nil || !strings.Contains(err.Error(), "Weiterleitung") || strings.Contains(err.Error(), "geheim") {
+			if err == nil || !strings.Contains(err.Error(), "redirect") || !strings.Contains(i18n.ErrorText(i18n.DE, err), "Weiterleitung") || strings.Contains(err.Error(), "geheim") {
 				t.Errorf("HTTP %d: %v", code, err)
 			}
 			n.Close()

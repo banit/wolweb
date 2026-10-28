@@ -80,12 +80,12 @@ func FromRequest(r *http.Request, def Lang) Lang {
 	return def
 }
 
-// T übersetzt key in l. Fehlt er dort, gilt Deutsch, sonst der Schlüssel selbst. Argumente, die
+// T übersetzt key in l. Fehlt er dort, gilt Englisch, sonst der Schlüssel selbst. Argumente, die
 // selbst übersetzbar sind (Msg, Fehler mit Msg), werden in l übersetzt.
 func T(l Lang, key string, args ...any) string {
 	s, ok := catalogs[l][key]
 	if !ok {
-		if s, ok = catalogs[DE][key]; !ok {
+		if s, ok = catalogs[EN][key]; !ok {
 			s = key
 		}
 	}
@@ -118,7 +118,7 @@ func Text(l Lang, v any) string {
 	}
 }
 
-// Msg ist eine noch nicht übersetzte Meldung. Sie ist auch ein error (Text auf Deutsch), damit
+// Msg ist eine noch nicht übersetzte Meldung. Sie ist auch ein error (Text auf Englisch), damit
 // sie durch Fehlerketten wandern und erst bei der Antwort übersetzt werden kann.
 type Msg struct {
 	Key  string
@@ -130,7 +130,7 @@ func M(key string, args ...any) Msg { return Msg{Key: key, Args: args} }
 
 func (m Msg) In(l Lang) string { return T(l, m.Key, m.Args...) }
 
-func (m Msg) Error() string { return m.In(DE) }
+func (m Msg) Error() string { return m.In(EN) }
 
 // Unwrap gibt eingebettete Fehler frei (errors.Is/As funktionieren durch die Meldung hindurch).
 func (m Msg) Unwrap() []error {

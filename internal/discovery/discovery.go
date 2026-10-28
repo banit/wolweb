@@ -368,9 +368,9 @@ func (s *Scanner) RunAuto(ctx context.Context) {
 				t.Stop()
 			}
 			if s.autoInterval() > 0 {
-				log.Printf("Automatische Suche jetzt alle %s", s.autoInterval())
+				log.Printf("Automatic scan now every %s", s.autoInterval())
 			} else {
-				log.Print("Automatische Suche aus")
+				log.Print("Automatic scan off")
 			}
 			wait = 0 // ab jetzt im neuen Abstand – gerade eingeschaltet: bald einmal suchen
 			if iv == 0 {
@@ -384,7 +384,7 @@ func (s *Scanner) RunAuto(ctx context.Context) {
 			continue
 		}
 		if err := s.Start(true); err != nil && !errors.Is(err, ErrBusy) {
-			log.Printf("Automatische Suche: %v", err)
+			log.Printf("Automatic scan: %v", err)
 		}
 	}
 }
@@ -402,8 +402,8 @@ func (s *Scanner) Job() Job {
 }
 
 // Vergleichbare Fehler für errors.Is; übersetzt als scan.busy bzw. scan.no_networks.
-var ErrBusy = errors.New("es läuft bereits eine Suche")
-var ErrNoNetworks = errors.New("keine Netzsegmente konfiguriert (discovery.networks)")
+var ErrBusy = errors.New("a scan is already running")
+var ErrNoNetworks = errors.New("no network segments configured (discovery.networks)")
 
 // maxScanTime begrenzt eine Suche; danach wird sie wie ein Abbruch beendet.
 const maxScanTime = 5 * time.Minute
@@ -499,7 +499,7 @@ func (s *Scanner) run(ctx context.Context, cancel context.CancelFunc, nets []net
 			j.Error = err.Error()
 		}
 	})
-	log.Printf("Suche beendet: %d Geräte, %d neu, Methode %s", len(all), newCount, method)
+	log.Printf("Scan finished: %d devices, %d new, method %s", len(all), newCount, method)
 }
 
 func (s *Scanner) scanNetwork(ctx context.Context, p netip.Prefix) ([]store.Found, string, error) {
@@ -521,7 +521,7 @@ func (s *Scanner) scanNetwork(ctx context.Context, p netip.Prefix) ([]store.Foun
 		// Abgebrochen: Die bis dahin eingegangenen ARP-Antworten sind echt und werden übernommen.
 		// Die Nachbartabelle als Ersatz wäre hier falsch – ARP funktioniert ja.
 	case err != nil:
-		log.Printf("ARP-Scan auf %s nicht möglich (%v) – nutze Nachbartabelle", ln.Interface, err)
+		log.Printf("ARP scan on %s not possible (%v) – using the neighbor table", ln.Interface, err)
 		method = "neighbors"
 		hits, err = neighborScan(ctx, ln, targets, progress)
 		if err != nil {

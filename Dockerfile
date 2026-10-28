@@ -1,6 +1,6 @@
-# Baut aus dem lokalen Stand (kein git clone im Build). Mehrere Architekturen ohne Emulation:
+# Builds from the local checkout (no git clone during the build). Several architectures without emulation:
 #   docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 .
-# Go übersetzt auf der Plattform des Build-Rechners für die Zielplattform.
+# Go compiles on the build machine's platform for the target platform.
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -17,7 +17,7 @@ WORKDIR /
 ENV WOLWEB_DATA_DIR=/data
 VOLUME ["/data"]
 EXPOSE 8089
-# Läuft als root im Container, damit CAP_NET_RAW (ARP-Scan, Ping) wirkt; alle anderen Rechte
-# werden in docker-compose.yml entzogen.
+# Runs as root inside the container so that CAP_NET_RAW (ARP scan, ping) takes effect; all other
+# privileges are dropped in docker-compose.yml.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD ["/wolweb", "-c", "/config/config.json", "-healthcheck"]
 ENTRYPOINT ["/wolweb", "-c", "/config/config.json", "-d", "/data/legacy-devices.json"]

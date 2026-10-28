@@ -97,7 +97,7 @@ func Send(hw net.HardwareAddr, target, iface string, secureOn []byte) error {
 		for range Rounds - 1 {
 			time.Sleep(Spacing)
 			if err := sendRound(conn, pkt, dests); err != nil {
-				log.Printf("Magic Packet an %s wiederholen: %v", target, err)
+				log.Printf("Repeating magic packet to %s: %v", target, err)
 				return
 			}
 		}

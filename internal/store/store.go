@@ -65,8 +65,8 @@ type Found struct {
 // Fehler zum Vergleichen mit errors.Is; die Oberfläche bekommt sie übersetzt (err.device_not_found,
 // err.conflict). Eine i18n.Msg ginge hier nicht – sie ist nicht vergleichbar.
 var (
-	ErrNotFound = errors.New("nicht gefunden")
-	ErrConflict = errors.New("die Daten wurden inzwischen geändert – bitte neu laden")
+	ErrNotFound = errors.New("not found")
+	ErrConflict = errors.New("the data has changed in the meantime – please reload")
 )
 
 // ValidationError wird als HTTP 400 an die Oberfläche gegeben: Meldung (übersetzbar) und das
@@ -109,9 +109,9 @@ var AppVersion = "dev"
 // dataFiles sind die Dateien im Datenverzeichnis, die eine Sicherung umfasst.
 var dataFiles = []string{"devices.json", "state.json", "discovered.json", "settings.json"}
 
-// backup kopiert die vorhandenen Dateien nach sicherung-<label>-<Zeitpunkt>/ und liefert den Ordner.
+// backup kopiert die vorhandenen Dateien nach backup-<label>-<Zeitpunkt>/ und liefert den Ordner.
 func backup(dir, label string) (string, error) {
-	dst := filepath.Join(dir, "sicherung-"+label+"-"+time.Now().Format("20060102-150405"))
+	dst := filepath.Join(dir, "backup-"+label+"-"+time.Now().Format("20060102-150405"))
 	if err := os.Mkdir(dst, 0o750); err != nil {
 		return "", err
 	}
@@ -182,9 +182,9 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 		if label != AppVersion {
 			bak, err := backup(dir, label)
 			if err != nil {
-				return nil, nil, fmt.Errorf("Sicherung vor dem Update: %w", err)
+				return nil, nil, fmt.Errorf("backup before the update: %w", err)
 			}
-			notes = append(notes, fmt.Sprintf("Daten von wolweb %s gesichert in %s", label, bak))
+			notes = append(notes, fmt.Sprintf("Data of wolweb %s backed up to %s", label, bak))
 			s.rewrite = true
 		}
 		if n != "" {
@@ -203,11 +203,11 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 					return nil, nil, fmt.Errorf("%s: %w", legacyPath, err)
 				}
 				s.devices = devs
-				notes = append(notes, fmt.Sprintf("%d Gerät(e) aus %s übernommen", len(s.devices), legacyPath))
+				notes = append(notes, fmt.Sprintf("%d device(s) imported from %s", len(s.devices), legacyPath))
 				notes = append(notes, problemNotes(legacyPath, problems)...)
 			case !errors.Is(err, os.ErrNotExist):
 				// Nicht still mit leerer Liste starten – sonst würde der Import nie wieder versucht.
-				return nil, nil, fmt.Errorf("alte Gerätedatei %s: %w", legacyPath, err)
+				return nil, nil, fmt.Errorf("old device file %s: %w", legacyPath, err)
 			}
 		}
 		if err := s.saveDevices(); err != nil {
@@ -222,7 +222,7 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 	case err == nil:
 		var list []*Found
 		if err := json.Unmarshal(b, &list); err != nil {
-			return nil, nil, fmt.Errorf("%s: %w (Datei reparieren oder löschen)", fpath, err)
+			return nil, nil, fmt.Errorf("%s: %w (repair or delete the file)", fpath, err)
 		}
 		for _, f := range list {
 			if f == nil {
@@ -343,7 +343,7 @@ func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note
 		}
 		name := cleanName(d.Name)
 		if name == "" {
-			name = "Gerät"
+			name = "Device"
 		}
 		for base, i := name, 2; used[strings.ToLower(name)]; i++ {
 			name = fmt.Sprintf("%s %d", base, i)
@@ -354,14 +354,14 @@ func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note
 			Vendor: oui.Lookup(hw), CreatedAt: now, UpdatedAt: now,
 		})
 	}
-	return devs, nil, fmt.Sprintf("%d Gerät(e) aus dem alten wolweb-Format umgewandelt", len(devs)), problems, nil
+	return devs, nil, fmt.Sprintf("%d device(s) converted from the original wolweb format", len(devs)), problems, nil
 }
 
 // problemNotes macht aus nicht übernommenen Einträgen Hinweise fürs Log.
 func problemNotes(src string, problems []error) []string {
 	var out []string
 	for _, p := range problems {
-		out = append(out, src+": nicht übernommen – "+p.Error())
+		out = append(out, src+": not imported – "+p.Error())
 	}
 	return out
 }
