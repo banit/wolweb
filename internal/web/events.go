@@ -92,45 +92,59 @@ func (s *Server) Close() {
 	s.stopRetries()
 }
 
+// sseWriteTimeout: So lange darf ein einzelnes Ereignis zum Empfänger brauchen. Liest er nicht
+// (eingefrorener Tab, abgerissene Verbindung ohne FIN), wird die Verbindung beendet, statt ewig in
+// Write zu hängen; der Browser verbindet sich bei Bedarf selbst neu.
+var sseWriteTimeout = 10 * time.Second
+
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
-	// Die Verbindung bleibt offen: keine Schreibfrist (WriteTimeout) und keine Lesefrist – sonst
-	// bricht net/http sie nach ReadTimeout ab.
-	_ = rc.SetWriteDeadline(time.Time{})
+	// Die Verbindung bleibt offen: keine Lesefrist (sonst bricht net/http sie nach ReadTimeout ab)
+	// und statt der allgemeinen Schreibfrist eine kurze je Ereignis.
 	_ = rc.SetReadDeadline(time.Time{})
+	send := func(write func() error) bool {
+		_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+		return write() == nil && rc.Flush() == nil
+	}
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Accel-Buffering", "no") // nginx: nicht puffern
-	w.WriteHeader(http.StatusOK)
 	ch, unsubscribe := s.hub.subscribe(s.lang(r))
 	defer unsubscribe()
-	io.WriteString(w, "retry: 5000\n\n")
-	if rc.Flush() != nil {
+	if !send(func() error {
+		w.WriteHeader(http.StatusOK)
+		_, err := io.WriteString(w, "retry: 5000\n\n")
+		return err
+	}) {
 		return
 	}
 	ping := time.NewTicker(25 * time.Second) // hält Proxys und NAT-Tabellen wach
 	defer ping.Stop()
 	for {
+		var ok bool
 		select {
 		case <-r.Context().Done():
 			return
-		case msg, ok := <-ch:
-			if !ok {
+		case msg, open := <-ch:
+			if !open {
 				return
 			}
-			if _, err := w.Write(msg); err != nil {
-				return
-			}
+			ok = send(func() error { _, err := w.Write(msg); return err })
 		case <-ping.C:
-			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
-				return
-			}
+			ok = send(func() error { _, err := io.WriteString(w, ": ping\n\n"); return err })
 		}
-		if rc.Flush() != nil {
-			return
+		if !ok {
+			return // Frist überschritten oder Verbindung weg: abmelden (defer)
 		}
 	}
+}
+
+// subscribers zählt die offenen Ereignis-Verbindungen (für Tests und /metrics).
+func (h *hub) subscribers() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.subs)
 }
 
 // devicesChanged meldet der Oberfläche, dass sie die Geräteliste neu laden soll.

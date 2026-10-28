@@ -796,3 +796,36 @@ func TestRetryStopsWhenOvertaken(t *testing.T) {
 		})
 	}
 }
+
+// Ein Empfänger, der nicht liest, blockiert die Ereignisse nicht dauerhaft: Nach der Schreibfrist
+// endet seine Verbindung und er wird abgemeldet.
+func TestEventsDropSlowReader(t *testing.T) {
+	old := sseWriteTimeout
+	sseWriteTimeout = 200 * time.Millisecond
+	defer func() { sseWriteTimeout = old }()
+	st, _, _ := store.Open(t.TempDir(), "")
+	s := New(config.Default(), st, status.New(st, probe.New(nil, time.Second), 0), discovery.New(st, nil, 16), false, "test")
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.(*net.TCPConn).SetReadBuffer(4096)
+	fmt.Fprintf(conn, "GET /api/v1/events HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n") // und dann nie lesen
+	for deadline := time.Now().Add(3 * time.Second); s.hub.subscribers() == 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("keine Verbindung")
+		}
+	}
+	big := strings.Repeat("x", 64<<10)
+	deadline := time.Now().Add(10 * time.Second)
+	for s.hub.subscribers() > 0 {
+		s.hub.publish("devices", big) // Puffer füllen, bis Write hängt
+		time.Sleep(time.Millisecond)
+		if time.Now().After(deadline) {
+			t.Fatal("Empfänger, der nicht liest, bleibt angemeldet")
+		}
+	}
+}
