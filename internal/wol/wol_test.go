@@ -2,6 +2,7 @@ package wol
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -40,38 +41,81 @@ func TestPacket(t *testing.T) {
 	}
 }
 
-func TestSendDeliversTwice(t *testing.T) {
+// Send kehrt nach der ersten Runde zurück; die weiteren folgen im Abstand Spacing.
+func TestSendRepeatsInRounds(t *testing.T) {
 	l, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer l.Close()
 	hw, _ := ParseMAC("01:23:45:67:89:ab")
+	start := time.Now()
 	if err := Send(hw, l.LocalAddr().String(), "", nil); err != nil {
 		t.Fatal(err)
 	}
+	if d := time.Since(start); d > Spacing/2 {
+		t.Errorf("Send hat %v gewartet – die Wiederholungen sollen im Hintergrund laufen", d)
+	}
 	buf := make([]byte, 200)
-	for i := range 2 {
-		l.SetReadDeadline(time.Now().Add(time.Second))
+	var got []time.Duration
+	for i := range Rounds {
+		l.SetReadDeadline(time.Now().Add(2 * time.Second))
 		n, _, err := l.ReadFrom(buf)
 		if err != nil || !bytes.Equal(buf[:n], Packet(hw, nil)) {
 			t.Fatalf("Paket %d: %v (%d Byte)", i+1, err, n)
 		}
+		got = append(got, time.Since(start))
+	}
+	if last := got[len(got)-1]; last < time.Duration(Rounds-1)*Spacing*3/4 {
+		t.Errorf("Runden zu dicht: %v", got)
 	}
 }
 
-// Ein Unicast-Ziel ohne Empfänger antwortet mit "Port unreachable". Das darf das zweite Paket
-// nicht scheitern lassen (früher: ECONNREFUSED beim verbundenen Socket).
+func TestDestinations(t *testing.T) {
+	for _, tc := range []struct {
+		port int
+		want []int
+	}{{9, []int{9, 7}}, {7, []int{7, 9}}, {40000, []int{40000}}} {
+		a := &net.UDPAddr{IP: net.IPv4(192, 168, 1, 255), Port: tc.port}
+		var got []int
+		for _, d := range Destinations(a) {
+			if !d.IP.Equal(a.IP) {
+				t.Errorf("Ziel %v statt %v", d.IP, a.IP)
+			}
+			got = append(got, d.Port)
+		}
+		if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+			t.Errorf("Port %d → %v, erwartet %v", tc.port, got, tc.want)
+		}
+		if a.Port != tc.port {
+			t.Error("Destinations hat die Adresse verändert")
+		}
+	}
+}
+
+// Ein Unicast-Ziel ohne Empfänger antwortet mit "Port unreachable". Das darf die folgenden
+// Runden nicht scheitern lassen (früher: ECONNREFUSED beim verbundenen Socket).
 func TestSendIgnoresPortUnreachable(t *testing.T) {
 	l, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := l.LocalAddr().String()
+	target := l.LocalAddr().(*net.UDPAddr)
 	l.Close() // Port ist jetzt geschlossen
 	hw, _ := ParseMAC("01:23:45:67:89:ab")
-	if err := Send(hw, target, "", nil); err != nil {
+	if err := Send(hw, target.String(), "", nil); err != nil {
 		t.Fatalf("Senden an geschlossenen Port: %v", err)
+	}
+	conn, err := listen("", target.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	for i := range 3 {
+		if err := sendRound(conn, Packet(hw, nil), []*net.UDPAddr{target}); err != nil {
+			t.Fatalf("Runde %d: %v", i+1, err)
+		}
+		time.Sleep(20 * time.Millisecond) // Zeit für die ICMP-Antwort
 	}
 }
 

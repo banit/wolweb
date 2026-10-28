@@ -211,7 +211,9 @@
     const st = d.status || {};
     if (s === "waking") {
       const w = state.waking.get(d.id);
-      return [el("span", { class: "pill waking", text: t("ui.starting") }), el("span", { class: "timer", "data-timer": d.id, text: fmtDuration(Date.now() - w.start) })];
+      const resent = state.info.wake_retry && Date.now() - w.start >= state.info.wake_retry * 1000; // der Server hat erneut gesendet
+      return [el("span", { class: "pill waking", text: t("ui.starting") }), el("span", { class: "timer", "data-timer": d.id, text: fmtDuration(Date.now() - w.start) }),
+        resent ? el("span", { text: t("ui.resent") }) : null];
     }
     if (s === "online") {
       return [el("span", { class: "pill online", text: t("ui.online") }), el("span", { text: methodText(st.method) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "") })];
@@ -666,7 +668,7 @@
       icon(ev.success ? (SOURCE_ICON[ev.source] || "check") : "x"),
       el("div", { class: "h-main" },
         el("strong", { text: ev.device }),
-        el("div", { class: "h-meta", text: [sourceText(ev), ev.user, ev.client, ev.target && t("ui.to_target", ev.target)].filter(Boolean).join(" · ") }),
+        el("div", { class: "h-meta", text: [sourceText(ev), ev.retry && t("ui.retry_event"), ev.user, ev.client, ev.target && t("ui.to_target", ev.target)].filter(Boolean).join(" · ") }),
         ev.error ? el("div", { class: "h-meta", text: ev.error }) : null),
       el("time", { datetime: ev.time, title: new Date(ev.time).toLocaleString(locale), text: fmt.format(new Date(ev.time)) }))));
     $("#history-empty").hidden = events.length !== 0;

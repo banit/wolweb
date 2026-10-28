@@ -38,6 +38,8 @@ type Server struct {
 	icmp        bool
 	version     string
 	wakeTimeout time.Duration
+	wakeRetry   time.Duration // 0 = keine Wiederholung
+	retry       retries
 	tmpl        *template.Template
 	limiter     wakeLimiter
 	hub         hub
@@ -56,12 +58,13 @@ func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.
 	if wt <= 0 {
 		wt = 3 * time.Minute
 	}
+	wr, _ := config.ParseDuration(cfg.Status.WakeRetry)
 	defLang, ok := i18n.Parse(cfg.Language)
 	if !ok {
 		defLang = i18n.DE
 	}
 	s := &Server{
-		cfg: cfg, store: st, monitor: mon, scanner: sc, icmp: icmp, version: version, wakeTimeout: wt,
+		cfg: cfg, store: st, monitor: mon, scanner: sc, icmp: icmp, version: version, wakeTimeout: wt, wakeRetry: wr,
 		tmpl:    template.Must(template.ParseFS(assets, "templates/*.html")),
 		notify:  notify.New(cfg.Notify.Webhook, cfg.Notify.Ntfy, cfg.Notify.Events, version, defLang),
 		wakes:   map[[2]string]int{},
@@ -283,6 +286,7 @@ type pageData struct {
 	Version string
 	Device  *deviceView
 	Timeout int
+	Retry   int // Sekunden bis zur automatischen Wiederholung, 0 = keine
 	Missing string
 	Key     string // Weckschlüssel, den die Weckseite bei ihren Aufrufen mitschickt
 	Group   *groupView
@@ -529,11 +533,11 @@ func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wa
 // wakeAttempt ist ein Weckversuch, der noch eingetragen und gemeldet werden muss.
 type wakeAttempt struct {
 	ev store.Event
-	ip string
+	d  store.Device
 }
 
 // recordWakes trägt Weckversuche mit einem Schreibvorgang in den Verlauf ein, meldet die Änderung
-// einmal an die Oberfläche und benachrichtigt je Versuch.
+// einmal an die Oberfläche, benachrichtigt je Versuch und merkt die Wiederholung vor.
 func (s *Server) recordWakes(as ...wakeAttempt) {
 	if len(as) == 0 {
 		return
@@ -557,8 +561,12 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 		s.wakesMu.Lock()
 		s.wakes[[2]string{ev.ID, result}]++
 		s.wakesMu.Unlock()
-		s.notify.Send(notify.Event{Event: kind, Device: ev.Device, ID: ev.ID, IP: a.ip, Source: ev.Source, Message: msg})
+		if ev.Retry && ev.Success {
+			continue // "geweckt" kam schon beim ersten Mal
+		}
+		s.notify.Send(notify.Event{Event: kind, Device: ev.Device, ID: ev.ID, IP: a.d.IP, Source: ev.Source, Message: msg})
 	}
+	s.scheduleRetry(as)
 }
 
 // sendWake verschickt das Magic Packet, ohne den Versuch schon einzutragen.
@@ -566,7 +574,7 @@ func (s *Server) sendWake(r *http.Request, d store.Device, source, group string)
 	l := s.lang(r)
 	target := s.wakeTarget(d)
 	client, user := s.caller(r)
-	a := wakeAttempt{ev: store.Event{ID: d.ID, Device: d.Name, Source: source, Group: group, Client: client, User: user, Target: target}, ip: d.IP}
+	a := wakeAttempt{ev: store.Event{ID: d.ID, Device: d.Name, Source: source, Group: group, Client: client, User: user, Target: target}, d: d}
 	res := wakeResult{Device: d.Name, ID: d.ID, Target: target}
 	hw, err := wol.ParseMAC(d.MAC)
 	var pass []byte
@@ -630,7 +638,7 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		v := s.view(d)
-		pd := pageData{Device: &v, Timeout: int(s.wakeTimeout.Seconds())}
+		pd := pageData{Device: &v, Timeout: int(s.wakeTimeout.Seconds()), Retry: int(s.wakeRetry.Seconds())}
 		if s.needsKey(r) {
 			pd.Key = d.WakeKey
 		}
@@ -753,6 +761,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"auth":              s.cfg.AuthEnabled(),
 		"public_wake":       s.cfg.Auth.PublicWake,
 		"wake_timeout":      int(s.wakeTimeout.Seconds()),
+		"wake_retry":        int(s.wakeRetry.Seconds()),
 		"ports":             s.cfg.Status.Ports,
 		"wake_keys":         s.cfg.Auth.WakeKeys && s.cfg.AuthEnabled(),
 	})

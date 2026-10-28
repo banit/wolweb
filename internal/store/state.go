@@ -30,6 +30,7 @@ type Event struct {
 	Target  string    `json:"target,omitempty"`
 	Success bool      `json:"success"`
 	Error   string    `json:"error,omitempty"`
+	Retry   bool      `json:"retry,omitempty"` // automatische Wiederholung, weil das Gerät nicht antwortete
 }
 
 // HistoryMax begrenzt den Verlauf (älteste Einträge fallen heraus).

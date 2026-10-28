@@ -8,6 +8,7 @@
   const query = card.dataset.key ? "?key=" + encodeURIComponent(card.dataset.key) : ""; // Weckschlüssel
   const hasIP = card.dataset.hasIp === "1";
   const timeout = (parseInt(card.dataset.timeout, 10) || 180) * 1000;
+  const retry = (parseInt(card.dataset.retry, 10) || 0) * 1000; // dann sendet der Server erneut
   const title = document.getElementById("wake-title");
   const result = document.getElementById("wake-result");
   const again = document.getElementById("wake-again");
@@ -155,7 +156,8 @@
     const start = Date.now();
     step("wait", "active", t("wake.wait.active", "0:00"));
     const tick = setInterval(() => {
-      step("wait", "active", t("wake.wait.active", fmt(Date.now() - start)));
+      const ms = Date.now() - start;
+      step("wait", "active", t(retry && ms >= retry ? "wake.wait.resent" : "wake.wait.active", fmt(ms)));
     }, 500);
     let online = null;
     while (Date.now() - start < timeout) {

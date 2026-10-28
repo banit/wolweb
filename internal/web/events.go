@@ -85,8 +85,12 @@ func (h *hub) close() {
 	}
 }
 
-// Close beendet alle offenen Ereignis-Verbindungen (für http.Server.RegisterOnShutdown).
-func (s *Server) Close() { s.hub.close() }
+// Close beendet alle offenen Ereignis-Verbindungen und verwirft ausstehende Wiederholungen (für
+// http.Server.RegisterOnShutdown).
+func (s *Server) Close() {
+	s.hub.close()
+	s.stopRetries()
+}
 
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)

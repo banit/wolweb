@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
@@ -520,5 +521,54 @@ func TestScheduleMinuteDue(t *testing.T) {
 		if got := scheduleMinuteDue(next, tc.now, tc.last); got != tc.want {
 			t.Errorf("%s: %v", tc.name, got)
 		}
+	}
+}
+
+func TestWakeRetry(t *testing.T) {
+	st, _, _ := store.Open(t.TempDir(), "")
+	mon := status.New(st, probe.New(nil, 100*time.Millisecond), 0)
+	cfg := config.Default()
+	cfg.Status.WakeRetry = "100ms"
+	s := New(cfg, st, mon, discovery.New(st, nil, 16), false, "test")
+	sink := udpSink(t)
+	// Antwortet auf TCP – gilt also als online.
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	off, _ := st.Create(store.Input{Name: "Aus", MAC: "00:00:00:00:00:01", IP: "192.0.2.1", Ports: []int{9}, Broadcast: sink})
+	on, _ := st.Create(store.Input{Name: "An", MAC: "00:00:00:00:00:02", IP: "127.0.0.1", Ports: []int{port}, Broadcast: sink})
+	noIP, _ := st.Create(store.Input{Name: "OhneIP", MAC: "00:00:00:00:00:03", Broadcast: sink})
+
+	s.wake(nil, off, srcAPI, "")
+	s.wake(nil, off, srcAPI, "") // ersetzt die ausstehende Wiederholung, statt eine zweite anzulegen
+	s.wakeGroup(nil, "", []store.Device{on, noIP}, srcGroup)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(st.History(0)) < 5 {
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond) // falls doch noch mehr käme
+	h := st.History(0)
+	var retried []string
+	for _, ev := range h {
+		if ev.Retry {
+			retried = append(retried, ev.Device)
+			if ev.Source != srcAPI || !ev.Success {
+				t.Errorf("Wiederholung: %+v", ev)
+			}
+		}
+	}
+	if len(h) != 5 || fmt.Sprint(retried) != "[Aus]" {
+		t.Fatalf("erwartet 4 Weckversuche und eine Wiederholung für Aus, Verlauf: %+v", h)
+	}
+
+	// Nach Close kommt keine Wiederholung mehr.
+	s.wake(nil, off, srcAPI, "")
+	s.Close()
+	time.Sleep(400 * time.Millisecond)
+	if n := len(st.History(0)); n != 6 {
+		t.Errorf("nach Close: %d Einträge statt 6", n)
 	}
 }

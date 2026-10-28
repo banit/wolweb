@@ -51,6 +51,9 @@ type Status struct {
 	Ports []int `json:"ports"`
 	// WakeTimeout: wie lange die Weckseite auf das Gerät wartet.
 	WakeTimeout string `json:"wake_timeout"`
+	// WakeRetry: Antwortet ein geweckter Rechner so lange nicht, geht das Magic Packet einmal
+	// erneut raus. "0" = nie.
+	WakeRetry string `json:"wake_retry"`
 }
 
 // Notify: Benachrichtigungen bei Ereignissen.
@@ -90,6 +93,7 @@ func Default() Config {
 			Interval:    "30s",
 			Ports:       []int{22, 80, 443, 445, 139, 3389, 5900, 8006, 8080, 53},
 			WakeTimeout: "3m",
+			WakeRetry:   "45s",
 		},
 		Auth: Auth{PublicWake: true},
 	}
@@ -150,6 +154,7 @@ func applyEnv(c *Config) {
 	str(&c.Discovery.Interval, "WOLWEB_SCAN_INTERVAL")
 	str(&c.Status.Interval, "WOLWEB_STATUS_INTERVAL")
 	str(&c.Status.WakeTimeout, "WOLWEB_WAKE_TIMEOUT")
+	str(&c.Status.WakeRetry, "WOLWEB_WAKE_RETRY")
 	str(&c.Auth.Username, "WOLWEB_USER")
 	str(&c.Auth.Password, "WOLWEB_PASSWORD")
 	str(&c.Auth.APIToken, "WOLWEB_TOKEN")
@@ -211,7 +216,7 @@ func (c *Config) normalize() error {
 	}
 	for _, d := range []struct {
 		name, val string
-	}{{"discovery.interval", c.Discovery.Interval}, {"status.interval", c.Status.Interval}, {"status.wake_timeout", c.Status.WakeTimeout}} {
+	}{{"discovery.interval", c.Discovery.Interval}, {"status.interval", c.Status.Interval}, {"status.wake_timeout", c.Status.WakeTimeout}, {"status.wake_retry", c.Status.WakeRetry}} {
 		if _, err := ParseDuration(d.val); err != nil {
 			return fmt.Errorf("%s: %w", d.name, err)
 		}

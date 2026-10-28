@@ -7,6 +7,7 @@
   const path = card.dataset.path; // "wake-group/<Name>", relativ zu <base>
   const query = card.dataset.key ? "?key=" + encodeURIComponent(card.dataset.key) : "";
   const timeout = (parseInt(card.dataset.timeout, 10) || 180) * 1000;
+  const retry = (parseInt(card.dataset.retry, 10) || 0) * 1000; // dann sendet der Server erneut
   const title = document.getElementById("group-title");
   const sub = document.getElementById("group-sub");
   const result = document.getElementById("group-result");
@@ -82,7 +83,9 @@
     card.dataset.state = "wait";
     const start = Date.now();
     while (watch.some((li) => li.dataset.s !== "online") && Date.now() - start < timeout) {
-      sub.textContent = t("ui.x_of_y_online", watch.filter((li) => li.dataset.s === "online").length, watch.length) + " · " + fmt(Date.now() - start);
+      const ms = Date.now() - start;
+      sub.textContent = t("ui.x_of_y_online", watch.filter((li) => li.dataset.s === "online").length, watch.length) + " · " + fmt(ms) +
+        (retry && ms >= retry ? " · " + t("ui.resent") : "");
       await sleep(2000);
       try {
         const st = await call("GET", path + "/status" + query);

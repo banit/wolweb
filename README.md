@@ -33,6 +33,9 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
   erscheinen sofort in jedem offenen Fenster (Server-Sent Events)
 - **Feste Wecklinks** `/wake/<Name>`: im Browser eine Bestätigungsseite, die das Gerät prüft, das Magic Packet
   sendet und den Start verfolgt, bis das Gerät wirklich online ist
+- **Zuverlässiges Wecken**: Das Magic Packet geht dreimal innerhalb einer Sekunde an Port 9 und 7; antwortet ein
+  Gerät mit IP nach 45 Sekunden noch nicht, schickt wolweb es von selbst noch einmal – auch bei Wecklinks,
+  Gruppen und Zeitplänen, wenn niemand mehr zuschaut
 - **Netzwerksuche**: findet eingeschaltete Geräte in freigegebenen Segmenten (IP, MAC, Hostname, Hersteller) –
   per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen oder ignorieren
 - **Gruppen** („Homelab“, „Büro“) gemeinsam wecken, auch per festem Gruppen-Wecklink; **Zeitpläne** wie
@@ -157,6 +160,7 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | Online-Prüfung aller Geräte |
 | `status.ports` | – | 22, 80, 443, 445, … | Ports für die Online-Prüfung |
 | `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | so lange wartet die Weckseite |
+| `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | antwortet ein geweckter Rechner so lange nicht, geht das Paket einmal erneut raus; `0` = nie |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | Anmeldung (HTTP Basic) |
 | `auth.api_token` | `WOLWEB_TOKEN` | – | `Authorization: Bearer …` für Automationen |
 | `auth.public_wake` | `WOLWEB_PUBLIC_WAKE` | `true` | Wecklinks funktionieren ohne Anmeldung |
@@ -173,6 +177,13 @@ Die Broadcast-Adresse eines Geräts wird automatisch aus dem Netz seiner IP best
 Gerät unter „Erweitert“ eintragen. Ist keine IP bekannt, gilt `bcastip`, ohne Einstellung die Broadcast-Adresse des
 Suchsegments (wenn genau eins eingetragen ist), sonst `255.255.255.255:9`. Ist am Gerät eine Netzwerkschnittstelle
 eingetragen, verlässt das Paket den Rechner unter Linux auch wirklich über diese Schnittstelle.
+
+Ein Magic Packet ist ein einzelnes UDP-Paket ohne Bestätigung – geht es verloren (WLAN-Brücke, ein Switch-Port im
+Energiesparmodus), merkt das niemand. wolweb schickt es deshalb dreimal im Abstand von 0,4 Sekunden, und zwar an
+Port 9 und Port 7, auf die Netzwerkkarten je nach Hersteller hören (ein anderer eingetragener Port, etwa für eine
+Weiterleitung im Router, bleibt allein). Antwortet ein Gerät mit IP-Adresse nach `status.wake_retry` (45 s) noch
+nicht, geht das Paket einmal erneut raus; im Verlauf steht das als „automatische Wiederholung“. Wird das Gerät in
+der Zwischenzeit noch einmal geweckt, zählt die Frist von vorn.
 
 ## Benachrichtigungen und Metriken
 
@@ -266,6 +277,9 @@ in **English and German**; it follows the browser language and can be switched i
 - **Fixed wake links** `/wake/<name>`: in a browser a confirmation page that checks the device, sends the magic
   packet and follows the start until the device is really online; `curl` and Home Assistant get JSON
   (`?wait=120` waits until the device responds)
+- **Reliable waking**: the magic packet goes out three times within one second to ports 9 and 7; if a device with an
+  IP address still does not respond after 45 seconds (`status.wake_retry`), wolweb sends it once more by itself –
+  for wake links, groups and schedules too, when nobody is watching
 - **Network scan**: finds devices that are switched on in the configured segments (IP, MAC, host name, vendor) –
   on demand or periodically; add new devices with one click or ignore them
 - **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`;

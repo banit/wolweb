@@ -14,7 +14,8 @@
   "status": {
     "interval": "30s",
     "ports": [22, 80, 443, 445, 139, 3389, 5900, 8006, 8080, 53],
-    "wake_timeout": "3m"
+    "wake_timeout": "3m",
+    "wake_retry": "45s"
   },
   "auth": {
     "username": "",

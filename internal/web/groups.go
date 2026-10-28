@@ -118,7 +118,7 @@ func (s *Server) groupLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		g := s.groupView(name, members, false)
-		pd := pageData{Group: &g, Timeout: int(s.wakeTimeout.Seconds())}
+		pd := pageData{Group: &g, Timeout: int(s.wakeTimeout.Seconds()), Retry: int(s.wakeRetry.Seconds())}
 		if s.needsKey(r) {
 			pd.Key = s.groupKey(name)
 		}
