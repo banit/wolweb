@@ -226,8 +226,11 @@ geändert wurde, fehlt danach.
   Verlauf gingen dann verloren; die Sicherung (siehe oben) enthält den Stand vor dem Update.
 - *Meldungen der API:* sagen jetzt „Weckruf“ statt „Magic Packet“ (z. B. `"message": "Weckruf an NAS gesendet."`).
   Wer in einer Automation auf den genauen Text prüft, sollte auf `"success"` umstellen.
-- *Docker:* Zeitpläne laufen in der Zeitzone des Containers (`TZ`, in `docker-compose.yml` voreingestellt); weicht
-  sie vom Browser ab, sagt das der Gerätedialog.
+- *Docker:* Die neue `docker-compose.yml` setzt `WOLWEB_NETWORKS` und `WOLWEB_SCAN_INTERVAL` nicht mehr (nur noch
+  als Beispiel auskommentiert) – das Netz wird erkannt, und die Felder auf der Einstellungsseite sind nicht mehr
+  gesperrt. Wer sein Netz dort fest vorgegeben hatte und das behalten will, übernimmt die Zeile in die neue Datei.
+  Zeitpläne laufen in der Zeitzone des Containers (`TZ`, voreingestellt); weicht sie vom Browser ab, sagt das der
+  Gerätedialog.
 
 ## Einstellungen
 
@@ -623,8 +626,10 @@ the old version. Changes made since the update are lost.
   the backup (see above) holds the state from before the update.
 - *API messages* now say “wake-up call” instead of “magic packet” (e.g. `"message": "Wake-up call sent to NAS."`).
   If an automation checks the exact text, switch it to `"success"`.
-- *Docker:* schedules run in the container's time zone (`TZ`, preset in `docker-compose.yml`); if it differs from
-  the browser, the device dialog says so.
+- *Docker:* the new `docker-compose.yml` no longer sets `WOLWEB_NETWORKS` and `WOLWEB_SCAN_INTERVAL` (they are only
+  commented examples now) – the network is detected, and the fields on the settings page are no longer locked. If you
+  had pinned your network there and want to keep it, copy the line into the new file. Schedules run in the
+  container's time zone (`TZ`, preset); if it differs from the browser, the device dialog says so.
 
 ### Settings page
 
