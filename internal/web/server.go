@@ -45,6 +45,7 @@ type Server struct {
 	tmpl     *template.Template
 	limiter  wakeLimiter
 	rejected rejectedHosts // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
+	schedRan ranSchedules  // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
 	hub      hub
 
 	wakesMu sync.Mutex

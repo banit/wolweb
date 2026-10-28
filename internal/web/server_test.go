@@ -716,3 +716,32 @@ func TestGroupAndDeviceLinksAlike(t *testing.T) {
 		t.Errorf("Gruppe mit Schlüssel: %d", code)
 	}
 }
+
+// Sommerzeit: Bei der Rückstellung kommt 02:30 zweimal vorbei – geweckt wird einmal. Und dieselbe
+// Minute zweimal (Uhr zurückgestellt) weckt auch nur einmal.
+func TestScheduleOncePerDay(t *testing.T) {
+	loc, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Skip(err)
+	}
+	st, _, _ := store.Open(t.TempDir(), "")
+	s := New(config.Default(), st, status.New(st, probe.New(nil, 100*time.Millisecond), 0), discovery.New(st, nil, 16), false, "test")
+	st.Create(store.Input{Name: "Nacht", MAC: "02:00:00:00:00:01", Schedule: []string{"täglich 02:30"}, Broadcast: udpSink(t)})
+	first := time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC).In(loc)  // 02:30 Sommerzeit
+	second := time.Date(2026, 10, 25, 1, 30, 0, 0, time.UTC).In(loc) // 02:30 Winterzeit
+	if got := s.wakeDue(first); len(got) != 1 {
+		t.Fatalf("erste 02:30: %v", got)
+	}
+	if got := s.wakeDue(second); len(got) != 0 {
+		t.Errorf("zweite 02:30: %v", got)
+	}
+	if got := s.wakeDue(first); len(got) != 0 {
+		t.Errorf("dieselbe Minute noch einmal: %v", got)
+	}
+	if got := s.wakeDue(first.AddDate(0, 0, 1)); len(got) != 1 {
+		t.Errorf("am nächsten Tag: %v", got)
+	}
+	if n := len(st.History(0)); n != 2 {
+		t.Errorf("%d Weckvorgänge statt 2", n)
+	}
+}

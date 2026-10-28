@@ -222,15 +222,18 @@ func scheduleMinuteDue(next, now, last time.Time) bool {
 	return now.Truncate(time.Minute).Equal(next) && next.After(last)
 }
 
-// wakeDue weckt alle Geräte, die zur Minute t eine Weckzeit haben, und liefert ihre Namen.
+// wakeDue weckt alle Geräte, die zur Minute t eine Weckzeit haben, und liefert ihre Namen. Je
+// Gerät, Planeintrag und Kalendertag höchstens einmal – auch wenn dieselbe Minute (Uhr zurückgestellt)
+// noch einmal vorbeikommt.
 func (s *Server) wakeDue(t time.Time) []string {
 	var woken []string
 	var attempts []wakeAttempt
 	devices, _ := s.store.Devices()
+	day := t.Format("2006-01-02")
 	for _, d := range devices {
 		entries, _ := schedule.ParseList(d.Schedule)
 		for _, e := range entries {
-			if e.Due(t) {
+			if e.Due(t) && s.schedRan.first(d.ID+"|"+e.String()+"|"+day, t) {
 				log.Printf("Zeitplan: wecke %s (%s)", d.Name, e)
 				_, _, a := s.sendWake(nil, d, srcSchedule, "")
 				attempts = append(attempts, a)
@@ -241,6 +244,31 @@ func (s *Server) wakeDue(t time.Time) []string {
 	}
 	s.recordWakes(attempts...)
 	return woken
+}
+
+// ranSchedules merkt sich, welche Weckzeiten (Gerät|Eintrag|Tag) schon ausgeführt wurden.
+type ranSchedules struct {
+	mu   sync.Mutex
+	seen map[string]time.Time
+}
+
+// first sagt, ob key zum ersten Mal vorkommt, und merkt ihn sich; Einträge älter als zwei Tage fallen weg.
+func (r *ranSchedules) first(key string, t time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.seen == nil {
+		r.seen = map[string]time.Time{}
+	}
+	if _, ok := r.seen[key]; ok {
+		return false
+	}
+	r.seen[key] = t
+	for k, at := range r.seen {
+		if t.Sub(at) > 48*time.Hour {
+			delete(r.seen, k)
+		}
+	}
+	return true
 }
 
 // nextWake liefert die nächste geplante Weckzeit eines Geräts (nil, wenn keine).

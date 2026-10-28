@@ -122,9 +122,39 @@ func (e Entry) String() string {
 	return strings.Join(parts, ",") + " " + clock
 }
 
-// Due sagt, ob t (auf die Minute genau) eine Weckzeit dieses Eintrags ist.
+// At liefert den Weckzeitpunkt des Eintrags am Kalendertag y-m-d in loc – unabhängig vom Wochentag:
+//   - Fällt die Uhrzeit in die Lücke der Umstellung auf Sommerzeit (02:30 gibt es dann nicht), gilt
+//     die erste gültige Minute danach (03:00) – geweckt wird trotzdem, nur eben dann.
+//   - Gibt es die Uhrzeit bei der Rückstellung zweimal, gilt die erste.
+func (e Entry) At(y int, m time.Month, d int, loc *time.Location) time.Time {
+	t := time.Date(y, m, d, e.Hour, e.Min, 0, 0, loc)
+	if t.Hour() != e.Hour || t.Minute() != e.Min { // Lücke: Go hat die Zeit verschoben
+		// Je nach Richtung der Verschiebung liegt die Umstellung kurz vor oder kurz nach t.
+		start, end := t.ZoneBounds()
+		if !start.IsZero() && t.Sub(start) < 3*time.Hour {
+			return start
+		}
+		if !end.IsZero() && end.Sub(t) < 3*time.Hour {
+			return end
+		}
+		return t
+	}
+	// Doppelt? Dann gab es dieselbe Uhrzeit eine Zeitverschiebung früher schon einmal.
+	if start, _ := t.ZoneBounds(); !start.IsZero() {
+		_, off := t.Zone()
+		_, prev := start.Add(-time.Second).Zone()
+		if shift := time.Duration(prev-off) * time.Second; shift > 0 && t.Sub(start) < shift {
+			return t.Add(-shift)
+		}
+	}
+	return t
+}
+
+// Due sagt, ob t (auf die Minute genau) eine Weckzeit dieses Eintrags ist. Pro Kalendertag trifft
+// das höchstens auf einen Zeitpunkt zu (siehe At).
 func (e Entry) Due(t time.Time) bool {
-	return e.Days[t.Weekday()] && t.Hour() == e.Hour && t.Minute() == e.Min
+	y, m, d := t.Date()
+	return e.Days[t.Weekday()] && t.Truncate(time.Minute).Equal(e.At(y, m, d, t.Location()))
 }
 
 // Next liefert die nächste Weckzeit nach after (in dessen Zeitzone).
