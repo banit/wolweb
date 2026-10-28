@@ -325,6 +325,25 @@ Geräte darin per gerichtetem Broadcast (z. B. `10.0.0.255:9`). Ankommen wird er
 VLAN weiterleitet – bei OPNsense und pfSense etwa mit dem Plugin „UDP Broadcast Relay“; die meisten Heimrouter
 können das nicht, und suchen lässt sich dort ohnehin nicht.
 
+**Einzelne Geräte hinter dem Router (Unicast):** Für ein einzelnes Gerät in einem anderen Netz geht es auch ohne
+eigene Schnittstelle und ohne Broadcast-Weiterleitung: wolweb schickt den Weckruf direkt an die IP-Adresse des
+Geräts, und der Router leitet ihn weiter wie jedes andere Paket. Damit das auch klappt, während das Gerät schläft,
+braucht der Router drei Dinge:
+
+1. eine **feste IP-Adresse** für das Gerät (DHCP-Reservierung),
+2. einen **statischen ARP-Eintrag** (IP-Adresse → MAC-Adresse des Geräts) im Netz des Geräts. Ein schlafendes Gerät
+   beantwortet keine ARP-Anfragen; ohne festen Eintrag verwirft der Router den Weckruf, sobald er die MAC-Adresse
+   vergessen hat – meist schon wenige Minuten nach dem Einschlafen. Bei OPNsense unter *Interfaces → Neighbors*
+   (deutsch *Schnittstellen → Nachbarn*), bei pfSense über die Option für einen statischen ARP-Eintrag in der
+   DHCP-Reservierung. Viele Heimrouter bieten das nicht an.
+3. eine **Firewall-Regel** vom wolweb-Rechner zum Gerät für UDP an Port 9 und 7 (wolweb sendet an beide), dazu Ping
+   oder einen der geprüften Ports, damit wolweb den Start bestätigen kann.
+
+In wolweb dann beim Gerät unter „Erweitert → Broadcast-Adresse“ die IP-Adresse des Geräts mit Port eintragen, z. B.
+`10.0.0.20:9`. Die Netzwerksuche findet solche Geräte nicht – die MAC-Adresse also von Hand eintragen (sie steht in
+den Netzwerkeinstellungen des Geräts oder in der ARP- bzw. DHCP-Übersicht des Routers). Als gestartet gilt das Gerät
+hier erst, wenn es auf Ping antwortet oder eine Verbindung annimmt (siehe [Feste Wecklinks](#feste-wecklinks)).
+
 ## Konfiguration
 
 `config.json` (siehe `config.example.json`) – alles hat Standardwerte, die Datei darf fehlen. Was auf der
@@ -656,6 +675,14 @@ gateway; the switch port or bridge must carry the VLAN tagged). Once it exists, 
   is also reachable from the VLAN.
 - Without an interface, wolweb uses the network's directed broadcast (e.g. `10.0.0.255:9`); it only arrives if the
   router forwards it (OPNsense/pfSense: “UDP Broadcast Relay”), and scanning is not possible there.
+- **Single devices behind the router (unicast):** wolweb can also send the wake-up call straight to the device's IP
+  address, and the router forwards it like any other packet. For this to work while the device sleeps, the router
+  needs a fixed IP for it (DHCP reservation), a **static ARP entry** (IP → MAC) in the device's network – a sleeping
+  device no longer answers ARP, so without it the router drops the packet a few minutes after the device went to
+  sleep (OPNsense: *Interfaces → Neighbors*; pfSense: the static ARP option of the DHCP reservation; many home routers
+  lack it) – and a firewall rule from the wolweb machine to the device for UDP ports 9 and 7, plus ping or one of the
+  checked ports for the start confirmation. In wolweb, enter the device's IP with port under “Advanced → Broadcast
+  address”, e.g. `10.0.0.20:9`, and its MAC by hand – scanning does not reach that network.
 
 ### Configuration
 
