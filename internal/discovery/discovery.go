@@ -11,7 +11,9 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +36,7 @@ type LocalNet struct {
 	Addr      netip.Addr   `json:"addr"`
 	Prefix    netip.Prefix `json:"prefix"`
 	Broadcast string       `json:"broadcast"`
+	VLAN      int          `json:"vlan,omitempty"` // nur wenn der Rechner selbst taggt (eth0.20)
 }
 
 var localCache struct {
@@ -55,6 +58,7 @@ func LocalNets() []LocalNet {
 
 func readLocalNets() []LocalNet {
 	out := []LocalNet{}
+	vlans := readVLANs()
 	ifs, _ := net.Interfaces()
 	for _, ifc := range ifs {
 		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
@@ -69,11 +73,15 @@ func readLocalNets() []LocalNet {
 			ip, _ := netip.AddrFromSlice(n.IP.To4())
 			ones, _ := n.Mask.Size()
 			p := netip.PrefixFrom(ip, ones).Masked()
-			out = append(out, LocalNet{Interface: ifc.Name, Addr: ip, Prefix: p, Broadcast: broadcastOf(p) + ":9"})
+			out = append(out, LocalNet{Interface: ifc.Name, Addr: ip, Prefix: p, Broadcast: broadcastOf(p) + ":9", VLAN: vlans[ifc.Name]})
 		}
 	}
 	return out
 }
+
+// BroadcastOf liefert die Broadcast-Adresse (mit Port 9) eines Netzes, auch wenn der Rechner
+// selbst nicht darin hängt (gerichteter Broadcast, den ein Router weiterleiten kann).
+func BroadcastOf(p netip.Prefix) string { return broadcastOf(p) + ":9" }
 
 func broadcastOf(p netip.Prefix) string {
 	b := p.Addr().As4()
@@ -94,6 +102,31 @@ func OnLink(ip netip.Addr) bool {
 	}
 	return false
 }
+
+// readVLANs liest unter Linux die VLAN-Schnittstellen des Rechners (Name -> VLAN-ID) aus
+// /proc/net/vlan/config. In einem Proxmox-Container ist das meist leer: Dort taggt der Host, und
+// der Container sieht ein gewöhnliches eth1.
+func readVLANs() map[string]int {
+	out := map[string]int{}
+	b, err := os.ReadFile("/proc/net/vlan/config")
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		parts := strings.Split(line, "|")
+		if len(parts) != 3 {
+			continue
+		}
+		if id, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && id > 0 {
+			out[strings.TrimSpace(parts[0])] = id
+		}
+	}
+	return out
+}
+
+// LocalNetFor sucht die Schnittstelle, deren Netz das Segment enthält – ohne sie kann wolweb dort
+// weder suchen noch per Broadcast wecken.
+func LocalNetFor(target netip.Prefix) (LocalNet, bool) { return localNetFor(target) }
 
 // localNetFor sucht die Schnittstelle, deren Netz das zu scannende Segment enthält.
 func localNetFor(target netip.Prefix) (LocalNet, bool) {
@@ -153,12 +186,14 @@ func (j Job) Localized(l i18n.Lang) Job {
 
 type Scanner struct {
 	store    *store.Store
-	networks []netip.Prefix
 	maxHosts int
 
-	mu     sync.Mutex
-	job    Job
-	cancel context.CancelFunc
+	mu       sync.Mutex // schützt networks, interval, job und cancel
+	networks []netip.Prefix
+	interval time.Duration // automatische Suche; 0 = aus
+	reset    chan struct{}
+	job      Job
+	cancel   context.CancelFunc
 
 	// OnUpdate bekommt nach jeder Änderung (Start, Fortschritt, Ende) eine Kopie des Auftrags.
 	// Vor dem ersten Start setzen.
@@ -166,14 +201,37 @@ type Scanner struct {
 }
 
 func New(s *store.Store, networks []string, maxHosts int) *Scanner {
-	sc := &Scanner{store: s, maxHosts: maxHosts}
+	sc := &Scanner{store: s, maxHosts: maxHosts, reset: make(chan struct{}, 1)}
 	for _, n := range networks {
 		sc.networks = append(sc.networks, netip.MustParsePrefix(n))
 	}
 	return sc
 }
 
+// SetNetworks ersetzt die Suchsegmente (Einstellungsseite). Eine laufende Suche bleibt bei den
+// alten.
+func (s *Scanner) SetNetworks(networks []string) error {
+	var ps []netip.Prefix
+	for _, n := range networks {
+		p, err := netip.ParsePrefix(n)
+		if err != nil {
+			return err
+		}
+		ps = append(ps, p.Masked())
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.networks = ps
+	return nil
+}
+
 func (s *Scanner) Networks() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.networksLocked()
+}
+
+func (s *Scanner) networksLocked() []string {
 	out := make([]string, len(s.networks))
 	for i, n := range s.networks {
 		out[i] = n.String()
@@ -184,10 +242,90 @@ func (s *Scanner) Networks() []string {
 // Broadcast liefert die Broadcast-Adresse (mit Port 9) des Suchsegments, wenn genau eins
 // eingestellt ist – sonst "".
 func (s *Scanner) Broadcast() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(s.networks) != 1 || s.networks[0].Bits() > 30 {
 		return ""
 	}
 	return broadcastOf(s.networks[0]) + ":9"
+}
+
+// SetInterval ändert den Abstand der automatischen Suche; 0 schaltet sie ab.
+func (s *Scanner) SetInterval(d time.Duration) {
+	s.mu.Lock()
+	changed := s.interval != d
+	s.interval = d
+	s.mu.Unlock()
+	if changed {
+		select {
+		case s.reset <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// autoStartDelay: kurz nach dem Start einmal suchen, damit die Liste nicht bis zum ersten
+// Intervall leer bleibt.
+var autoStartDelay = 15 * time.Second
+
+// RunAuto sucht im eingestellten Abstand, bis ctx endet. Ein neuer Abstand gilt ab sofort (die
+// nächste Suche folgt nach dem neuen Abstand), ohne Segmente wird nichts gesucht.
+func (s *Scanner) RunAuto(ctx context.Context) {
+	select { // SetInterval vor dem Start ist keine Änderung
+	case <-s.reset:
+	default:
+	}
+	wait := autoStartDelay
+	for {
+		s.mu.Lock()
+		iv, nets := s.interval, s.networksLocked()
+		s.mu.Unlock()
+		var due <-chan time.Time
+		var t *time.Timer
+		if iv > 0 {
+			if wait <= 0 {
+				wait = iv
+			}
+			t = time.NewTimer(wait)
+			due = t.C
+		}
+		select {
+		case <-ctx.Done():
+			if t != nil {
+				t.Stop()
+			}
+			s.Cancel()
+			return
+		case <-s.reset:
+			if t != nil {
+				t.Stop()
+			}
+			if s.autoInterval() > 0 {
+				log.Printf("Automatische Suche jetzt alle %s", s.autoInterval())
+			} else {
+				log.Print("Automatische Suche aus")
+			}
+			wait = 0 // ab jetzt im neuen Abstand – gerade eingeschaltet: bald einmal suchen
+			if iv == 0 {
+				wait = autoStartDelay
+			}
+			continue
+		case <-due:
+		}
+		wait = 0
+		if len(nets) == 0 {
+			continue
+		}
+		if err := s.Start(true); err != nil && !errors.Is(err, ErrBusy) {
+			log.Printf("Automatische Suche: %v", err)
+		}
+	}
+}
+
+func (s *Scanner) autoInterval() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.interval
 }
 
 func (s *Scanner) Job() Job {
@@ -205,17 +343,19 @@ const maxScanTime = 5 * time.Minute
 
 // Start beginnt einen Scan im Hintergrund.
 func (s *Scanner) Start(auto bool) error {
+	s.mu.Lock()
 	if len(s.networks) == 0 {
+		s.mu.Unlock()
 		return ErrNoNetworks
 	}
-	s.mu.Lock()
 	if s.job.Running {
 		s.mu.Unlock()
 		return ErrBusy
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), maxScanTime)
 	s.cancel = cancel
-	s.job = Job{Running: true, Networks: s.Networks(), StartedAt: time.Now().UTC(), Auto: auto}
+	nets := slices.Clone(s.networks)
+	s.job = Job{Running: true, Networks: s.networksLocked(), StartedAt: time.Now().UTC(), Auto: auto}
 	j := s.job
 	s.mu.Unlock()
 	// Erst den Start melden, dann suchen – sonst kann "läuft" nach "fertig" ankommen (etwa wenn
@@ -223,7 +363,7 @@ func (s *Scanner) Start(auto bool) error {
 	if s.OnUpdate != nil {
 		s.OnUpdate(j)
 	}
-	go s.run(ctx, cancel)
+	go s.run(ctx, cancel, nets)
 	return nil
 }
 
@@ -245,12 +385,12 @@ func (s *Scanner) update(f func(j *Job)) {
 	}
 }
 
-func (s *Scanner) run(ctx context.Context, cancel context.CancelFunc) {
+func (s *Scanner) run(ctx context.Context, cancel context.CancelFunc, nets []netip.Prefix) {
 	defer cancel()
 	var all []store.Found
 	var errs []error
 	methods := map[string]bool{}
-	for _, p := range s.networks {
+	for _, p := range nets {
 		if ctx.Err() != nil {
 			break
 		}

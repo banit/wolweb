@@ -13,9 +13,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"wolweb/internal/config"
@@ -31,20 +33,18 @@ import (
 var assets embed.FS
 
 type Server struct {
-	cfg         config.Config
-	store       *store.Store
-	monitor     *status.Monitor
-	scanner     *discovery.Scanner
-	icmp        bool
-	version     string
-	wakeTimeout time.Duration
-	wakeRetry   time.Duration // 0 = keine Wiederholung
-	retry       retries
-	tmpl        *template.Template
-	limiter     wakeLimiter
-	hub         hub
-	notify      *notify.Notifier
-	defLang     i18n.Lang // Sprache, wenn die Anfrage keine nennt (config language)
+	cur      atomic.Pointer[live] // Einstellungen; die Einstellungsseite tauscht sie im Betrieb aus
+	settings *config.Manager      // nil: Einstellungen nur aus config.json (Tests)
+	applyMu  sync.Mutex           // nur eine Übernahme zur Zeit
+	store    *store.Store
+	monitor  *status.Monitor
+	scanner  *discovery.Scanner
+	icmp     bool
+	version  string
+	retry    retries
+	tmpl     *template.Template
+	limiter  wakeLimiter
+	hub      hub
 
 	wakesMu sync.Mutex
 	wakes   map[[2]string]int // {Geräte-ID, "ok"/"error"} -> Anzahl seit dem Start (für /metrics)
@@ -53,23 +53,38 @@ type Server struct {
 	scanLast time.Time
 }
 
-func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.Scanner, icmp bool, version string) *Server {
-	wt, _ := config.ParseDuration(cfg.Status.WakeTimeout)
-	if wt <= 0 {
-		wt = 3 * time.Minute
-	}
-	wr, _ := config.ParseDuration(cfg.Status.WakeRetry)
-	defLang, ok := i18n.Parse(cfg.Language)
+// live sind die Einstellungen, mit denen der Server gerade arbeitet. Ein Satz wird nie verändert,
+// sondern als Ganzes ersetzt – so sieht jede Anfrage einen stimmigen Stand.
+type live struct {
+	cfg                    config.Config
+	wakeTimeout, wakeRetry time.Duration // Wiederholung 0 = keine
+	lang                   i18n.Lang     // Sprache, wenn die Anfrage keine nennt (config language)
+	notify                 *notify.Notifier
+}
+
+func (s *Server) newLive(cfg config.Config) *live {
+	_, _, wt, wr := cfg.Durations()
+	l, ok := i18n.Parse(cfg.Language)
 	if !ok {
-		defLang = i18n.DE
+		l = i18n.DE
 	}
+	return &live{cfg: cfg, wakeTimeout: wt, wakeRetry: wr, lang: l,
+		notify: notify.New(cfg.Notify.Webhook, cfg.Notify.Ntfy, cfg.Notify.Events, s.version, l)}
+}
+
+// rt liefert die aktuellen Einstellungen (nicht verändern).
+func (s *Server) rt() *live { return s.cur.Load() }
+
+// conf ist die aktuelle Konfiguration (nicht verändern).
+func (s *Server) conf() *config.Config { return &s.cur.Load().cfg }
+
+func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.Scanner, icmp bool, version string) *Server {
 	s := &Server{
-		cfg: cfg, store: st, monitor: mon, scanner: sc, icmp: icmp, version: version, wakeTimeout: wt, wakeRetry: wr,
-		tmpl:    template.Must(template.ParseFS(assets, "templates/*.html")),
-		notify:  notify.New(cfg.Notify.Webhook, cfg.Notify.Ntfy, cfg.Notify.Events, version, defLang),
-		wakes:   map[[2]string]int{},
-		defLang: defLang,
+		store: st, monitor: mon, scanner: sc, icmp: icmp, version: version,
+		tmpl:  template.Must(template.ParseFS(assets, "templates/*.html")),
+		wakes: map[[2]string]int{},
 	}
+	s.cur.Store(s.newLive(cfg))
 	// Live-Updates (und Benachrichtigungen) hängen an Monitor und Suche – daher vor deren Start.
 	mon.OnChange = s.statusChanged
 	sc.OnUpdate = s.scanChanged
@@ -77,7 +92,7 @@ func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.
 }
 
 func (s *Server) Handler() http.Handler {
-	base := s.cfg.VDir // "/" oder "/wolweb/"
+	base := s.conf().VDir // "/" oder "/wolweb/"
 	mux := http.NewServeMux()
 	static, _ := fs.Sub(assets, "static")
 	fileServer := http.StripPrefix(base+"static/", http.FileServer(http.FS(static)))
@@ -123,6 +138,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+api+"discovery/cancel", s.cancelScan)
 	mux.HandleFunc("POST "+api+"discovery/{mac}/ignore", s.writable(s.ignoreFound))
 	mux.HandleFunc("DELETE "+api+"discovery/{mac}", s.writable(s.forgetFound))
+	mux.HandleFunc("GET "+base+"settings", s.withSettings(s.settingsPage))
+	mux.HandleFunc("GET "+api+"settings", s.withSettings(s.getSettings))
+	mux.HandleFunc("PUT "+api+"settings", s.withSettings(s.writable(s.putSettings)))
+	mux.HandleFunc("DELETE "+api+"settings", s.withSettings(s.writable(s.resetSettings)))
+	mux.HandleFunc("POST "+api+"settings/test-notify", s.withSettings(s.writable(s.testNotify)))
 
 	// Kompatibel zum Original: Geräteliste im alten Format
 	mux.HandleFunc("GET "+base+"data/get", s.legacyData)
@@ -134,10 +154,10 @@ func (s *Server) Handler() http.Handler {
 // --- Middleware ---
 
 func (s *Server) auth(next http.Handler) http.Handler {
-	if !s.cfg.AuthEnabled() {
+	if !s.conf().AuthEnabled() {
 		return next
 	}
-	base := s.cfg.VDir
+	base := s.conf().VDir
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		if s.authorized(r) {
@@ -145,11 +165,11 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			return
 		}
 		if p == base+"health" || strings.HasPrefix(p, base+"static/") ||
-			(s.cfg.Auth.PublicWake && (strings.HasPrefix(p, base+"wake/") || strings.HasPrefix(p, base+"wake-group/"))) {
+			(s.conf().Auth.PublicWake && (strings.HasPrefix(p, base+"wake/") || strings.HasPrefix(p, base+"wake-group/"))) {
 			next.ServeHTTP(w, markPublic(r)) // ohne Anmeldung: Schlüssel und Begrenzung greifen
 			return
 		}
-		if s.cfg.Auth.Username != "" {
+		if s.conf().Auth.Username != "" {
 			w.Header().Set("WWW-Authenticate", `Basic realm="wolweb", charset="UTF-8"`)
 		}
 		s.fail(w, r, http.StatusUnauthorized, "err.auth_required")
@@ -158,13 +178,13 @@ func (s *Server) auth(next http.Handler) http.Handler {
 
 func (s *Server) authorized(r *http.Request) bool {
 	eq := func(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
-	if t := s.cfg.Auth.APIToken; t != "" {
+	if t := s.conf().Auth.APIToken; t != "" {
 		if h, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && eq(strings.TrimSpace(h), t) {
 			return true
 		}
 	}
-	if s.cfg.Auth.Username != "" {
-		if u, p, ok := r.BasicAuth(); ok && eq(u, s.cfg.Auth.Username) && eq(p, s.cfg.Auth.Password) {
+	if s.conf().Auth.Username != "" {
+		if u, p, ok := r.BasicAuth(); ok && eq(u, s.conf().Auth.Username) && eq(p, s.conf().Auth.Password) {
 			return true
 		}
 	}
@@ -219,7 +239,7 @@ func cacheControl(h http.Handler) http.Handler {
 
 func (s *Server) writable(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.cfg.ReadOnly {
+		if s.conf().ReadOnly {
 			s.fail(w, r, http.StatusForbidden, "err.read_only")
 			return
 		}
@@ -249,7 +269,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, code int, key stri
 
 // lang ist die Sprache einer Anfrage (?lang=, Cookie des Umschalters, Accept-Language,
 // sonst die Einstellung language).
-func (s *Server) lang(r *http.Request) i18n.Lang { return i18n.FromRequest(r, s.defLang) }
+func (s *Server) lang(r *http.Request) i18n.Lang { return i18n.FromRequest(r, s.rt().lang) }
 
 func readJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 64<<10))
@@ -308,7 +328,7 @@ func (p pageData) TN(key string, n int) string {
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, name string, d pageData) {
-	d.Base, d.Version = s.cfg.VDir, s.version
+	d.Base, d.Version = s.conf().VDir, s.version
 	d.Lang = s.lang(r)
 	d.OtherLang = i18n.EN
 	if d.Lang == i18n.EN {
@@ -370,6 +390,13 @@ func (s *Server) wakeTarget(d store.Device) string {
 		if b := discovery.BroadcastFor(ip.String()); b != "" {
 			return b
 		}
+		// Eingetragenes Netz ohne eigene Schnittstelle (anderes VLAN): gerichteter Broadcast. Ein
+		// Router kann ihn weiterleiten; 255.255.255.255 käme dort nie an.
+		for _, n := range s.conf().Discovery.Networks {
+			if p, err := netip.ParsePrefix(n.CIDR); err == nil && p.Bits() <= 30 && p.Contains(ip) {
+				return discovery.BroadcastOf(p)
+			}
+		}
 	}
 	return s.defaultBroadcast()
 }
@@ -378,7 +405,7 @@ func (s *Server) wakeTarget(d store.Device) string {
 // 255.255.255.255 – das geht über die Schnittstelle der Standardroute hinaus. Früher war fest
 // 192.168.1.255 voreingestellt; in jedem anderen Netz verschwand das Paket dann still.
 func (s *Server) defaultBroadcast() string {
-	if b, err := config.NormalizeBroadcast(s.cfg.BcastIP); err == nil && b != "" {
+	if b, err := config.NormalizeBroadcast(s.conf().BcastIP); err == nil && b != "" {
 		return b
 	}
 	if b := s.scanner.Broadcast(); b != "" {
@@ -493,7 +520,7 @@ func (s *Server) caller(r *http.Request) (client, user string) {
 	if xff, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ","); strings.TrimSpace(xff) != "" {
 		client = clip(strings.TrimSpace(xff), 64) + " über " + client
 	}
-	if s.cfg.AuthEnabled() && s.authorized(r) {
+	if s.conf().AuthEnabled() && s.authorized(r) {
 		if u, _, ok := r.BasicAuth(); ok {
 			user = u
 		} else {
@@ -553,10 +580,10 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 	for _, a := range as {
 		ev := a.ev
 		// Benachrichtigungen in der eingestellten Sprache – sie gehen an niemand Bestimmtes.
-		src := i18n.T(s.defLang, "ui.src."+ev.Source, ev.Group)
-		result, kind, msg := "ok", notify.Wake, i18n.T(s.defLang, "notify.wake", ev.Device, src)
+		src := i18n.T(s.rt().lang, "ui.src."+ev.Source, ev.Group)
+		result, kind, msg := "ok", notify.Wake, i18n.T(s.rt().lang, "notify.wake", ev.Device, src)
 		if !ev.Success {
-			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.defLang, "notify.wake_failed", ev.Device, ev.Error)
+			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.rt().lang, "notify.wake_failed", ev.Device, ev.Error)
 		}
 		s.wakesMu.Lock()
 		s.wakes[[2]string{ev.ID, result}]++
@@ -564,7 +591,7 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 		if ev.Retry && ev.Success {
 			continue // "geweckt" kam schon beim ersten Mal
 		}
-		s.notify.Send(notify.Event{Event: kind, Device: ev.Device, ID: ev.ID, IP: a.d.IP, Source: ev.Source, Message: msg})
+		s.rt().notify.Send(notify.Event{Event: kind, Device: ev.Device, ID: ev.ID, IP: a.d.IP, Source: ev.Source, Message: msg})
 	}
 	s.scheduleRetry(as)
 }
@@ -638,7 +665,7 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		v := s.view(d)
-		pd := pageData{Device: &v, Timeout: int(s.wakeTimeout.Seconds()), Retry: int(s.wakeRetry.Seconds())}
+		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds())}
 		if s.needsKey(r) {
 			pd.Key = d.WakeKey
 		}
@@ -753,17 +780,19 @@ func (s *Server) importDevices(w http.ResponseWriter, r *http.Request) {
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":           s.version,
-		"read_only":         s.cfg.ReadOnly,
+		"read_only":         s.conf().ReadOnly,
 		"networks":          s.scanner.Networks(),
+		"segments":          s.segments(),
+		"settings":          s.settings != nil,
 		"local_networks":    discovery.LocalNets(),
 		"icmp":              s.icmp,
 		"default_broadcast": s.defaultBroadcast(),
-		"auth":              s.cfg.AuthEnabled(),
-		"public_wake":       s.cfg.Auth.PublicWake,
-		"wake_timeout":      int(s.wakeTimeout.Seconds()),
-		"wake_retry":        int(s.wakeRetry.Seconds()),
-		"ports":             s.cfg.Status.Ports,
-		"wake_keys":         s.cfg.Auth.WakeKeys && s.cfg.AuthEnabled(),
+		"auth":              s.conf().AuthEnabled(),
+		"public_wake":       s.conf().Auth.PublicWake,
+		"wake_timeout":      int(s.rt().wakeTimeout.Seconds()),
+		"wake_retry":        int(s.rt().wakeRetry.Seconds()),
+		"ports":             s.conf().Status.Ports,
+		"wake_keys":         s.conf().Auth.WakeKeys && s.conf().AuthEnabled(),
 	})
 }
 

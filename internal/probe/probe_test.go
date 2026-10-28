@@ -30,14 +30,14 @@ func TestOpenPortIsOnline(t *testing.T) {
 	defer l.Close()
 	port := l.Addr().(*net.TCPAddr).Port
 	// Ohne Ping (pinger nil); hinter einem Router zählt eine angenommene Verbindung trotzdem.
-	p := &Prober{Ports: []int{port}, Timeout: time.Second, OnLink: func(netip.Addr) bool { return false }}
+	p := &Prober{ports: []int{port}, Timeout: time.Second, OnLink: func(netip.Addr) bool { return false }}
 	if r := p.Check(context.Background(), loopback, nil, ""); !r.Online || r.Method == "" {
 		t.Errorf("offener Port: %+v", r)
 	}
 }
 
 func TestRefusedCountsOnlyOnLink(t *testing.T) {
-	p := &Prober{Ports: []int{freePort(t)}, Timeout: time.Second}
+	p := &Prober{ports: []int{freePort(t)}, Timeout: time.Second}
 	if r := p.Check(context.Background(), loopback, nil, ""); !r.Online {
 		t.Error("Ablehnung im eigenen Netz sollte als online gelten")
 	}
@@ -55,7 +55,7 @@ func TestHintedPortFirst(t *testing.T) {
 	defer l.Close()
 	open := l.Addr().(*net.TCPAddr).Port
 	// Der abgelehnte Port wäre ohne Hinweis genauso schnell; mit Hinweis muss der offene gewinnen.
-	p := &Prober{Ports: []int{freePort(t), open}, Timeout: time.Second}
+	p := &Prober{ports: []int{freePort(t), open}, Timeout: time.Second}
 	want := "tcp/" + strconv.Itoa(open)
 	if r := p.Check(context.Background(), loopback, nil, want); r.Method != want {
 		t.Errorf("Methode %q statt %q", r.Method, want)

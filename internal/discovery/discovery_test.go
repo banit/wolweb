@@ -1,10 +1,12 @@
 package discovery
 
 import (
+	"context"
 	"net"
 	"net/netip"
 	"sync"
 	"testing"
+	"time"
 
 	"wolweb/internal/oui"
 	"wolweb/internal/store"
@@ -68,5 +70,49 @@ func TestStartReportedBeforeFinish(t *testing.T) {
 	defer mu.Unlock()
 	if len(seen) == 0 || !seen[0] || seen[len(seen)-1] {
 		t.Errorf("Reihenfolge der Meldungen: %v", seen)
+	}
+}
+
+// Die automatische Suche folgt einem neuen Abstand sofort und ruht bei 0.
+func TestRunAutoFollowsInterval(t *testing.T) {
+	old := autoStartDelay
+	autoStartDelay = 20 * time.Millisecond
+	defer func() { autoStartDelay = old }()
+	st, _, _ := store.Open(t.TempDir(), "")
+	// 198.51.100.0/24 (Dokumentationsnetz) hängt nicht am Rechner: jede Suche endet sofort.
+	sc := New(st, []string{"198.51.100.0/24"}, 1024)
+	var mu sync.Mutex
+	runs := 0
+	sc.OnUpdate = func(j Job) {
+		if j.Running && j.Auto {
+			mu.Lock()
+			runs++
+			mu.Unlock()
+		}
+	}
+	count := func() int { mu.Lock(); defer mu.Unlock(); return runs }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sc.RunAuto(ctx)
+	time.Sleep(100 * time.Millisecond)
+	if n := count(); n != 0 {
+		t.Fatalf("ohne Abstand gesucht: %d", n)
+	}
+	sc.SetInterval(40 * time.Millisecond) // eingeschaltet: nach autoStartDelay, dann alle 40 ms
+	for deadline := time.Now().Add(3 * time.Second); count() < 2 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := count(); n < 2 {
+		t.Fatalf("nur %d Suchen", n)
+	}
+	sc.SetInterval(0)
+	time.Sleep(60 * time.Millisecond)
+	before := count()
+	time.Sleep(150 * time.Millisecond)
+	if n := count(); n != before {
+		t.Errorf("nach dem Ausschalten weiter gesucht: %d → %d", before, n)
+	}
+	if err := sc.SetNetworks([]string{"198.51.100.7/24", "203.0.113.0/24"}); err != nil || len(sc.Networks()) != 2 || sc.Networks()[0] != "198.51.100.0/24" {
+		t.Errorf("Segmente: %v %v", sc.Networks(), err)
 	}
 }

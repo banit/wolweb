@@ -27,7 +27,8 @@ type Result struct {
 }
 
 type Prober struct {
-	Ports   []int
+	ports   []int // Standardliste; über SetPorts änderbar (Einstellungsseite)
+	portsMu sync.RWMutex
 	Timeout time.Duration
 	// OnLink sagt, ob eine IP im eigenen Netzsegment liegt. Nur dort beweist "Verbindung
 	// abgelehnt", dass das Gerät läuft – hinter einem Router kann auch eine Firewall
@@ -38,9 +39,23 @@ type Prober struct {
 }
 
 func New(ports []int, timeout time.Duration) *Prober {
-	p := &Prober{Ports: ports, Timeout: timeout}
+	p := &Prober{ports: slices.Clone(ports), Timeout: timeout}
 	p.pinger = newPinger()
 	return p
+}
+
+// Ports liefert die Standardliste der Ports.
+func (p *Prober) Ports() []int {
+	p.portsMu.RLock()
+	defer p.portsMu.RUnlock()
+	return slices.Clone(p.ports)
+}
+
+// SetPorts ersetzt die Standardliste (auch während Prüfungen laufen).
+func (p *Prober) SetPorts(ports []int) {
+	p.portsMu.Lock()
+	defer p.portsMu.Unlock()
+	p.ports = slices.Clone(ports)
 }
 
 // ICMPAvailable sagt, ob Ping-Pakete verschickt werden können.
@@ -53,11 +68,11 @@ func (p *Prober) ICMPAvailable() bool { return p.pinger != nil }
 const tcpDelay = 300 * time.Millisecond
 
 // Check prüft ip und liefert, sobald eine Methode Erfolg meldet, spätestens nach Timeout.
-// ports ersetzt die Standardliste (nil = p.Ports). hint ist die zuletzt erfolgreiche Methode
+// ports ersetzt die Standardliste (nil = Ports()). hint ist die zuletzt erfolgreiche Methode
 // ("icmp", "tcp/22", "tcp/445 (abgelehnt)"): Ein TCP-Port daraus wird sofort angefragt.
 func (p *Prober) Check(ctx context.Context, ip netip.Addr, ports []int, hint string) Result {
 	if ports == nil {
-		ports = p.Ports
+		ports = p.Ports()
 	}
 	ctx, cancel := context.WithTimeout(ctx, p.Timeout)
 	defer cancel()

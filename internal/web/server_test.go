@@ -442,7 +442,7 @@ func TestStatusChangeNotifies(t *testing.T) {
 // Jeder Schlüssel, den Vorlagen und Skripte benutzen, muss im Katalog stehen.
 func TestUIKeysExist(t *testing.T) {
 	cat := i18n.Catalog(i18n.DE)
-	use := regexp.MustCompile(`(?:\bt|\btn|\.T|\.TN|\$\.T)\(?\s*"((?:ui|page|wake|group)\.[a-z_.]+)"`)
+	use := regexp.MustCompile(`(?:\bt|\btn|\.T|\.TN|\$\.T)\(?\s*"((?:ui|page|wake|group|set)\.[a-z_.]+)"`)
 	files, _ := fs.Glob(assets, "*/*")
 	for _, f := range files {
 		b, _ := assets.ReadFile(f)
@@ -458,7 +458,7 @@ func TestUIKeysExist(t *testing.T) {
 			}
 		}
 	}
-	for _, prefix := range []string{"ui.icon.desktop", "ui.src.schedule", "ui.src.group_link", "ui.scan.method.arp", "ui.scan.method.neighbors"} {
+	for _, prefix := range []string{"ui.icon.desktop", "ui.src.schedule", "ui.src.group_link", "ui.scan.method.arp", "ui.scan.method.neighbors", "set.event.online", "set.event.wake_failed"} {
 		if _, ok := cat[prefix]; !ok {
 			t.Errorf("dynamischer Schlüssel %q fehlt", prefix)
 		}

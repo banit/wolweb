@@ -32,7 +32,8 @@ type State struct {
 type Monitor struct {
 	store    *store.Store
 	prober   *probe.Prober
-	interval time.Duration
+	interval time.Duration // unter mu; 0 = keine regelmäßige Prüfung
+	reset    chan struct{} // SetInterval weckt Run
 	mu       sync.RWMutex
 	states   map[string]State
 
@@ -43,24 +44,56 @@ type Monitor struct {
 }
 
 func New(s *store.Store, p *probe.Prober, interval time.Duration) *Monitor {
-	return &Monitor{store: s, prober: p, interval: interval, states: map[string]State{}}
+	return &Monitor{store: s, prober: p, interval: interval, reset: make(chan struct{}, 1), states: map[string]State{}}
 }
 
+// Run prüft alle Geräte im eingestellten Abstand, bis ctx endet. Ein neuer Abstand (SetInterval)
+// gilt sofort; bei 0 ruht die regelmäßige Prüfung, Einzelprüfungen laufen weiter.
 func (m *Monitor) Run(ctx context.Context) {
-	if m.interval <= 0 {
-		return
-	}
-	t := time.NewTicker(m.interval)
-	defer t.Stop()
 	for {
-		m.CheckAll(ctx)
+		var tick <-chan time.Time
+		var t *time.Timer
+		if iv := m.Interval(); iv > 0 {
+			m.CheckAll(ctx)
+			t = time.NewTimer(iv)
+			tick = t.C
+		}
 		select {
 		case <-ctx.Done():
+		case <-tick:
+		case <-m.reset:
+		}
+		if t != nil {
+			t.Stop()
+		}
+		if ctx.Err() != nil {
 			return
-		case <-t.C:
 		}
 	}
 }
+
+func (m *Monitor) Interval() time.Duration {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.interval
+}
+
+// SetInterval ändert den Abstand der regelmäßigen Prüfung (Einstellungsseite).
+func (m *Monitor) SetInterval(d time.Duration) {
+	m.mu.Lock()
+	changed := m.interval != d
+	m.interval = d
+	m.mu.Unlock()
+	if changed {
+		select {
+		case m.reset <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// SetPorts ersetzt die Standardports der Online-Prüfung.
+func (m *Monitor) SetPorts(ports []int) { m.prober.SetPorts(ports) }
 
 // maxFoundAge: ältere Suchtreffer liefern keine IP mehr (DHCP kann sie längst neu vergeben haben).
 const maxFoundAge = 7 * 24 * time.Hour

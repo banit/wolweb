@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>{{.T "set.title"}} · Wake on LAN</title>
+<base href="{{.Base}}">
+<link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#4f46e5">
+<link rel="stylesheet" href="static/app.css?v={{.Version}}">
+<script id="i18n" type="application/json">{{.I18N}}</script>
+<script src="static/theme.js?v={{.Version}}"></script>
+<script src="static/i18n.js?v={{.Version}}" defer></script>
+<script src="static/settings.js?v={{.Version}}" defer></script>
+</head>
+<body class="app">
+{{template "icons"}}
+<a class="skip-link" href="#settings-form">{{.T "set.skip"}}</a>
+<header class="topbar">
+  <div class="brand">
+    <a class="btn btn-ghost icon-only" href="./" title="{{.T "page.overview"}}" aria-label="{{.T "page.overview"}}"><svg aria-hidden="true" class="ico"><use href="#i-arrow-left"/></svg></a>
+    <div>
+      <h1>{{.T "set.title"}}</h1>
+      <p class="muted" id="set-source">{{.T "page.loading"}}</p>
+    </div>
+  </div>
+</header>
+
+<main class="container settings">
+  <p class="notice warn" id="set-no-auth" hidden>{{.T "set.no_auth"}}</p>
+  <p class="notice" id="set-read-only" hidden>{{.T "set.read_only"}}</p>
+
+  <form id="settings-form" tabindex="-1" novalidate>
+    <!-- Netze und VLANs -->
+    <section class="set-section" aria-labelledby="sec-networks" data-key="discovery.networks">
+      <h2 id="sec-networks">{{.T "set.net.title"}}</h2>
+      <p class="muted">{{.T "set.net.intro"}}</p>
+      <p class="lock-note" data-lock="discovery.networks" hidden></p>
+      <ul class="net-list" id="net-list"></ul>
+      <p class="muted small" id="net-empty" hidden>{{.T "set.net.empty"}}</p>
+      <div class="row gap-start">
+        <button type="button" class="btn btn-secondary" id="net-add"><svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg>{{.T "set.net.add"}}</button>
+      </div>
+
+      <h3 class="set-sub">{{.T "set.if.title"}}</h3>
+      <p class="muted small">{{.T "set.if.intro"}}</p>
+      <ul class="if-list" id="if-list"></ul>
+
+      <details class="help">
+        <summary>{{.T "set.help.title"}}</summary>
+        <p>{{.T "set.help.intro"}}</p>
+        <h4>Proxmox (LXC)</h4>
+        <p>{{.T "set.help.proxmox"}}</p>
+        <pre tabindex="0"><code>pct set &lt;ID&gt; -net1 name=eth1,bridge=vmbr0,tag=20,ip=192.168.20.5/24</code></pre>
+        <h4>Docker</h4>
+        <p>{{.T "set.help.docker"}}</p>
+        <h4>Debian, Raspberry Pi OS, Ubuntu</h4>
+        <p>{{.T "set.help.linux"}}</p>
+        <pre tabindex="0"><code>ip link add link eth0 name eth0.20 type vlan id 20
+ip addr add 192.168.20.5/24 dev eth0.20
+ip link set eth0.20 up</code></pre>
+        <p>{{.T "set.help.after"}}</p>
+      </details>
+    </section>
+
+    <!-- Netzwerksuche -->
+    <section class="set-section" aria-labelledby="sec-scan">
+      <h2 id="sec-scan">{{.T "set.scan.title"}}</h2>
+      <label class="field" data-key="discovery.interval">
+        <span>{{.T "set.scan.interval"}}</span>
+        <input name="discovery.interval" class="mono" autocomplete="off" placeholder="30m" aria-describedby="hint-scan-interval">
+        <small class="muted" id="hint-scan-interval">{{.T "set.scan.interval_hint"}}</small>
+      </label>
+    </section>
+
+    <!-- Online-Prüfung und Wecken -->
+    <section class="set-section" aria-labelledby="sec-status">
+      <h2 id="sec-status">{{.T "set.status.title"}}</h2>
+      <div class="field-row">
+        <label class="field" data-key="status.interval">
+          <span>{{.T "set.status.interval"}}</span>
+          <input name="status.interval" class="mono" autocomplete="off" placeholder="30s" aria-describedby="hint-status-interval">
+          <small class="muted" id="hint-status-interval">{{.T "set.status.interval_hint"}}</small>
+        </label>
+        <label class="field" data-key="status.ports">
+          <span>{{.T "set.status.ports"}}</span>
+          <input name="status.ports" class="mono" autocomplete="off" inputmode="numeric" aria-describedby="hint-status-ports">
+          <small class="muted" id="hint-status-ports">{{.T "set.status.ports_hint"}}</small>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field" data-key="status.wake_timeout">
+          <span>{{.T "set.status.wake_timeout"}}</span>
+          <input name="status.wake_timeout" class="mono" autocomplete="off" placeholder="3m" aria-describedby="hint-wake-timeout">
+          <small class="muted" id="hint-wake-timeout">{{.T "set.status.wake_timeout_hint"}}</small>
+        </label>
+        <label class="field" data-key="status.wake_retry">
+          <span>{{.T "set.status.wake_retry"}}</span>
+          <input name="status.wake_retry" class="mono" autocomplete="off" placeholder="45s" aria-describedby="hint-wake-retry">
+          <small class="muted" id="hint-wake-retry">{{.T "set.status.wake_retry_hint"}}</small>
+        </label>
+      </div>
+      <label class="field" data-key="bcastip">
+        <span>{{.T "set.bcastip"}}</span>
+        <input name="bcastip" class="mono" autocomplete="off" placeholder="{{.T "ui.automatic"}}" aria-describedby="hint-bcastip">
+        <small class="muted" id="hint-bcastip">{{.T "set.bcastip_hint"}}</small>
+      </label>
+    </section>
+
+    <!-- Benachrichtigungen -->
+    <section class="set-section" aria-labelledby="sec-notify">
+      <h2 id="sec-notify">{{.T "set.notify.title"}}</h2>
+      <label class="field" data-key="notify.webhook">
+        <span>{{.T "set.notify.webhook"}}</span>
+        <input name="notify.webhook" class="mono" type="url" autocomplete="off" placeholder="https://homeassistant.local:8123/api/webhook/…" aria-describedby="hint-webhook">
+        <small class="muted" id="hint-webhook">{{.T "set.notify.webhook_hint"}}</small>
+      </label>
+      <label class="field" data-key="notify.ntfy">
+        <span>{{.T "set.notify.ntfy"}}</span>
+        <input name="notify.ntfy" class="mono" type="url" autocomplete="off" placeholder="https://ntfy.sh/…" aria-describedby="hint-ntfy">
+        <small class="muted" id="hint-ntfy">{{.T "set.notify.ntfy_hint"}}</small>
+      </label>
+      <fieldset class="checks" data-key="notify.events">
+        <legend>{{.T "set.notify.events"}}</legend>
+        <div class="check-grid" id="event-checks"></div>
+      </fieldset>
+      <div class="row gap-start">
+        <button type="button" class="btn btn-secondary" id="notify-test"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg><span>{{.T "set.notify.test"}}</span></button>
+      </div>
+    </section>
+
+    <!-- Sicherheit -->
+    <section class="set-section" aria-labelledby="sec-security">
+      <h2 id="sec-security">{{.T "set.sec.title"}}</h2>
+      <label class="check" data-key="auth.public_wake">
+        <input type="checkbox" name="auth.public_wake" aria-describedby="hint-public-wake">
+        <span>{{.T "set.sec.public_wake"}}<small class="muted" id="hint-public-wake">{{.T "set.sec.public_wake_hint"}}</small></span>
+      </label>
+      <label class="check" data-key="auth.wake_keys">
+        <input type="checkbox" name="auth.wake_keys" aria-describedby="hint-wake-keys">
+        <span>{{.T "set.sec.wake_keys"}}<small class="muted" id="hint-wake-keys">{{.T "set.sec.wake_keys_hint"}}</small></span>
+      </label>
+      <label class="field" data-key="allowed_hosts">
+        <span>{{.T "set.sec.hosts"}}</span>
+        <textarea name="allowed_hosts" rows="2" class="mono" autocomplete="off" aria-describedby="hint-hosts"></textarea>
+        <small class="muted" id="hint-hosts">{{.T "set.sec.hosts_hint"}}</small>
+      </label>
+      <p class="muted small">{{.T "set.sec.credentials"}}</p>
+    </section>
+
+    <!-- Allgemein -->
+    <section class="set-section" aria-labelledby="sec-general">
+      <h2 id="sec-general">{{.T "set.general.title"}}</h2>
+      <label class="field" data-key="language">
+        <span>{{.T "set.general.language"}}</span>
+        <select name="language" aria-describedby="hint-language">
+          <option value="de" lang="de">Deutsch</option>
+          <option value="en" lang="en">English</option>
+        </select>
+        <small class="muted" id="hint-language">{{.T "set.general.language_hint"}}</small>
+      </label>
+    </section>
+
+    <p class="form-error" id="set-error" role="alert" hidden></p>
+    <div class="set-actions">
+      <button type="button" class="btn btn-ghost" id="set-reset" hidden><svg aria-hidden="true" class="ico"><use href="#i-refresh"/></svg>{{.T "set.reset"}}</button>
+      <span class="spacer"></span>
+      <span class="muted small" id="set-dirty" hidden>{{.T "set.unsaved"}}</span>
+      <button type="submit" class="btn btn-primary" id="set-save"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.save"}}</button>
+    </div>
+  </form>
+</main>
+
+<!-- Bestätigen -->
+<dialog class="modal modal-small" id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+  <form method="dialog">
+    <div class="modal-body">
+      <h2 id="confirm-title"></h2>
+      <p class="muted" id="confirm-text"></p>
+    </div>
+    <footer class="modal-foot">
+      <span class="spacer"></span>
+      <button value="cancel" class="btn btn-ghost">{{.T "ui.cancel"}}</button>
+      <button value="ok" class="btn btn-danger" id="confirm-ok"></button>
+    </footer>
+  </form>
+</dialog>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+</body>
+</html>

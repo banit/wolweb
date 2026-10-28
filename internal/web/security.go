@@ -33,7 +33,7 @@ var lanSuffixes = []string{".local", ".lan", ".home", ".internal", ".intranet", 
 func (s *Server) hostGuard(next http.Handler) http.Handler {
 	// Mit Anmeldung schützt bereits die: Der Browser schickt die Zugangsdaten nicht an die fremde
 	// Seite. Ohne eigene Liste bleibt dann alles wie gehabt (z. B. Reverse-Proxy mit eigener Domain).
-	if (s.cfg.AuthEnabled() && len(s.cfg.AllowedHosts) == 0) || slices.Contains(s.cfg.AllowedHosts, "*") {
+	if (s.conf().AuthEnabled() && len(s.conf().AllowedHosts) == 0) || slices.Contains(s.conf().AllowedHosts, "*") {
 		return next
 	}
 	self, _ := os.Hostname()
@@ -42,7 +42,7 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 	logged := map[string]bool{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := hostOnly(r.Host)
-		if r.URL.Path == s.cfg.VDir+"health" || hostAllowed(host, self, s.cfg.AllowedHosts) {
+		if r.URL.Path == s.conf().VDir+"health" || hostAllowed(host, self, s.conf().AllowedHosts) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -54,7 +54,7 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 		}
 		mu.Unlock()
 		msg := i18n.T(s.lang(r), "err.host_not_allowed", host)
-		if strings.HasPrefix(r.URL.Path, s.cfg.VDir+"api/") {
+		if strings.HasPrefix(r.URL.Path, s.conf().VDir+"api/") {
 			writeError(w, http.StatusForbidden, msg)
 			return
 		}
@@ -113,7 +113,7 @@ func markPublic(r *http.Request) *http.Request {
 }
 
 // needsKey: Ohne Anmeldung verlangt auth.wake_keys den Schlüssel des Geräts.
-func (s *Server) needsKey(r *http.Request) bool { return s.cfg.Auth.WakeKeys && isPublic(r) }
+func (s *Server) needsKey(r *http.Request) bool { return s.conf().Auth.WakeKeys && isPublic(r) }
 
 // findForLink sucht das Gerät eines Wecklinks. Fehlt der nötige Schlüssel oder ist er falsch,
 // gilt das Gerät als nicht vorhanden – so lassen sich Namen nicht durchprobieren.

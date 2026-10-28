@@ -10,7 +10,6 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"wolweb/internal/atomicfile"
 	"wolweb/internal/config"
 	"wolweb/internal/i18n"
 	"wolweb/internal/oui"
@@ -297,49 +297,7 @@ func newWakeKey() string {
 	return hex.EncodeToString(b)
 }
 
-func writeAtomic(path string, v any) error {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(append(b, '\n')); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0o640); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return err
-	}
-	return syncDir(filepath.Dir(path))
-}
-
-// syncDir sorgt unter Linux dafür, dass die Umbenennung auch nach einem Stromausfall erhalten bleibt.
-// Windows kann Verzeichnisse nicht synchronisieren; dort genügt das Rename.
-func syncDir(dir string) error {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
-}
+func writeAtomic(path string, v any) error { return atomicfile.WriteJSON(path, v, 0o640) }
 
 // saveDevices muss unter s.mu (Schreibsperre) oder vor der Freigabe des Stores aufgerufen werden.
 func (s *Store) saveDevices() error {

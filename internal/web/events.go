@@ -143,17 +143,17 @@ func (s *Server) statusChanged(d store.Device, old status.State, hadOld bool, st
 	// dem Start und nicht bei "unbekannt" (keine IP).
 	if hadOld && old.State != st.State && (old.State == "online" || old.State == "offline") &&
 		(st.State == "online" || st.State == "offline") {
-		kind, msg := notify.Online, i18n.T(s.defLang, "notify.online", d.Name)
+		kind, msg := notify.Online, i18n.T(s.rt().lang, "notify.online", d.Name)
 		if st.State == "offline" {
-			kind, msg = notify.Offline, i18n.T(s.defLang, "notify.offline", d.Name)
+			kind, msg = notify.Offline, i18n.T(s.rt().lang, "notify.offline", d.Name)
 		}
 		if st.Method != "" {
 			msg += " (" + st.Method + ")"
 		}
 		if st.Conflict != "" {
-			msg += " – " + i18n.T(s.defLang, "notify.conflict", st.IP, st.Conflict)
+			msg += " – " + i18n.T(s.rt().lang, "notify.conflict", st.IP, st.Conflict)
 		}
-		s.notify.Send(notify.Event{Event: kind, Device: d.Name, ID: d.ID, IP: st.IP, Message: msg})
+		s.rt().notify.Send(notify.Event{Event: kind, Device: d.Name, ID: d.ID, IP: st.IP, Message: msg})
 	}
 }
 

@@ -29,7 +29,7 @@ type retries struct {
 // alle eines Aufrufs (Gruppe, Zeitplan) gemeinsam. Ein neues Wecken desselben Geräts ersetzt die
 // ausstehende Wiederholung, Wiederholungen selbst werden nicht wiederholt.
 func (s *Server) scheduleRetry(as []wakeAttempt) {
-	if s.wakeRetry <= 0 {
+	if s.rt().wakeRetry <= 0 {
 		return
 	}
 	var due []wakeAttempt
@@ -55,7 +55,7 @@ func (s *Server) scheduleRetry(as []wakeAttempt) {
 	for _, a := range due {
 		q.gen[a.d.ID] = g
 	}
-	q.timers[g] = time.AfterFunc(s.wakeRetry, func() { s.runRetry(g, due) })
+	q.timers[g] = time.AfterFunc(s.rt().wakeRetry, func() { s.runRetry(g, due) })
 }
 
 // runRetry prüft die Geräte eines Weckens und schickt denen, die noch nicht antworten, das Paket
@@ -98,7 +98,7 @@ func (s *Server) runRetry(g uint64, as []wakeAttempt) {
 		if states[i].State != "offline" { // online, gelöscht oder nicht mehr prüfbar
 			continue
 		}
-		log.Printf("%s antwortet %v nach dem Wecken nicht – Magic Packet erneut", a.d.Name, s.wakeRetry)
+		log.Printf("%s antwortet %v nach dem Wecken nicht – Magic Packet erneut", a.d.Name, s.rt().wakeRetry)
 		_, _, b := s.sendWake(nil, a.d, a.ev.Source, a.ev.Group)
 		b.ev.Client, b.ev.User, b.ev.Retry = a.ev.Client, a.ev.User, true
 		again = append(again, b)

@@ -804,6 +804,7 @@
     });
     es.addEventListener("error", () => { state.live = false; });
     es.addEventListener("devices", loadDevicesSoon);
+    es.addEventListener("settings", () => { reloadInfo(); loadDevicesSoon(); });
     es.addEventListener("status", (e) => {
       const m = JSON.parse(e.data);
       const d = state.devices.find((x) => x.id === m.id);
@@ -820,6 +821,19 @@
     });
   }
 
+  // applyInfo übernimmt, was von den Einstellungen abhängt (auch nach einer Änderung im Betrieb).
+  function applyInfo() {
+    $("#open-settings").hidden = !state.info.settings;
+    // Broadcast-Vorschläge im Gerätedialog: die eingetragenen Netze
+    $("#broadcast-list").replaceChildren(...(state.info.segments || []).map((s) => el("option", { value: s.broadcast, label: s.label })));
+  }
+  async function reloadInfo() {
+    try { state.info = await api("GET", "info"); } catch (e) { return; }
+    applyInfo();
+    renderDevices();
+    renderDiscovery();
+  }
+
   // ---------- Start ----------
   async function init() {
     buildIconPicker();
@@ -833,6 +847,7 @@
       for (const b of document.querySelectorAll('[data-action="add"]')) b.hidden = true;
     }
     if (state.info.version) $("#version").textContent = "wolweb " + state.info.version;
+    applyInfo();
     await loadDevices();
     loadDiscovery();
     // Abfragen nur als Rückfall, wenn die Live-Verbindung fehlt; sonst selten zur Sicherheit.

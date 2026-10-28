@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -28,6 +29,9 @@ const (
 // Kinds sind alle Ereignisarten (für die Prüfung der Konfiguration).
 var Kinds = []string{Online, Offline, Wake, WakeFailed}
 
+// Test ist die Probe aus den Einstellungen; sie lässt sich nicht abbestellen.
+const Test = "test"
+
 type Event struct {
 	Event   string    `json:"event"`
 	Device  string    `json:"device"`
@@ -45,6 +49,8 @@ type Notifier struct {
 	lang          i18n.Lang // Sprache der ntfy-Titel
 	client        *http.Client
 	queue         chan Event
+	done          chan struct{} // Close beendet run; queue bleibt offen, damit Send nie panikt
+	closeOnce     sync.Once
 
 	mu      sync.Mutex
 	lastErr time.Time
@@ -60,9 +66,18 @@ func New(webhook, ntfy string, kinds []string, version string, lang i18n.Lang) *
 		kinds = Kinds
 	}
 	n := &Notifier{webhook: webhook, ntfy: ntfy, kinds: kinds, agent: "wolweb/" + version, lang: lang,
-		client: &http.Client{Timeout: 10 * time.Second}, queue: make(chan Event, 100)}
+		client: &http.Client{Timeout: 10 * time.Second}, queue: make(chan Event, 100), done: make(chan struct{})}
 	go n.run()
 	return n
+}
+
+// Close beendet die Zustellung (nach einer Änderung in den Einstellungen übernimmt ein neuer
+// Notifier). Noch wartende Ereignisse entfallen. Ein nil-Notifier tut nichts.
+func (n *Notifier) Close() {
+	if n == nil {
+		return
+	}
+	n.closeOnce.Do(func() { close(n.done) })
 }
 
 // Send stellt ein Ereignis in die Warteschlange (blockiert nie; ist sie voll, entfällt es).
@@ -82,27 +97,49 @@ func (n *Notifier) Send(ev Event) {
 }
 
 func (n *Notifier) run() {
-	for ev := range n.queue {
-		if n.webhook != "" {
-			b, _ := json.Marshal(ev)
-			n.post(n.webhook, "application/json", b)
-		}
-		if n.ntfy != "" {
-			// Titel usw. als Parameter in der URL – in HTTP-Köpfen wären Umlaute nicht erlaubt.
-			title, tag, prio := ntfyStyle(ev, n.lang)
-			u, err := url.Parse(n.ntfy)
-			if err != nil {
-				n.logErr("ntfy-Adresse %q: %v", n.ntfy, err)
-				continue
+	for {
+		select {
+		case <-n.done:
+			return
+		case ev := <-n.queue:
+			if err := n.deliver(ev); err != nil {
+				n.logErr("%v", err)
 			}
+		}
+	}
+}
+
+// Test schickt ein Ereignis sofort und meldet, ob es ankam (Knopf "Test senden" in den
+// Einstellungen). Fehler nennen die Adresse ohne geheime Teile.
+func (n *Notifier) Test(ev Event) error {
+	if ev.Time.IsZero() {
+		ev.Time = time.Now().UTC()
+	}
+	return n.deliver(ev)
+}
+
+func (n *Notifier) deliver(ev Event) error {
+	var errs []error
+	if n.webhook != "" {
+		b, _ := json.Marshal(ev)
+		errs = append(errs, n.post(n.webhook, "application/json", b))
+	}
+	if n.ntfy != "" {
+		// Titel usw. als Parameter in der URL – in HTTP-Köpfen wären Umlaute nicht erlaubt.
+		title, tag, prio := ntfyStyle(ev, n.lang)
+		u, err := url.Parse(n.ntfy)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("ntfy-Adresse %s: %w", redact(n.ntfy), err))
+		} else {
 			q := u.Query()
 			q.Set("title", title)
 			q.Set("tags", tag)
 			q.Set("priority", prio)
 			u.RawQuery = q.Encode()
-			n.post(u.String(), "text/plain; charset=utf-8", []byte(ev.Message))
+			errs = append(errs, n.post(u.String(), "text/plain; charset=utf-8", []byte(ev.Message)))
 		}
 	}
+	return errors.Join(errs...)
 }
 
 func ntfyStyle(ev Event, l i18n.Lang) (title, tag, priority string) {
@@ -114,16 +151,17 @@ func ntfyStyle(ev Event, l i18n.Lang) (title, tag, priority string) {
 		return title, "red_circle", "low"
 	case Wake:
 		return title, "zap", "low"
+	case Test:
+		return title, "white_check_mark", "default"
 	default:
 		return title, "warning", "high"
 	}
 }
 
-func (n *Notifier) post(target, contentType string, body []byte) {
+func (n *Notifier) post(target, contentType string, body []byte) error {
 	req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
-		n.logErr("Benachrichtigung an %s: %v", redact(target), err)
-		return
+		return fmt.Errorf("Benachrichtigung an %s: %w", redact(target), err)
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", n.agent)
@@ -133,13 +171,13 @@ func (n *Notifier) post(target, contentType string, body []byte) {
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		n.logErr("Benachrichtigung an %s: %v", redact(target), err)
-		return
+		return fmt.Errorf("Benachrichtigung an %s: %w", redact(target), err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		n.logErr("Benachrichtigung an %s: HTTP %d", redact(target), resp.StatusCode)
+		return fmt.Errorf("Benachrichtigung an %s: HTTP %d", redact(target), resp.StatusCode)
 	}
+	return nil
 }
 
 // redact kürzt eine URL fürs Log auf Schema und Host (Pfad und Parameter können Geheimnisse

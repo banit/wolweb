@@ -36,6 +36,9 @@
     <button class="btn btn-ghost icon-only" id="theme-toggle" title="{{.T "page.theme"}}" aria-label="{{.T "page.theme"}}">
       <svg aria-hidden="true" class="ico"><use href="#i-moon"/></svg>
     </button>
+    <a class="btn btn-ghost icon-only not-simple" id="open-settings" href="settings" title="{{.T "page.settings"}}" aria-label="{{.T "page.settings"}}" hidden>
+      <svg aria-hidden="true" class="ico"><use href="#i-settings"/></svg>
+    </a>
     <button class="btn btn-secondary not-simple" id="open-discovery">
       <svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg><span>{{.T "page.network"}}</span><span class="badge" id="new-badge" hidden>0</span>
     </button>
@@ -162,7 +165,8 @@
         <div class="field-row">
           <label class="field">
             <span>{{.T "page.f.broadcast"}}</span>
-            <input name="broadcast" placeholder="{{.T "ui.automatic"}}" autocomplete="off" class="mono">
+            <input name="broadcast" placeholder="{{.T "ui.automatic"}}" autocomplete="off" class="mono" list="broadcast-list">
+            <datalist id="broadcast-list"></datalist>
             <small class="muted">{{.T "page.f.broadcast_hint"}}</small>
           </label>
           <label class="field">

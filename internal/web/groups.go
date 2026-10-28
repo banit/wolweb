@@ -49,7 +49,7 @@ func (s *Server) groupView(name string, members []store.Device, withKey bool) gr
 func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
 	out := []groupView{}
 	for _, name := range s.store.Groups() {
-		out = append(out, s.groupView(name, s.store.GroupMembers(name), s.cfg.Auth.WakeKeys))
+		out = append(out, s.groupView(name, s.store.GroupMembers(name), s.conf().Auth.WakeKeys))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -118,7 +118,7 @@ func (s *Server) groupLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		g := s.groupView(name, members, false)
-		pd := pageData{Group: &g, Timeout: int(s.wakeTimeout.Seconds()), Retry: int(s.wakeRetry.Seconds())}
+		pd := pageData{Group: &g, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds())}
 		if s.needsKey(r) {
 			pd.Key = s.groupKey(name)
 		}

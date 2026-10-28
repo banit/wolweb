@@ -5,6 +5,7 @@ const HEADERS = { "X-WolWeb": "1" };
 const PORT = Number(process.env.PORT || 8399);
 
 async function reset(request) {
+  expect((await request.delete("api/v1/settings", { headers: HEADERS })).ok()).toBeTruthy(); // Einstellungen wie in config.json
   const res = await request.get("api/v1/devices");
   for (const d of await res.json()) {
     expect((await request.delete("api/v1/devices/" + d.id, { headers: HEADERS })).ok()).toBeTruthy();
@@ -37,8 +38,9 @@ async function smallTargets(page) {
   await settled(page);
   return page.evaluate(() => {
     const out = [];
-    for (const n of document.querySelectorAll("button, a[href], input, textarea, summary, .icon-picker span")) {
+    for (let n of document.querySelectorAll("button, a[href], input, textarea, select, summary, .icon-picker span")) {
       if (n.matches(".icon-picker input")) continue; // unsichtbar, das Symbol daneben ist das Ziel
+      if (n.matches(".check input")) n = n.closest(".check"); // die ganze Zeile ist anklickbar
       const r = n.getBoundingClientRect();
       if (!r.width || !r.height || getComputedStyle(n).visibility === "hidden") continue;
       if (r.width < 44 || r.height < 44) {

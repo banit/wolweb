@@ -31,10 +31,11 @@ func main() {
 	healthcheck := flag.Bool("healthcheck", false, "prüft /health des laufenden Servers (für Docker) und beendet sich")
 	flag.Parse()
 
-	cfg, found, err := config.Load(*configPath)
+	settings, err := config.Open(*configPath)
 	if err != nil {
 		log.Fatalf("Konfiguration: %v", err)
 	}
+	cfg, found := settings.Config(), settings.FileFound()
 	if *healthcheck {
 		os.Exit(runHealthcheck(cfg))
 	}
@@ -46,6 +47,9 @@ func main() {
 		log.Printf("Konfiguration aus %s geladen", *configPath)
 	} else {
 		log.Printf("Keine %s gefunden – Standardwerte und Umgebungsvariablen", *configPath)
+	}
+	if keys := settings.Stored(); len(keys) > 0 {
+		log.Printf("In der Oberfläche geändert (%s): %v", settings.SettingsPath(), keys)
 	}
 
 	legacy, _ := filepath.Abs(*legacyPath)
@@ -64,7 +68,7 @@ func main() {
 	devices, _ := st.Devices()
 	log.Printf("%d Gerät(e) geladen aus %s", len(devices), cfg.DataDir)
 
-	statusInterval, _ := config.ParseDuration(cfg.Status.Interval)
+	scanInterval, statusInterval, _, _ := cfg.Durations()
 	prober := probe.New(cfg.Status.Ports, 1500*time.Millisecond)
 	prober.OnLink = discovery.OnLink
 	if prober.ICMPAvailable() {
@@ -73,18 +77,20 @@ func main() {
 		log.Print("Online-Prüfung: nur TCP (für Ping fehlt das Recht CAP_NET_RAW bzw. ping_group_range)")
 	}
 	mon := status.New(st, prober, statusInterval)
-	scanner := discovery.New(st, cfg.Discovery.Networks, cfg.Discovery.MaxHosts)
+	scanner := discovery.New(st, cfg.Discovery.ScanCIDRs(), cfg.Discovery.MaxHosts)
+	scanner.SetInterval(scanInterval)
 	ws := web.New(cfg, st, mon, scanner, prober.ICMPAvailable(), version) // hängt sich an mon und scanner
+	ws.SetSettings(settings)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go mon.Run(ctx)
 	go ws.RunSchedules(ctx)
 	go st.RunFlush(ctx)
-	if iv, _ := config.ParseDuration(cfg.Discovery.Interval); iv > 0 && len(cfg.Discovery.Networks) > 0 {
-		log.Printf("Automatische Suche alle %s in %v", iv, cfg.Discovery.Networks)
-		go autoScan(ctx, scanner, iv)
+	if nets := cfg.Discovery.ScanCIDRs(); scanInterval > 0 && len(nets) > 0 {
+		log.Printf("Automatische Suche alle %s in %v", scanInterval, nets)
 	}
+	go scanner.RunAuto(ctx) // ruht, solange kein Abstand eingestellt ist
 
 	srv := &http.Server{
 		Addr:              cfg.Listen(),
@@ -109,27 +115,6 @@ func main() {
 		log.Printf("Laufzeitdaten speichern: %v", err)
 	}
 	log.Print("Beendet.")
-}
-
-func autoScan(ctx context.Context, sc *discovery.Scanner, every time.Duration) {
-	select { // kurz nach dem Start einmal suchen
-	case <-ctx.Done():
-		return
-	case <-time.After(15 * time.Second):
-	}
-	t := time.NewTicker(every)
-	defer t.Stop()
-	for {
-		if err := sc.Start(true); err != nil && !errors.Is(err, discovery.ErrBusy) {
-			log.Printf("Automatische Suche: %v", err)
-		}
-		select {
-		case <-ctx.Done():
-			sc.Cancel()
-			return
-		case <-t.C:
-		}
-	}
 }
 
 func runHealthcheck(cfg config.Config) int {
