@@ -135,6 +135,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+api+"devices/{id}/wake-key", s.change(s.rotateWakeKey))
 	mux.HandleFunc("GET "+api+"schedule/preview", s.schedulePreview)
 	mux.HandleFunc("GET "+api+"groups", s.listGroups)
+	mux.HandleFunc("POST "+api+"groups", s.change(s.createGroup))
+	mux.HandleFunc("PUT "+api+"groups/{name}", s.change(s.updateGroup))
+	mux.HandleFunc("DELETE "+api+"groups/{name}", s.change(s.deleteGroup))
+	mux.HandleFunc("PUT "+api+"order", s.change(s.arrange))
 	mux.HandleFunc("POST "+api+"groups/{name}/wake", s.wakeGroupAPI)
 	mux.HandleFunc("GET "+api+"history", s.history)
 	mux.HandleFunc("GET "+api+"export", s.editable(s.export)) // mit Weckschlüsseln
@@ -313,6 +317,8 @@ func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, http.StatusBadRequest, out)
 	case errors.Is(err, store.ErrNotFound):
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
+	case errors.Is(err, store.ErrGroupNotFound):
+		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 	case errors.Is(err, store.ErrConflict):
 		s.fail(w, r, http.StatusConflict, "err.conflict")
 	default:

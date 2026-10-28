@@ -14,6 +14,7 @@
 <script src="static/theme.js?v={{.Version}}"></script>
 <script src="static/i18n.js?v={{.Version}}" defer></script>
 <script src="static/lock.js?v={{.Version}}" defer></script>
+<script src="static/groups.js?v={{.Version}}" defer></script>
 <script src="static/settings.js?v={{.Version}}" defer></script>
 </head>
 <body class="app">
@@ -193,6 +194,18 @@ ip link set eth0.20 up</code></pre>
     </div>
   </form>
 
+  <!-- Gruppen: gelten sofort, nicht über „Speichern“ -->
+  <section class="set-section" id="grp-section" aria-labelledby="sec-groups" hidden>
+    <h2 id="sec-groups">{{.T "set.grp.title"}}</h2>
+    <p class="muted small">{{.T "set.grp.intro"}}</p>
+    <ul class="grp-list" id="grp-list"></ul>
+    <p class="muted small" id="grp-empty" hidden>{{.T "set.grp.empty"}}</p>
+    <p class="sr-only" id="grp-status" role="status"></p>
+    <div class="row gap-start">
+      <button type="button" class="btn btn-secondary" id="grp-add"><svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg>{{.T "set.grp.add"}}</button>
+    </div>
+  </section>
+
   <!-- Passwort für Änderungen: gilt sofort, nicht über „Speichern“ -->
   <section class="set-section" id="pw-section" aria-labelledby="sec-password" hidden>
     <h2 id="sec-password">{{.T "set.pw.title"}}</h2>
@@ -238,6 +251,7 @@ ip link set eth0.20 up</code></pre>
   </form>
 </dialog>
 
+{{template "group-dialog" .}}
 {{template "unlock" .}}
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>

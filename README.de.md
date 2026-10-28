@@ -94,7 +94,7 @@ aus der Netzwerksuche).
 
 | Feld | Wofür |
 |---|---|
-| Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken; vorhandene Gruppen stehen unter dem Feld zum Antippen. Mehrere Geräte auf einmal zuordnen: in der Übersicht „Auswählen“, Geräte ankreuzen, Gruppenname eingeben. Der Gruppenknopf nennt, wie viele er weckt („Alle 4 Geräte wecken“) |
+| Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken; vorhandene Gruppen stehen unter dem Feld zum Antippen. Mehrere Geräte auf einmal zuordnen: in der Übersicht „Auswählen“, Geräte ankreuzen, Gruppenname eingeben. Der Gruppenknopf nennt, wie viele er weckt („Alle 4 Geräte wecken“). Die Gruppen selbst – anlegen (auch leer), umbenennen, Mitglieder wählen, löschen – verwaltest du auf der Einstellungsseite unter „Gruppen“ oder mit dem Stift am Gruppenkopf |
 | Zeitplan | „Automatisch wecken“ einschalten, Wochentage antippen, Uhrzeit wählen – der Dialog zeigt dazu „Montag bis Freitag um 07:30 Uhr“, das nächste Wecken und die Zeitzone. „Pausieren“ setzt den Zeitplan aus, ohne die Zeiten zu vergessen. Mehrere Zeiten gehen unter „Weitere Möglichkeiten“ als Text, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` (englisch wie `Mon-Fri 07:30` geht auch; gespeichert wird einheitlich die deutsche Form) |
 | *Erweitert:* Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
 | *Erweitert:* Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
@@ -119,7 +119,8 @@ nächste geplante Weckzeit oder „Zeitplan pausiert“.
 Der Name ist nicht von Groß-/Kleinschreibung abhängig. Nach dem Umbenennen gelten alte Links weiter: Browser
 werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich je Gerät bis zu zehn frühere Namen;
 einen davon einem anderen Gerät zu geben, muss man bestätigen, danach gehört der Link dem neuen Gerät – ein Import
-wählt stattdessen einen freien Namen). Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
+wählt stattdessen einen freien Namen). Auch umbenannte Gruppen behalten ihre alten Gruppen-Wecklinks, jeweils mit
+dem Schlüssel, mit dem sie herausgegeben wurden. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
 ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts. Während
 des Wartens nennt sie, wie lange geprüft wird (`status.wake_timeout`) und ob automatisch erneut gesendet wird. Kommt
 keine Antwort, bleibt „Start nicht bestätigt“ mit dem Naheliegenden stehen (Strom, Netzwerkkabel, blockierte
@@ -569,7 +570,9 @@ fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in
 | GET | `/api/v1/devices/{id}/status` | sofort prüfen |
 | POST | `/api/v1/devices/{id}/wake-key` | neuen Weckschlüssel erzeugen |
 | GET | `/api/v1/schedule/preview?s=…` | Zeitplan prüfen, ohne zu speichern: einheitliche Schreibweise, nächste Weckzeit, Zeitzone des Servers |
-| GET | `/api/v1/groups` | Gruppen mit Mitgliedern (und Schlüssel des Gruppen-Wecklinks) |
+| GET | `/api/v1/groups` | Gruppen in ihrer Reihenfolge, auch leere, mit Mitgliedern (und Schlüssel des Gruppen-Wecklinks) |
+| POST | `/api/v1/groups` | Gruppe anlegen: `{"name": "Büro", "members": [IDs]}` (Mitglieder optional) |
+| PUT / DELETE | `/api/v1/groups/{name}` | umbenennen und/oder Mitglieder setzen (`{"name": …, "members": […]}`, ohne `members` bleiben sie) / löschen (die Geräte bleiben, ohne Gruppe) |
 | POST | `/api/v1/groups/{name}/wake` | alle Geräte einer Gruppe wecken |
 | GET | `/api/v1/history` | Weckverlauf, neueste zuerst (`?limit=`) |
 | GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen; die Antwort nennt jeden Eintrag (`items`: `added` – ggf. mit `new_name` –, `skipped`, `error` mit Grund), die Oberfläche zeigt die vollständige Liste |

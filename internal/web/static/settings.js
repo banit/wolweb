@@ -122,6 +122,7 @@
     $("#net-add").disabled = !!locked("discovery.networks") || v.read_only;
     $("#notify-test").disabled = v.read_only;
     renderPassword();
+    loadGroups();
     showLockscreen(false);
     setDirty(false);
   }
@@ -422,12 +423,69 @@
     savePassword("");
   });
 
+  // ---------- Gruppen ----------
+  let groups = [], devices = [];
+  async function loadGroups(focus) {
+    try {
+      [groups, devices] = await Promise.all([api("GET", "groups"), api("GET", "devices")]);
+    } catch (err) {
+      toast("err", t("set.load_failed"), err.message);
+      return;
+    }
+    renderGroups(focus);
+  }
+  // renderGroups zeichnet die Liste; focus nennt danach den Knopf, der den Fokus bekommt ("name|aktion").
+  function renderGroups(focus) {
+    const off = !editable();
+    $("#grp-section").hidden = false;
+    $("#grp-list").replaceChildren(...groups.map((g, i) => el("li", { class: "grp-row", "data-name": g.name },
+      el("div", { class: "grp-main" },
+        el("strong", { text: g.name }),
+        el("span", { class: "muted small", text: tn("ui.n_devices", g.members.length) })),
+      off ? null : el("div", { class: "grp-actions" },
+        el("button", { type: "button", class: "btn btn-ghost icon-only", "data-act": "up", disabled: i === 0, title: t("set.grp.up_x", g.name), "aria-label": t("set.grp.up_x", g.name), onclick: () => moveGroup(i, -1) }, icon("arrow-up")),
+        el("button", { type: "button", class: "btn btn-ghost icon-only", "data-act": "down", disabled: i === groups.length - 1, title: t("set.grp.down_x", g.name), "aria-label": t("set.grp.down_x", g.name), onclick: () => moveGroup(i, 1) }, icon("arrow-down")),
+        el("button", { type: "button", class: "btn btn-ghost icon-only", "data-act": "edit", title: t("set.grp.edit_x", g.name), "aria-label": t("set.grp.edit_x", g.name), onclick: () => editGroup(g) }, icon("edit"))))));
+    $("#grp-empty").hidden = groups.length > 0;
+    $("#grp-add").hidden = off;
+    if (focus) {
+      const [name, act] = focus.split("|");
+      const row = [...$("#grp-list").children].find((r) => r.dataset.name === name);
+      let btn = row && row.querySelector('[data-act="' + act + '"]');
+      if (btn && btn.disabled) btn = row.querySelector('[data-act="' + (act === "up" ? "down" : "up") + '"]');
+      (btn || $("#grp-add")).focus();
+    }
+  }
+  async function moveGroup(i, dir) {
+    const order = groups.map((g) => g.name);
+    const [name] = order.splice(i, 1);
+    order.splice(i + dir, 0, name);
+    try {
+      await api("PUT", "order", { groups: order });
+    } catch (err) {
+      toast("err", t("set.save_failed"), err.message);
+      return;
+    }
+    await loadGroups(name + "|" + (dir < 0 ? "up" : "down"));
+    $("#grp-status").textContent = t("set.grp.moved", name, i + dir + 1, order.length);
+  }
+  function editGroup(g) {
+    window.wolwebGroups.open({
+      group: g, devices, api, toast,
+      onSaved: (name) => loadGroups(name ? name + "|edit" : "|add"),
+    });
+  }
+  $("#grp-add").addEventListener("click", () => window.wolwebGroups.open({
+    group: null, devices, api, toast,
+    onSaved: (name) => loadGroups(name + "|edit"),
+  }));
+
   // ---------- Sperren ----------
   // Gesperrt zeigt die Seite nur den Hinweis mit „Entsperren“ – die Einstellungen gibt der Server
   // erst danach heraus.
   function showLockscreen(on) {
     $("#set-lockscreen").hidden = !on;
-    for (const id of ["#set-intro", "#settings-form", "#pw-section"]) $(id).hidden = on;
+    for (const id of ["#set-intro", "#settings-form", "#pw-section", "#grp-section"]) $(id).hidden = on;
     if (on) {
       for (const id of ["#set-no-auth", "#set-read-only"]) $(id).hidden = true;
       $("#set-source").textContent = t("set.lockscreen.title");

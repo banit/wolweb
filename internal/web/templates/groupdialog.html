@@ -1,0 +1,29 @@
+{{define "group-dialog"}}<!-- Gruppe anlegen oder bearbeiten (groups.js) -->
+<dialog class="modal" id="group-dialog" aria-labelledby="group-dialog-title">
+  <form id="group-form" novalidate>
+    <header class="modal-head">
+      <h2 id="group-dialog-title"></h2>
+      <button type="button" class="btn btn-ghost icon-only" id="group-close" aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="modal-body">
+      <label class="field">
+        <span>{{.T "ui.grp.name"}}</span>
+        <input name="name" required maxlength="32" autocomplete="off" aria-describedby="group-name-hint">
+        <small class="muted" id="group-name-hint" aria-live="polite"></small>
+      </label>
+      <fieldset class="checks">
+        <legend>{{.T "ui.grp.members"}}</legend>
+        <div class="check-grid" id="group-members"></div>
+        <p class="muted small" id="group-no-devices" hidden>{{.T "ui.grp.no_devices"}}</p>
+      </fieldset>
+      <p class="form-error" id="group-error" role="alert" tabindex="-1" hidden></p>
+    </div>
+    <footer class="modal-foot">
+      <button type="button" class="btn btn-danger-ghost" id="group-delete" hidden><svg aria-hidden="true" class="ico"><use href="#i-trash"/></svg>{{.T "ui.delete"}}</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-ghost" id="group-cancel">{{.T "ui.cancel"}}</button>
+      <button type="submit" class="btn btn-primary" id="group-save"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.save"}}</button>
+    </footer>
+  </form>
+</dialog>
+{{end}}

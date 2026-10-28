@@ -152,7 +152,7 @@
         devicesAgain = false;
         try {
           const devices = await api("GET", "devices");
-          state.groups = devices.some((d) => d.group) ? await api("GET", "groups") : [];
+          state.groups = await api("GET", "groups"); // auch leere – für den Gerätedialog und zum Sortieren
           state.devices = devices;
           renderDevices();
         } catch (e) {
@@ -207,7 +207,7 @@
     });
     // Mit Gruppen: je Gruppe ein Abschnitt mit Kopf (Wecken, Link), danach die übrigen Geräte.
     let next;
-    if (!state.groups.length) {
+    if (!state.groups.some((g) => g.members.length)) {
       next = [el("div", { class: "grid" }, cards(list))];
     } else {
       next = [];
@@ -231,7 +231,22 @@
       el("span", { class: "spacer" }),
       // Die Reichweite steht auf dem Knopf – alle Mitglieder, auch wenn die Suche gerade einige ausblendet.
       el("button", { class: "btn btn-secondary btn-sm", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: tn("ui.wake_all", members.length) })),
-      state.simple ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.copy_group_link"), "aria-label": t("ui.copy_group_link"), "aria-describedby": nameID, "data-focus": "copy", onclick: () => copyURL(groupURL(g), t("ui.group_link_copied"), t("ui.copy_group_link")) }, icon("link")));
+      state.simple ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.copy_group_link"), "aria-label": t("ui.copy_group_link"), "aria-describedby": nameID, "data-focus": "copy", onclick: () => copyURL(groupURL(g), t("ui.group_link_copied"), t("ui.copy_group_link")) }, icon("link")),
+      state.simple || !editable() ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.grp.edit"), "aria-label": t("ui.grp.edit"), "aria-describedby": nameID, "data-focus": "edit-group", onclick: () => editGroup(g) }, icon("edit")));
+  }
+
+  // editGroup öffnet den Gruppendialog (groups.js): umbenennen, Mitglieder, löschen.
+  function editGroup(g) {
+    window.wolwebGroups.open({
+      group: g, devices: state.devices, api, toast,
+      onSaved: async (name) => {
+        await loadDevices();
+        const head = name && [...document.querySelectorAll("#devices .group-head")].find((h) => h.dataset.id === "gruppe:" + name);
+        const btn = head && head.querySelector('[data-focus="edit-group"]');
+        if (btn) btn.focus();
+        else $("#devices").focus();
+      },
+    });
   }
 
   // groupIDs vergibt je Gruppenname eine feste Nummer für IDs (Namen dürfen Leerzeichen enthalten).

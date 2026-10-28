@@ -47,12 +47,93 @@ func (s *Server) groupView(name string, members []store.Device, withKey bool) gr
 	return g
 }
 
+// listGroups liefert alle Gruppen in ihrer Reihenfolge, auch leere.
 func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
 	out := []groupView{}
 	for _, name := range s.store.Groups() {
 		out = append(out, s.groupView(name, s.store.GroupMembers(name), s.conf().Auth.WakeKeys))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+type groupInput struct {
+	Name    string   `json:"name"`
+	Members []string `json:"members"` // Geräte-IDs; fehlt es (null), bleiben die Mitglieder
+}
+
+func (s *Server) createGroup(w http.ResponseWriter, r *http.Request) {
+	var in groupInput
+	if err := readJSON(r, &in); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	g, err := s.store.CreateGroup(in.Name, in.Members)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	log.Printf("Group created: %s (%d devices)", g.Name, len(in.Members))
+	s.devicesChanged()
+	writeJSON(w, http.StatusCreated, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys))
+}
+
+func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
+	var in groupInput
+	if err := readJSON(r, &in); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	old := r.PathValue("name")
+	g, err := s.store.UpdateGroup(old, in.Name, in.Members)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	if !strings.EqualFold(old, g.Name) {
+		log.Printf("Group renamed: %s -> %s", old, g.Name)
+	} else {
+		log.Printf("Group changed: %s", g.Name)
+	}
+	s.devicesChanged()
+	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys))
+}
+
+func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteGroup(r.PathValue("name")); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	log.Printf("Group deleted: %s", r.PathValue("name"))
+	s.devicesChanged()
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// arrange übernimmt die Reihenfolge aus der Übersicht (Ziehen und Ablegen, Tastatur).
+func (s *Server) arrange(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Groups  []string          `json:"groups"`
+		Devices []store.Placement `json:"devices"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	if err := s.store.Arrange(in.Groups, in.Devices); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	s.devicesChanged()
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// groupByName findet eine Gruppe samt Mitgliedern über ihren Namen oder einen früheren Namen.
+func (s *Server) groupByName(name string) (string, []store.Device, bool) {
+	g, ok := s.store.FindGroup(name)
+	if !ok {
+		return "", nil, false
+	}
+	members := s.store.GroupMembers(g.Name)
+	return g.Name, members, len(members) > 0
 }
 
 type groupResult struct {
@@ -96,24 +177,23 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 }
 
 func (s *Server) wakeGroupAPI(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	members := s.store.GroupMembers(name)
-	if len(members) == 0 {
+	name, members, ok := s.groupByName(r.PathValue("name"))
+	if !ok {
 		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 		return
 	}
-	res, code := s.wakeGroup(r, members[0].Group, members, srcGroup)
+	res, code := s.wakeGroup(r, name, members, srcGroup)
 	writeJSON(w, code, res)
 }
 
-// findGroupForLink: wie findForLink, mit dem abgeleiteten Gruppenschlüssel.
+// findGroupForLink: wie findForLink, mit dem abgeleiteten Gruppenschlüssel. Nach dem Umbenennen gilt
+// ein alter Link mit dem Schlüssel seines Namens weiter.
 func (s *Server) findGroupForLink(r *http.Request) (string, []store.Device, bool) {
-	members := s.store.GroupMembers(r.PathValue("name"))
-	if len(members) == 0 {
+	name, members, ok := s.groupByName(r.PathValue("name"))
+	if !ok {
 		return "", nil, false
 	}
-	name := members[0].Group
-	if s.needsKey(r) && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), []byte(s.groupKey(name))) != 1 {
+	if s.needsKey(r) && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), []byte(s.groupKey(r.PathValue("name")))) != 1 {
 		return "", nil, false
 	}
 	return name, members, true

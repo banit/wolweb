@@ -652,6 +652,11 @@ input:disabled, textarea:disabled, select:disabled { background: var(--surface-2
 .pw-state::before { content: ""; width: .6rem; height: .6rem; border-radius: 50%; background: var(--warn); flex: none; }
 .pw-state.ok::before { background: var(--ok); }
 .pw-form { display: grid; gap: .8rem; }
+.grp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.grp-row { display: flex; align-items: center; gap: .6rem; padding: .35rem .4rem .35rem .9rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.grp-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .7rem; }
+.grp-main strong { overflow-wrap: anywhere; }
+.grp-actions { display: flex; gap: .2rem; flex: none; }
 .lockscreen { justify-items: start; }
 .notice { padding: .75rem .95rem; border-radius: 12px; background: var(--accent-soft); color: var(--text); font-size: .9rem; }
 .notice.warn { background: var(--warn-soft); }

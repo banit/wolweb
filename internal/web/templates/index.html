@@ -16,6 +16,7 @@
 <script src="static/theme.js?v={{.Version}}"></script>
 <script src="static/i18n.js?v={{.Version}}" defer></script>
 <script src="static/lock.js?v={{.Version}}" defer></script>
+<script src="static/groups.js?v={{.Version}}" defer></script>
 <script src="static/app.js?v={{.Version}}" defer></script>
 </head>
 <body class="app">
@@ -327,6 +328,7 @@
   </form>
 </dialog>
 
+{{template "group-dialog" .}}
 {{template "unlock" .}}
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>

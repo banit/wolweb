@@ -17,6 +17,9 @@ async function reset(request) {
   for (const d of await res.json()) {
     expect((await request.delete("api/v1/devices/" + d.id, { headers: HEADERS })).ok()).toBeTruthy();
   }
+  for (const g of await (await request.get("api/v1/groups")).json()) { // Gruppen gibt es auch ohne Geräte
+    expect((await request.delete("api/v1/groups/" + encodeURIComponent(g.name), { headers: HEADERS })).ok()).toBeTruthy();
+  }
 }
 
 let macs = 0;

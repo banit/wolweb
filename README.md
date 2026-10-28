@@ -89,7 +89,7 @@ IP from the network scan).
 
 | Field | Purpose |
 |---|---|
-| Group | Devices with the same group are shown together and can be woken together; existing groups are offered below the field. To assign several devices at once: “Select” in the overview, tick the devices, enter the group name. The group button says how many devices it wakes (“Wake all 4 devices”) |
+| Group | Devices with the same group are shown together and can be woken together; existing groups are offered below the field. To assign several devices at once: “Select” in the overview, tick the devices, enter the group name. The group button says how many devices it wakes (“Wake all 4 devices”). Groups themselves – create (also empty), rename, choose members, delete – are managed on the settings page under “Groups” or with the pencil on a group's header |
 | Schedule | Switch on “Wake automatically”, tap the days, pick a time – the dialog sums it up (“Monday to Friday at 07:30”) and shows the next wake-up and the time zone. “Pause” suspends the schedule without losing the times. Several times go under “More options” as text, e.g. `Mon-Fri 07:30; Sat,Sun 09:00`, `weekdays 6:45`, `daily 22:00` (German spellings such as `Mo-Fr` work too; `devices.json` always stores the canonical German form, the interface shows it in your language) |
 | *Advanced:* Broadcast address | target of the magic packet, only for special cases (otherwise automatic) |
 | *Advanced:* Network interface | send the packet through exactly this interface (machines in several networks) |
@@ -113,7 +113,8 @@ wake-up or “Schedule paused”.
 
 The name is not case-sensitive. After renaming, old links keep working: browsers are redirected to the new address,
 curl & co. wake directly (wolweb remembers up to ten former names per device; giving one of them to another device
-needs a confirmation, and from then on the link belongs to that device – an import picks a free name instead). The
+needs a confirmation, and from then on the link belongs to that device – an import picks a free name instead).
+Renamed groups keep their old group wake links too, each with the key it was handed out with. The
 “online” confirmation needs a known IP (entered or from the network
 scan). If the device is already running, the page says so and sends nothing. While waiting, it tells you how long it
 keeps checking (`status.wake_timeout`) and whether it will resend automatically. Without an answer, “Start not
@@ -552,7 +553,9 @@ without it, the answer is 403 with a message for humans and the technical reason
 | GET | `/api/v1/devices/{id}/status` | check now |
 | POST | `/api/v1/devices/{id}/wake-key` | create a new wake key |
 | GET | `/api/v1/schedule/preview?s=…` | check a schedule without saving: canonical form, next wake-up, server time zone |
-| GET | `/api/v1/groups` | groups with members (and the key of the group wake link) |
+| GET | `/api/v1/groups` | groups in their order, also empty ones, with members (and the key of the group wake link) |
+| POST | `/api/v1/groups` | create a group: `{"name": "Office", "members": [ids]}` (members optional) |
+| PUT / DELETE | `/api/v1/groups/{name}` | rename and/or set members (`{"name": …, "members": […]}`, without `members` they stay) / delete (the devices stay, without group) |
 | POST | `/api/v1/groups/{name}/wake` | wake all devices of a group |
 | GET | `/api/v1/history` | wake history, newest first (`?limit=`) |
 | GET / POST | `/api/v1/export`, `/api/v1/import` | download devices as JSON / take them over from a file; the answer lists every entry (`items`: `added` – possibly with `new_name` –, `skipped`, `error` with the reason), the interface shows the complete list |
