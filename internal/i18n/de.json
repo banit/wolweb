@@ -53,6 +53,8 @@
  "group.title.partial": "Nicht alle Geräte haben sich gemeldet",
  "group.title.sent": "Magic Packets gesendet",
  "group.title.starting": "Gruppe {0} wird gestartet",
+ "imp.bad_mac": "„{0}“: ungültige MAC-Adresse „{1}“",
+ "imp.bad_target": "„{0}“: ungültiges Ziel „{1}“ ({2})",
  "msg.already_waking": "{0} wird bereits geweckt – der Weckruf ging eben erst raus.",
  "msg.group_sent": "Magic Packet an {0} von {1} Geräten der Gruppe {2} gesendet.",
  "msg.notify_failed": "Testnachricht nicht angekommen: {0}",

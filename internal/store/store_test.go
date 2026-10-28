@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"wolweb/internal/i18n"
 )
 
 func TestLegacyImport(t *testing.T) {
@@ -360,5 +362,41 @@ func TestImportKeepsWakeKeysAndSecret(t *testing.T) {
 	res, _ = other.Import(b, "de")
 	if res.SecretRestored || !bytesEqual(other.Secret(), before) {
 		t.Error("Geheimnis einer bestehenden Installation überschrieben")
+	}
+}
+
+// Alte Dateien: Jeder ungültige Eintrag wird gemeldet, ein ungültiges Ziel nie still durch den
+// Standard ersetzt – beim ausdrücklichen Import wie beim automatischen beim Start.
+func TestLegacyProblemsReported(t *testing.T) {
+	old := []byte(`{"devices":[
+		{"name":"Gut","mac":"02:00:00:00:00:01","ip":"10.0.0.255:9"},
+		{"name":"Port","mac":"02:00:00:00:00:02","ip":"10.0.0.5:70000"},
+		{"name":"Kaputt","mac":"xyz","ip":""}]}`)
+	s, _, _ := Open(t.TempDir(), "")
+	res, err := s.Import(old, i18n.DE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Added != 1 || len(res.Errors) != 2 || !strings.Contains(res.Errors[0], "Kaputt") && !strings.Contains(res.Errors[1], "Kaputt") ||
+		!strings.Contains(strings.Join(res.Errors, " "), "10.0.0.5:70000") {
+		t.Errorf("%+v", res)
+	}
+	if devs, _ := s.Devices(); len(devs) != 1 || devs[0].Broadcast != "10.0.0.255:9" {
+		t.Errorf("übernommen: %+v", devs)
+	}
+
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "alt.json")
+	os.WriteFile(legacy, old, 0o644)
+	s2, notes, err := Open(filepath.Join(dir, "data"), legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(notes, "\n")
+	if !strings.Contains(all, "Port") || !strings.Contains(all, "70000") || !strings.Contains(all, "Kaputt") {
+		t.Errorf("Hinweise: %s", all)
+	}
+	if devs, _ := s2.Devices(); len(devs) != 1 {
+		t.Errorf("beim Start übernommen: %+v", devs)
 	}
 }

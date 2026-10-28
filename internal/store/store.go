@@ -162,11 +162,12 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 	b, err := os.ReadFile(path)
 	switch {
 	case err == nil:
-		devs, lw, n, err := decodeDevices(b)
+		devs, lw, n, problems, err := decodeDevices(b)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", path, err)
 		}
 		s.devices, migratedWake = devs, lw
+		notes = append(notes, problemNotes(path, problems)...)
 		// Die Dateien werden gleich im neuen Format geschrieben. Eine ältere Version (1.0.x, das
 		// Original-wolweb) verwürfe dabei, was sie nicht kennt – vorher alles sichern, damit der
 		// Weg zurück offen bleibt (Sicherung zurückspielen, siehe README).
@@ -193,12 +194,13 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 			lb, err := os.ReadFile(legacyPath)
 			switch {
 			case err == nil:
-				devs, _, _, err := decodeDevices(lb)
+				devs, _, _, problems, err := decodeDevices(lb)
 				if err != nil {
 					return nil, nil, fmt.Errorf("%s: %w", legacyPath, err)
 				}
 				s.devices = devs
 				notes = append(notes, fmt.Sprintf("%d Gerät(e) aus %s übernommen", len(s.devices), legacyPath))
+				notes = append(notes, problemNotes(legacyPath, problems)...)
 			case !errors.Is(err, os.ErrNotExist):
 				// Nicht still mit leerer Liste starten – sonst würde der Import nie wieder versucht.
 				return nil, nil, fmt.Errorf("alte Gerätedatei %s: %w", legacyPath, err)
@@ -286,12 +288,14 @@ func cleanName(s string) string {
 // decodeDevices liest das eigene Format oder das des Original-wolweb. lastWake enthält die
 // Weckzeitpunkte, die wolweb 1.0.x noch in devices.json abgelegt hat; note ist gesetzt, wenn
 // das alte Format umgewandelt wurde.
-func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note string, err error) {
+// decodeDevices liest devices.json im eigenen oder im alten Format. problems nennt Einträge des alten
+// Formats, die nicht übernommen wurden (ungültige MAC, ungültiges Ziel) – nie still ersetzt.
+func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note string, problems []error, err error) {
 	var probe struct {
 		Version int `json:"version"`
 	}
 	if err := json.Unmarshal(b, &probe); err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", nil, err
 	}
 	if probe.Version >= 2 {
 		var f struct {
@@ -301,7 +305,7 @@ func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note
 			} `json:"devices"`
 		}
 		if err := json.Unmarshal(b, &f); err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", nil, err
 		}
 		for _, d := range f.Devices {
 			devs = append(devs, d.Device)
@@ -312,17 +316,25 @@ func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note
 				lastWake[d.ID] = *d.LastWake
 			}
 		}
-		return devs, lastWake, "", nil
+		return devs, lastWake, "", nil, nil
 	}
 	var lf legacyFile
 	if err := json.Unmarshal(b, &lf); err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", nil, err
 	}
 	now := time.Now().UTC()
 	used := map[string]bool{}
 	for _, d := range lf.Devices {
 		hw, err := wol.ParseMAC(d.MAC)
 		if err != nil {
+			problems = append(problems, i18n.M("imp.bad_mac", d.Name, d.MAC))
+			continue
+		}
+		// Das Ziel (im Original "ip") wörtlich übernehmen – ein ungültiges nie still durch den
+		// Standard ersetzen, sonst ginge der Weckruf unbemerkt woandershin.
+		bc, err := config.NormalizeBroadcast(d.IP)
+		if err != nil {
+			problems = append(problems, i18n.M("imp.bad_target", d.Name, d.IP, err))
 			continue
 		}
 		name := cleanName(d.Name)
@@ -333,13 +345,21 @@ func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note
 			name = fmt.Sprintf("%s %d", base, i)
 		}
 		used[strings.ToLower(name)] = true
-		bc, _ := config.NormalizeBroadcast(d.IP)
 		devs = append(devs, Device{
 			ID: newID(), Name: name, MAC: wol.FormatMAC(hw), Broadcast: bc, Interface: d.Interface,
 			Vendor: oui.Lookup(hw), CreatedAt: now, UpdatedAt: now,
 		})
 	}
-	return devs, nil, fmt.Sprintf("%d Gerät(e) aus dem alten wolweb-Format umgewandelt", len(devs)), nil
+	return devs, nil, fmt.Sprintf("%d Gerät(e) aus dem alten wolweb-Format umgewandelt", len(devs)), problems, nil
+}
+
+// problemNotes macht aus nicht übernommenen Einträgen Hinweise fürs Log.
+func problemNotes(src string, problems []error) []string {
+	var out []string
+	for _, p := range problems {
+		out = append(out, src+": nicht übernommen – "+p.Error())
+	}
+	return out
 }
 
 func newID() string {
@@ -676,7 +696,7 @@ type ImportResult struct {
 // deren MAC schon angelegt ist, werden übersprungen; doppelte Namen bekommen eine Nummer.
 // Fehler einzelner Einträge stehen in der Sprache l im Ergebnis.
 func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
-	devs, _, _, err := decodeDevices(b)
+	devs, _, _, problems, err := decodeDevices(b)
 	if err != nil {
 		return ImportResult{}, Invalid("val.import_invalid", err)
 	}
@@ -685,6 +705,9 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 	}
 	_ = json.Unmarshal(b, &exp)
 	var res ImportResult
+	for _, p := range problems {
+		res.Errors = append(res.Errors, i18n.Text(l, p))
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	restore := len(s.devices) == 0 // leere Installation: Sicherung wiederherstellen
