@@ -642,7 +642,7 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 		src := i18n.T(s.rt().lang, "ui.src."+ev.Source, ev.Group)
 		result, kind, msg := "ok", notify.Wake, i18n.T(s.rt().lang, "notify.wake", ev.Device, src)
 		if !ev.Success {
-			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.rt().lang, "notify.wake_failed", ev.Device, ev.Error)
+			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.rt().lang, "notify.wake_failed", ev.Device, ev.Localized(s.rt().lang).Error)
 		}
 		s.wakesMu.Lock()
 		s.wakes[[2]string{ev.ID, result}]++
@@ -673,7 +673,7 @@ func (s *Server) sendWake(r *http.Request, d store.Device, source, group string)
 	if err != nil {
 		log.Printf("Wecken von %s fehlgeschlagen: %v", d.Name, err)
 		res.Message, res.Error = i18n.T(l, "msg.wake_failed", d.Name), i18n.Text(l, err)
-		a.ev.Error = res.Error
+		a.ev.SetError(l, err) // im Verlauf später in der Sprache des Betrachters
 		return res, http.StatusInternalServerError, a
 	}
 	log.Printf("Magic Packet an %s (%s) über %s gesendet (%s)", d.Name, d.MAC, target, source)
@@ -804,7 +804,11 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > store.HistoryMax {
 		limit = 200
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": s.store.History(limit)})
+	events := s.store.History(limit)
+	for i := range events {
+		events[i] = events[i].Localized(s.lang(r))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
 
 func (s *Server) export(w http.ResponseWriter, r *http.Request) {

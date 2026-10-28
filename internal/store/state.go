@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"wolweb/internal/i18n"
 )
 
 // Laufzeitdaten – was wolweb selbst beobachtet (zuletzt geweckt, zuletzt gesehen, Verlauf) –
@@ -29,13 +31,41 @@ type Event struct {
 	User    string    `json:"user,omitempty"`
 	Target  string    `json:"target,omitempty"`
 	Success bool      `json:"success"`
-	Error   string    `json:"error,omitempty"`
-	Retry   bool      `json:"retry,omitempty"` // automatische Wiederholung, weil das Gerät nicht antwortete
+	Error   string    `json:"error,omitempty"` // Text in der Sprache beim Wecken (Rückfall für alte Einträge)
+	// ErrorKey und ErrorArgs halten übersetzbare Fehler fest, damit der Verlauf sie in der jeweils
+	// gewählten Sprache zeigt (siehe Localized).
+	ErrorKey  string   `json:"error_key,omitempty"`
+	ErrorArgs []string `json:"error_args,omitempty"`
+	Retry     bool     `json:"retry,omitempty"` // automatische Wiederholung, weil das Gerät nicht antwortete
 	// Ergebnis des Starts: Checkable – eine IP war bekannt, der Start ließ sich also prüfen;
 	// WasOnline – das Gerät lief schon; Started – wann es danach erreichbar war.
 	Checkable bool       `json:"checkable,omitempty"`
 	WasOnline bool       `json:"was_online,omitempty"`
 	Started   *time.Time `json:"started,omitempty"`
+}
+
+// SetError hält einen Fehler fest – als Schlüssel und Parameter, wenn er übersetzbar ist.
+func (ev *Event) SetError(l i18n.Lang, err error) {
+	ev.Error = i18n.Text(l, err)
+	var m i18n.Msg
+	if errors.As(err, &m) && m.Error() == err.Error() { // die Meldung selbst, nicht nur ein Teil davon
+		ev.ErrorKey, ev.ErrorArgs = m.Key, nil
+		for _, a := range m.Args {
+			ev.ErrorArgs = append(ev.ErrorArgs, i18n.Text(l, a))
+		}
+	}
+}
+
+// Localized liefert den Eintrag mit dem Fehler in Sprache l.
+func (ev Event) Localized(l i18n.Lang) Event {
+	if ev.ErrorKey != "" {
+		args := make([]any, len(ev.ErrorArgs))
+		for i, a := range ev.ErrorArgs {
+			args[i] = a
+		}
+		ev.Error = i18n.T(l, ev.ErrorKey, args...)
+	}
+	return ev
 }
 
 // HistoryMax begrenzt den Verlauf (älteste Einträge fallen heraus).

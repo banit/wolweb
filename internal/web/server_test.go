@@ -1021,3 +1021,26 @@ func TestHistoryRecordsStart(t *testing.T) {
 		t.Error("alter Weckruf bestätigt")
 	}
 }
+
+// Fehler im Verlauf erscheinen in der Sprache dessen, der ihn ansieht – nicht in der beim Wecken.
+func TestHistoryErrorsTranslated(t *testing.T) {
+	h, st := newTestServer(t, nil)
+	d, _ := st.Create(store.Input{Name: "NAS", MAC: "02:00:00:00:00:01", Interface: "gibtsnicht0", Broadcast: "127.0.0.1:9"})
+	req := httptest.NewRequest("POST", "/api/v1/devices/"+d.ID+"/wake", nil)
+	req.Header.Set("X-WolWeb", "1")
+	req.Header.Set("Accept-Language", "de")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	for lang, want := range map[string]string{"de": "Netzwerkschnittstelle", "en": "Network interface"} {
+		req := httptest.NewRequest("GET", "/api/v1/history", nil)
+		req.Header.Set("Accept-Language", lang)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var out struct{ Events []store.Event }
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out.Events) != 1 {
+			t.Fatalf("%s: %v %s", lang, err, rec.Body)
+		}
+		if ev := out.Events[0]; ev.Success || ev.ErrorKey != "wol.iface" || !strings.Contains(ev.Error, want) || !strings.Contains(ev.Error, "gibtsnicht0") {
+			t.Errorf("%s: %+v", lang, ev)
+		}
+	}
+}

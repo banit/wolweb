@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"wolweb/internal/i18n"
 	"wolweb/internal/oui"
 	"wolweb/internal/store"
 )
@@ -127,5 +128,14 @@ func TestVirtualIface(t *testing.T) {
 		if got := virtualIface(name); got != virtual {
 			t.Errorf("%s: %v", name, got)
 		}
+	}
+}
+
+// Suchfehler bleiben Schlüssel und Parameter, bis jemand sie ansieht – dann in dessen Sprache.
+func TestJobErrorsLocalized(t *testing.T) {
+	j := Job{errs: []error{i18n.M("scan.cancelled")}}
+	de, en := j.Localized(i18n.DE).Error, j.Localized(i18n.EN).Error
+	if de == "" || en == "" || de == en || de != i18n.T(i18n.DE, "scan.cancelled") || en != i18n.T(i18n.EN, "scan.cancelled") {
+		t.Errorf("de %q, en %q", de, en)
 	}
 }

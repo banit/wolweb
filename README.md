@@ -277,10 +277,10 @@ können das nicht, und suchen lässt sich dort ohnehin nicht.
 
 | Schlüssel | Variable | Standard | Bedeutung |
 |---|---|---|---|
-| `host`, `port` | `WOLWEBHOST`, `WOLWEBPORT` | `0.0.0.0`, `8089` | Adresse der Weboberfläche |
-| `vdir` | `WOLWEBVDIR` | `/` | Unterpfad, z. B. `/wolweb` hinter einem Reverse-Proxy |
-| `bcastip` | `WOLWEBBCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
-| `read_only` | `WOLWEBREADONLY` | `false` | nur wecken, nichts ändern |
+| `host`, `port` | `WOLWEBHOST` / `WOLWEB_HOST`, `WOLWEBPORT` / `WOLWEB_PORT` | `0.0.0.0`, `8089` | Adresse der Weboberfläche |
+| `vdir` | `WOLWEBVDIR` / `WOLWEB_VDIR` | `/` | Unterpfad, z. B. `/wolweb` hinter einem Reverse-Proxy |
+| `bcastip` | `WOLWEBBCASTIP` / `WOLWEB_BCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
+| `read_only` | `WOLWEBREADONLY` / `WOLWEB_READONLY` | `false` | nur wecken, nichts ändern |
 | `language` | `WOLWEB_LANGUAGE` | `de` | `de` oder `en`: Sprache, wenn weder Umschalter noch Browser eine nennen (auch für Benachrichtigungen) |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`), Suchergebnisse (`discovered.json`) und Änderungen der Einstellungsseite (`settings.json`) |
 | `discovery.networks` | `WOLWEB_NETWORKS` | automatisch | Netze (CIDR, Variable kommagetrennt); leer = das eine Heimnetz automatisch, bei mehreren Auswahl in der Oberfläche; auch mit Namen: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
@@ -289,7 +289,7 @@ können das nicht, und suchen lässt sich dort ohnehin nicht.
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | Online-Prüfung aller Geräte, `0` = aus (mindestens `5s`) |
 | `status.ports` | – | 22, 80, 443, 445, … | Ports für die Online-Prüfung |
 | `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | so lange wartet die Weckseite (`5s` bis `10m`) |
-| `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | antwortet ein geweckter Rechner so lange nicht, geht das Paket einmal erneut raus; `0` = nie |
+| `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | antwortet ein geweckter Rechner so lange nicht, geht der Weckruf einmal erneut raus; `0` = nie |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | Anmeldung (HTTP Basic) |
 | `auth.api_token` | `WOLWEB_TOKEN` | – | `Authorization: Bearer …` für Automationen |
 | `auth.public_wake` | `WOLWEB_PUBLIC_WAKE` | `true` | Wecklinks funktionieren ohne Anmeldung |
@@ -553,25 +553,32 @@ gateway; the switch port or bridge must carry the VLAN tagged). Once it exists, 
 
 ### Configuration
 
-`config.json` is optional; the settings page overrides it, environment variables override everything. The most
-important settings:
+`config.json` is optional (see `config.example.json`); the settings page overrides it, environment variables
+override everything. Where two variable names are given, the first is the one of the original wolweb – both work.
 
 | Key | Variable | Default | Meaning |
 |---|---|---|---|
-| `port` | `WOLWEB_PORT` | `8089` | port of the web interface |
+| `host`, `port` | `WOLWEBHOST` / `WOLWEB_HOST`, `WOLWEBPORT` / `WOLWEB_PORT` | `0.0.0.0`, `8089` | address of the web interface |
+| `vdir` | `WOLWEBVDIR` / `WOLWEB_VDIR` | `/` | sub path, e.g. `/wolweb` behind a reverse proxy |
+| `bcastip` | `WOLWEBBCASTIP` / `WOLWEB_BCASTIP` | automatic | fallback target when neither device nor network provide one |
+| `read_only` | `WOLWEBREADONLY` / `WOLWEB_READONLY` | `false` | wake only, change nothing |
 | `language` | `WOLWEB_LANGUAGE` | `de` | `en` or `de`: language when neither the switch nor the browser name one (also used for notifications) |
-| `discovery.networks` | `WOLWEB_NETWORKS` | automatic | networks, e.g. `192.168.1.0/24` (variable: comma separated); empty = the one home network automatically, with several a choice in the UI; also with name: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20}` |
-| `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off |
-| `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | online check of all devices |
-| `bcastip` | `WOLWEBBCASTIP` | automatic | fallback target when neither device nor network provide one |
+| `data_dir` | `WOLWEB_DATA_DIR` | `data` | devices (`devices.json`), runtime data (`state.json`), scan results (`discovered.json`) and changes made on the settings page (`settings.json`) |
+| `discovery.networks` | `WOLWEB_NETWORKS` | automatic | networks, e.g. `192.168.1.0/24` (variable: comma separated); empty = the one home network automatically, with several a choice in the UI; also with name: `{"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` means show, but do not scan |
+| `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off (at least `1m`) |
+| `discovery.max_hosts` | – | `1024` | largest allowed segment |
+| `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | online check of all devices, `0` = off (at least `5s`) |
+| `status.ports` | – | 22, 80, 443, 445, … | ports for the online check |
+| `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | how long the wake page waits (`5s` to `10m`) |
+| `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | if a woken machine does not respond for this long, the wake-up call is sent once more; `0` = never |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | login (HTTP Basic – use HTTPS on the internet) |
 | `auth.api_token` | `WOLWEB_TOKEN` | – | `Authorization: Bearer …` for automations |
 | `auth.public_wake` | `WOLWEB_PUBLIC_WAKE` | `true` | wake links work without login |
 | `auth.wake_keys` | `WOLWEB_WAKE_KEYS` | `false` | wake links without login need the device key (`?key=…`) |
 | `allowed_hosts` | `WOLWEB_ALLOWED_HOSTS` | – | additional host names, e.g. `wol.example.com` (DNS rebinding protection) |
-| `notify.webhook` / `notify.ntfy` | `WOLWEB_WEBHOOK` / `WOLWEB_NTFY` | – | notification targets |
-
-All keys are described in the German [configuration table](#konfiguration) above; their names are the same.
+| `notify.webhook` | `WOLWEB_WEBHOOK` | – | URL that receives every event as JSON via POST |
+| `notify.ntfy` | `WOLWEB_NTFY` | – | ntfy topic, e.g. `https://ntfy.sh/my-secret-topic` |
+| `notify.events` | `WOLWEB_NOTIFY_EVENTS` | all | selection of `online`, `offline`, `wake`, `wake_failed` |
 
 ### API
 
