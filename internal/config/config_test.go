@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +53,24 @@ func TestNotifyEventsTrimmed(t *testing.T) {
 	c, _, err := Load(path)
 	if err != nil || c.Notify.Events[1] != "wake" {
 		t.Errorf("%q %v", c.Notify.Events, err)
+	}
+}
+
+// Ein Fehler in der Webhook- oder ntfy-Adresse landet im Log – ohne Thema, Token oder Passwort.
+func TestURLErrorsRedacted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	for _, js := range []string{
+		`{"notify":{"webhook":"ftp://admin:geheim@ha.example.com/api/webhook/token123"}}`,
+		`{"notify":{"ntfy":"ntfy://ntfy.example.com/mein-geheimes-thema?auth=token123"}}`,
+	} {
+		os.WriteFile(path, []byte(js), 0o644)
+		_, _, err := Load(path)
+		if err == nil {
+			t.Fatalf("%s: kein Fehler", js)
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "geheim") || strings.Contains(msg, "token123") || !strings.Contains(msg, "notify.") || !strings.Contains(msg, "example.com") {
+			t.Errorf("%s → %s", js, msg)
+		}
 	}
 }
