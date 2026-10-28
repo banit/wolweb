@@ -71,6 +71,26 @@ func TestSendRepeatsInRounds(t *testing.T) {
 	}
 }
 
+// SendAll kehrt erst zurück, wenn alle Runden draußen sind.
+func TestSendAllWaitsForRounds(t *testing.T) {
+	l, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	hw, _ := ParseMAC("01:23:45:67:89:ab")
+	if err := SendAll(hw, l.LocalAddr().String(), "", nil); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 200)
+	for i := range Rounds { // alle schon angekommen: kurze Frist genügt
+		l.SetReadDeadline(time.Now().Add(Spacing / 4))
+		if _, _, err := l.ReadFrom(buf); err != nil {
+			t.Fatalf("Paket %d fehlt nach SendAll: %v", i+1, err)
+		}
+	}
+}
+
 func TestDestinations(t *testing.T) {
 	for _, tc := range []struct {
 		port int

@@ -236,7 +236,8 @@ Geräte und Einstellungen werden beim ersten Start automatisch übernommen.
    Start steht außerdem ein Hinweis im Log.
 2. **Aktualisieren:**
    - *Docker, aus dem Repository gebaut:* `git pull && docker compose up -d --build`. Wer `docker-compose.yml` selbst
-     angepasst hat, vergleicht sie mit der neuen (siehe „Docker“ unten), statt sie zu überschreiben.
+     angepasst hat, vergleicht sie mit der neuen (siehe den Punkt *Docker* unter „Was sich mit 1.2 ändert“), statt sie
+     zu überschreiben.
    - *Docker mit fertigem Image:* `docker compose pull && docker compose up -d`.
    - *Programmdatei mit systemd:* wolweb stoppen (`systemctl stop wolweb`), die Datei in `/opt/wolweb` ersetzen, wieder
      starten (`systemctl start wolweb`). `config.json` und `data/` bleiben, wie sie sind.
@@ -456,8 +457,9 @@ selbst gehostetes ntfy oder Home Assistant. **Weiterleitungen folgt es nicht**: 
 Umleitung (3xx), geht die Nachricht nicht weiter, sondern es steht ein Fehler im Log. Sonst könnte ein umgeleiteter
 Server die Nachricht an ein Ziel schicken lassen, das niemand eingetragen hat. Abhilfe: die endgültige Adresse direkt
 eintragen (z. B. mit `https://` statt `http://`). „Testnachricht senden“ sagt nur „zugestellt“ oder „nicht
-zugestellt“ – den Grund nennt das Log (`docker logs wolweb` bzw. `journalctl -u wolweb`). So lässt sich über den Knopf
-nicht abtasten, welche internen Adressen antworten.
+zugestellt“ – den Grund nennt das Log (`docker logs wolweb` bzw. `journalctl -u wolweb`). Technische Einzelheiten zu
+internen Zielen zeigt die Seite damit nicht; ob eine Adresse die Nachricht angenommen hat, sieht natürlich weiterhin,
+wer die Einstellungsseite benutzen darf.
 
 `/metrics` liefert Kennzahlen im Prometheus-Format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
 `wolweb_device_last_seen_timestamp_seconds`, `wolweb_wakes_total`, `wolweb_discovery_found` …). Mit Anmeldung

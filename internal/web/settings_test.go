@@ -210,6 +210,11 @@ func TestChooseNetwork(t *testing.T) {
 	if rec := call(h, "POST", "/api/v1/discovery/network", `{"cidr":"kein-netz"}`); rec.Code != 400 {
 		t.Errorf("ungültiges Netz: %d", rec.Code)
 	}
+	for _, body := range []string{`{}`, `{"cidr":""}`, `{"cidrs":[]}`, `{"cidrs":[""]}`} {
+		if rec := call(h, "POST", "/api/v1/discovery/network", body); rec.Code != 400 || len(s.scanner.Networks()) != 1 {
+			t.Errorf("leere Auswahl %s: %d, Netze %v", body, rec.Code, s.scanner.Networks())
+		}
+	}
 	// „Alle erkannten Netze durchsuchen“
 	if rec := call(h, "POST", "/api/v1/discovery/network", `{"cidrs":["10.0.0.0/24","10.1.0.0/24"]}`); rec.Code != 200 || len(s.scanner.Networks()) != 2 {
 		t.Errorf("alle: %d %v", rec.Code, s.scanner.Networks())

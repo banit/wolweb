@@ -8,6 +8,7 @@ import (
 
 	"wolweb/internal/status"
 	"wolweb/internal/store"
+	"wolweb/internal/wol"
 )
 
 // --- Wiederholung ---
@@ -33,8 +34,8 @@ type retries struct {
 
 // retryOne entscheidet für ein Gerät aus Wecken g und sendet gegebenenfalls – beides unter der Sperre
 // der Wiederholungen. Ein neues Wecken oder Löschen (supersedeRetry) kommt damit entweder vorher, dann
-// ist die Runde nicht mehr dran, oder erst nach dem Senden; eine überholte Runde sendet nie mehr.
-// Die Sperre hält dabei nur ein Gerät lang (drei Pakete, unter einer Sekunde).
+// ist die Runde nicht mehr dran, oder erst nach dem Senden aller Runden (wol.SendAll); eine
+// überholte Runde sendet nie mehr. Die Sperre hält dabei ein Gerät lang (drei Runden, unter einer Sekunde).
 func (s *Server) retryOne(ctx context.Context, a wakeAttempt, g uint64, st status.State) (wakeAttempt, bool) {
 	q := &s.retry
 	q.mu.Lock()
@@ -49,7 +50,7 @@ func (s *Server) retryOne(ctx context.Context, a wakeAttempt, g uint64, st statu
 		return wakeAttempt{}, false
 	}
 	log.Printf("%s did not respond within %v after waking – sending the wake-up call again", d.Name, s.rt().wakeRetry)
-	_, _, b := s.sendWake(nil, d, a.ev.Source, a.ev.Group)
+	_, _, b := s.sendWakeWith(nil, d, a.ev.Source, a.ev.Group, wol.SendAll)
 	b.ev.Client, b.ev.User, b.ev.Retry = a.ev.Client, a.ev.User, true
 	return b, true
 }

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
+	"slices"
 
 	"wolweb/internal/config"
 	"wolweb/internal/discovery"
@@ -254,6 +255,10 @@ func (s *Server) chooseNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &in); err != nil {
 		s.storeError(w, r, err)
+		return
+	}
+	if in.CIDR == "" && !slices.ContainsFunc(in.CIDRs, func(c string) bool { return c != "" }) {
+		s.fail(w, r, http.StatusBadRequest, "set.err.cidr_missing") // leer hieße: alle Netze löschen
 		return
 	}
 	if _, env := s.settings.Locked()["discovery.networks"]; env {

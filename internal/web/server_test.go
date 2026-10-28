@@ -784,7 +784,9 @@ func TestRetryStopsWhenOvertaken(t *testing.T) {
 				s.Close()
 			}
 			close(release)
-			time.Sleep(300 * time.Millisecond) // eine neue Runde (neu geweckt) darf prüfen, die alte nicht senden
+			// Eine neue Runde (neu geweckt) darf prüfen und senden – die Wiederholung wartet alle drei
+			// Runden ab (wol.SendAll, gut 0,8 s) –, die alte nicht.
+			time.Sleep(1500 * time.Millisecond)
 			retries := 0
 			for _, ev := range st.History(0) {
 				if ev.Retry {

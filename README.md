@@ -228,7 +228,7 @@ Devices and settings are taken over automatically on the first start.
    up yourself). A matching hint is also logged at start-up.
 2. **Update:**
    - *Docker, built from the repository:* `git pull && docker compose up -d --build`. If you changed
-     `docker-compose.yml` yourself, compare it with the new one (see “Docker” below) instead of overwriting it.
+     `docker-compose.yml` yourself, compare it with the new one (see the *Docker* note under “What changes with 1.2”) instead of overwriting it.
    - *Docker with the ready-made image:* `docker compose pull && docker compose up -d`.
    - *Binary with systemd:* stop wolweb (`systemctl stop wolweb`), replace the file in `/opt/wolweb`, start it again
      (`systemctl start wolweb`). `config.json` and `data/` stay as they are.
@@ -443,7 +443,8 @@ self-hosted ntfy or Home Assistant. **It does not follow redirects**: if the tar
 message is not passed on; instead an error is logged. Otherwise a redirecting server could have the message
 delivered to a target nobody configured. Remedy: enter the final address directly (e.g. with `https://` instead of
 `http://`). “Send test message” only says “delivered” or “not delivered” – the reason is in the log (`docker logs
-wolweb` or `journalctl -u wolweb`), so the button cannot be used to probe which internal addresses answer.
+wolweb` or `journalctl -u wolweb`). The page thus shows no technical details about internal targets; whether an
+address accepted the message is of course still visible to anyone who may use the settings page.
 
 `/metrics` provides metrics in Prometheus format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
 `wolweb_device_last_seen_timestamp_seconds`, `wolweb_device_last_wake_timestamp_seconds`, `wolweb_wakes_total`,

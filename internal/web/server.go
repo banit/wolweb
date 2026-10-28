@@ -664,6 +664,12 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 
 // sendWake verschickt das Magic Packet, ohne den Versuch schon einzutragen.
 func (s *Server) sendWake(r *http.Request, d store.Device, source, group string) (wakeResult, int, wakeAttempt) {
+	return s.sendWakeWith(r, d, source, group, wol.Send)
+}
+
+// sendWakeWith wie sendWake mit eigener Sendefunktion (die Wiederholung wartet alle Runden ab).
+func (s *Server) sendWakeWith(r *http.Request, d store.Device, source, group string,
+	send func(net.HardwareAddr, string, string, []byte) error) (wakeResult, int, wakeAttempt) {
 	l := s.lang(r)
 	target := s.wakeTarget(d)
 	client, user := s.caller(r)
@@ -675,7 +681,7 @@ func (s *Server) sendWake(r *http.Request, d store.Device, source, group string)
 		pass, err = wol.ParseSecureOn(d.SecureOn)
 	}
 	if err == nil {
-		err = wol.Send(hw, target, d.Interface, pass)
+		err = send(hw, target, d.Interface, pass)
 	}
 	if err != nil {
 		log.Printf("Waking %s failed: %v", d.Name, err)
