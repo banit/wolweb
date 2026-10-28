@@ -1,0 +1,41 @@
+# Prüft jeden Push und Pull Request: Formatierung, vet, Tests mit Race-Detector, Builds für alle
+# unterstützten Plattformen.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Formatierung
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Nicht mit gofmt formatiert:"; echo "$unformatted"; exit 1; fi
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Builds
+        run: |
+          for t in linux/amd64 linux/arm64 linux/arm/7 windows/amd64 darwin/arm64; do
+            IFS=/ read -r os arch arm <<< "$t"
+            echo "$t"
+            GOOS=$os GOARCH=$arch GOARM=$arm CGO_ENABLED=0 go build -o /dev/null .
+          done
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Image bauen (ohne Veröffentlichen)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: false

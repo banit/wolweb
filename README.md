@@ -44,7 +44,8 @@ Die Karte zeigt die nächste geplante Weckzeit.
 | `…/wake/NAS?format=html` / `?format=json` | Ausgabe erzwingen |
 | `http://host:8089/wake-group/Homelab` | ganze Gruppe: im Browser eine Seite mit dem Start jedes Geräts, sonst JSON (auch `?wait=`) |
 
-`HEAD`-Anfragen (Linkprüfer, Vorschauen in Messengern) wecken nie. Der Name ist nicht von Groß-/Kleinschreibung abhängig. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt ist
+`HEAD`-Anfragen (Linkprüfer, Vorschauen in Messengern) wecken nie. Der Name ist nicht von Groß-/Kleinschreibung abhängig. Tipp: Die Weckseite auf dem Handy „Zum Home-Bildschirm“
+hinzufügen – dann weckt ein Tipp aufs Symbol das Gerät. Die Übersicht selbst lässt sich ebenso als App ablegen. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt ist
 (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts.
 
 Online gilt ein Gerät, wenn es auf Ping antwortet oder einer der Ports (`status.ports`) eine Verbindung annimmt **oder
@@ -91,6 +92,10 @@ sudo chown -R root:root data
 ```
 
 Die `legacy-devices.json` wird beim ersten Start übernommen.
+
+Fertige Images für amd64, arm64 (Raspberry Pi 4/5) und armv7 baut GitHub bei jedem Release-Tag nach
+`ghcr.io/banit/wolweb` (siehe `docker-compose.yml`). Selbst für mehrere Plattformen bauen:
+`docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 .`
 
 ### Direkt / Proxmox-LXC
 
@@ -199,3 +204,8 @@ go run . -c config.json
 
 Die Oberfläche liegt in `internal/web/` (Vorlagen und statische Dateien, eingebettet per `go:embed`).
 Herstellerliste aktualisieren: `sh tools/gen-oui.sh`.
+
+GitHub Actions prüft jeden Push und Pull Request (gofmt, `go vet`, `go test -race`, Builds für Linux amd64/arm64/
+armv7, Windows, macOS, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.1.0 && git push --tags`)
+erzeugt ein Release mit fertigen Programmen und das Image auf ghcr.io – das Paket danach einmal unter
+„Packages“ auf öffentlich stellen.

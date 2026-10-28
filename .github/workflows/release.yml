@@ -1,0 +1,59 @@
+# Bei einem Tag v* (z. B. "git tag v1.1.0 && git push --tags"): Programme für alle Plattformen als
+# GitHub-Release und ein Multi-Arch-Image nach ghcr.io/<besitzer>/wolweb.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  packages: write
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      - name: Bauen
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          mkdir dist
+          for t in linux/amd64 linux/arm64 linux/arm/7 windows/amd64 darwin/amd64 darwin/arm64; do
+            IFS=/ read -r os arch arm <<< "$t"
+            out=dist/wolweb-$v-$os-$arch${arm:+v$arm}
+            [ "$os" = windows ] && out=$out.exe
+            GOOS=$os GOARCH=$arch GOARM=$arm CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$v" -o "$out" .
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}

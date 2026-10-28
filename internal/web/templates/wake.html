@@ -8,6 +8,9 @@
 <title>{{if .Device}}{{.Device.Name}} starten{{else}}Gerät nicht gefunden{{end}} · Wake on LAN</title>
 <base href="{{.Base}}">
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="static/icon-180.png">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-title" content="{{if .Device}}{{.Device.Name}}{{else}}wolweb{{end}}">
 <link rel="stylesheet" href="static/app.css?v={{.Version}}">
 <script src="static/theme.js?v={{.Version}}"></script>
 {{if .Device}}<script src="static/wake.js?v={{.Version}}" defer></script>{{end}}

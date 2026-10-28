@@ -1,11 +1,15 @@
-# Baut aus dem lokalen Stand (kein git clone im Build).
-FROM golang:1.27-alpine AS build
+# Baut aus dem lokalen Stand (kein git clone im Build). Mehrere Architekturen ohne Emulation:
+#   docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 .
+# Go übersetzt auf der Plattform des Build-Rechners für die Zielplattform.
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/wolweb .
+ARG TARGETOS TARGETARCH TARGETVARIANT
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=${TARGETVARIANT#v} \
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/wolweb .
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /out/wolweb /wolweb
