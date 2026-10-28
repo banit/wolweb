@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -743,5 +744,55 @@ func TestScheduleOncePerDay(t *testing.T) {
 	}
 	if n := len(st.History(0)); n != 2 {
 		t.Errorf("%d Weckvorgänge statt 2", n)
+	}
+}
+
+// Während die Wiederholung noch prüft, ob das Gerät läuft, kommt ein neues Wecken, ein Löschen oder
+// das Beenden dazwischen – dann sendet die alte Runde nicht mehr.
+func TestRetryStopsWhenOvertaken(t *testing.T) {
+	for _, tc := range []string{"neu geweckt", "gelöscht", "beendet"} {
+		t.Run(tc, func(t *testing.T) {
+			st, _, _ := store.Open(t.TempDir(), "")
+			cfg := config.Default()
+			cfg.Status.WakeRetry = "50ms"
+			s := New(cfg, st, status.New(st, probe.New(nil, 100*time.Millisecond), 0), discovery.New(st, nil, 16), false, "test")
+			started, release := make(chan struct{}, 4), make(chan struct{})
+			s.retry.check = func(ctx context.Context, d store.Device) status.State {
+				started <- struct{}{}
+				select { // langsame Online-Prüfung
+				case <-release:
+				case <-ctx.Done():
+				}
+				return status.State{State: "offline"}
+			}
+			d, _ := st.Create(store.Input{Name: "Aus", MAC: "02:00:00:00:00:01", IP: "192.0.2.1", Broadcast: udpSink(t)})
+			s.wake(nil, d, srcAPI, "")
+			<-started // die Wiederholung prüft gerade
+			switch tc {
+			case "neu geweckt":
+				s.limiter.release(d.ID)
+				s.wake(nil, d, srcAPI, "") // ersetzt die ausstehende Wiederholung
+			case "gelöscht":
+				st.Delete(d.ID)
+			case "beendet":
+				s.Close()
+			}
+			close(release)
+			time.Sleep(300 * time.Millisecond) // eine neue Runde (neu geweckt) darf prüfen, die alte nicht senden
+			retries := 0
+			for _, ev := range st.History(0) {
+				if ev.Retry {
+					retries++
+				}
+			}
+			want := 0
+			if tc == "neu geweckt" {
+				want = 1 // die neue Runde selbst wiederholt einmal
+			}
+			if retries != want {
+				t.Errorf("%d Wiederholungen statt %d: %+v", retries, want, st.History(0))
+			}
+			s.Close()
+		})
 	}
 }

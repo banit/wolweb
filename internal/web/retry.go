@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"wolweb/internal/status"
+	"wolweb/internal/store"
 )
 
 // --- Wiederholung ---
@@ -23,6 +24,25 @@ type retries struct {
 	timers map[uint64]*time.Timer
 	n      uint64
 	closed bool
+	ctx    context.Context // endet mit stopRetries – laufende Prüfungen brechen dann ab
+	cancel context.CancelFunc
+	// check prüft vor der Wiederholung, ob das Gerät schon läuft (nil = freshStatus; Tests
+	// setzen hier eine langsame Prüfung ein).
+	check func(ctx context.Context, d store.Device) status.State
+}
+
+// take nimmt die Wiederholung für id aus Wecken g heraus – nur wenn sie noch dran ist: nicht durch
+// ein neueres Wecken ersetzt, nicht beendet, und das Gerät gibt es noch. Unter der Sperre, direkt
+// vor dem Senden; so hält ein Wecken, Löschen oder Beenden während der Prüfung die alte Runde auf.
+func (s *Server) takeRetry(id string, g uint64) (store.Device, bool) {
+	q := &s.retry
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed || q.gen[id] != g {
+		return store.Device{}, false
+	}
+	delete(q.gen, id)
+	return s.store.Get(id) // aktuelle Daten – oder gelöscht
 }
 
 // scheduleRetry merkt erfolgreiche Weckversuche von Geräten mit IP für eine Wiederholung vor –
@@ -49,6 +69,7 @@ func (s *Server) scheduleRetry(as []wakeAttempt) {
 	}
 	if q.gen == nil {
 		q.gen, q.timers = map[string]uint64{}, map[uint64]*time.Timer{}
+		q.ctx, q.cancel = context.WithCancel(context.Background())
 	}
 	q.n++
 	g := q.n
@@ -67,16 +88,18 @@ func (s *Server) runRetry(g uint64, as []wakeAttempt) {
 	var mine []wakeAttempt
 	for _, a := range as {
 		if q.gen[a.d.ID] == g { // sonst wurde das Gerät inzwischen neu geweckt
-			delete(q.gen, a.d.ID)
 			mine = append(mine, a)
 		}
 	}
-	closed := q.closed
+	closed, base, check := q.closed, q.ctx, q.check
 	q.mu.Unlock()
 	if closed || len(mine) == 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if check == nil {
+		check = s.freshStatus
+	}
+	ctx, cancel := context.WithTimeout(base, 10*time.Second)
 	defer cancel()
 	states := make([]status.State, len(mine))
 	var wg sync.WaitGroup
@@ -89,17 +112,19 @@ func (s *Server) runRetry(g uint64, as []wakeAttempt) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			states[i] = s.freshStatus(ctx, d)
+			states[i] = check(ctx, d)
 		}()
 	}
 	wg.Wait()
 	var again []wakeAttempt
 	for i, a := range mine {
-		if states[i].State != "offline" { // online, gelöscht oder nicht mehr prüfbar
+		// Erst jetzt, direkt vor dem Senden: noch dran? (neu geweckt, gelöscht, beendet → nein)
+		d, ok := s.takeRetry(a.d.ID, g)
+		if !ok || base.Err() != nil || states[i].State != "offline" { // online oder nicht mehr prüfbar
 			continue
 		}
-		log.Printf("%s antwortet %v nach dem Wecken nicht – Magic Packet erneut", a.d.Name, s.rt().wakeRetry)
-		_, _, b := s.sendWake(nil, a.d, a.ev.Source, a.ev.Group)
+		log.Printf("%s antwortet %v nach dem Wecken nicht – Weckruf erneut", d.Name, s.rt().wakeRetry)
+		_, _, b := s.sendWake(nil, d, a.ev.Source, a.ev.Group)
 		b.ev.Client, b.ev.User, b.ev.Retry = a.ev.Client, a.ev.User, true
 		again = append(again, b)
 	}
@@ -112,6 +137,9 @@ func (s *Server) stopRetries() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.closed = true
+	if q.cancel != nil {
+		q.cancel() // laufende Prüfungen abbrechen
+	}
 	for g, t := range q.timers {
 		t.Stop()
 		delete(q.timers, g)
