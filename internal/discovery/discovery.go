@@ -144,6 +144,10 @@ type Scanner struct {
 	mu     sync.Mutex
 	job    Job
 	cancel context.CancelFunc
+
+	// OnUpdate bekommt nach jeder Änderung (Start, Fortschritt, Ende) eine Kopie des Auftrags.
+	// Vor dem ersten Start setzen.
+	OnUpdate func(Job)
 }
 
 func New(s *store.Store, networks []string, maxHosts int) *Scanner {
@@ -189,14 +193,19 @@ func (s *Scanner) Start(auto bool) error {
 		return ErrNoNetworks
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.job.Running {
+		s.mu.Unlock()
 		return ErrBusy
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), maxScanTime)
 	s.cancel = cancel
 	s.job = Job{Running: true, Networks: s.Networks(), StartedAt: time.Now().UTC(), Auto: auto}
+	j := s.job
 	go s.run(ctx, cancel)
+	s.mu.Unlock()
+	if s.OnUpdate != nil {
+		s.OnUpdate(j)
+	}
 	return nil
 }
 
@@ -210,8 +219,12 @@ func (s *Scanner) Cancel() {
 
 func (s *Scanner) update(f func(j *Job)) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	f(&s.job)
+	j := s.job
+	s.mu.Unlock()
+	if s.OnUpdate != nil {
+		s.OnUpdate(j)
+	}
 }
 
 func (s *Scanner) run(ctx context.Context, cancel context.CancelFunc) {

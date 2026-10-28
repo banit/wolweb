@@ -18,6 +18,7 @@
     search: "",
     waking: new Map(), // id -> { start }
     editing: null,
+    live: false, // Live-Verbindung (Server-Sent Events) steht – dann kaum noch Abfragen
   };
 
   // ---------- Hilfen ----------
@@ -507,7 +508,7 @@
       state.found = data.found;
       state.job = data.job;
       renderDiscovery();
-      if (data.job.running) discoveryTimer = setTimeout(loadDiscovery, 1000);
+      if (data.job.running && !state.live) discoveryTimer = setTimeout(loadDiscovery, 1000);
       else if (drawerOpen()) discoveryTimer = setTimeout(loadDiscovery, 15000);
     } catch (e) {
       if (drawerOpen()) discoveryTimer = setTimeout(loadDiscovery, 5000);
@@ -721,6 +722,37 @@
     if (a.dataset.action === "discovery") openDrawer();
   });
 
+  // ---------- Live-Updates ----------
+  let reloadTimer = null;
+  function loadDevicesSoon() { // mehrere Änderungen kurz hintereinander: nur einmal laden
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(loadDevices, 250);
+  }
+  function connectEvents() {
+    if (!window.EventSource) return;
+    const es = new EventSource("api/v1/events"); // verbindet sich bei Abbruch selbst neu
+    es.addEventListener("open", () => {
+      if (!state.live) loadDevicesSoon(); // Verpasstes nachholen
+      state.live = true;
+    });
+    es.addEventListener("error", () => { state.live = false; });
+    es.addEventListener("devices", loadDevicesSoon);
+    es.addEventListener("status", (e) => {
+      const m = JSON.parse(e.data);
+      const d = state.devices.find((x) => x.id === m.id);
+      if (!d) return;
+      d.status = m.status;
+      if (m.status.ip) d.check_ip = m.status.ip;
+      renderDevices();
+    });
+    es.addEventListener("scan", (e) => {
+      const wasRun = state.job && state.job.running;
+      state.job = JSON.parse(e.data);
+      if (wasRun && !state.job.running) loadDiscovery(); // fertig: neue Treffer holen
+      else renderDiscovery();
+    });
+  }
+
   // ---------- Start ----------
   async function init() {
     buildIconPicker();
@@ -736,8 +768,11 @@
     if (state.info.version) $("#version").textContent = "wolweb " + state.info.version;
     await loadDevices();
     loadDiscovery();
-    setInterval(() => { if (!document.hidden) loadDevices(); }, 10000);
+    // Abfragen nur als Rückfall, wenn die Live-Verbindung fehlt; sonst selten zur Sicherheit.
+    let tick = 0;
+    setInterval(() => { tick++; if (!document.hidden && (!state.live || tick % 6 === 0)) loadDevices(); }, 10000);
     setInterval(() => { if (!document.hidden && !drawerOpen()) loadDiscovery(); }, 60000);
+    connectEvents();
     document.addEventListener("visibilitychange", () => { if (!document.hidden) loadDevices(); });
   }
   init();

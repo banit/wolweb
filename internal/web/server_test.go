@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bufio"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -338,5 +339,44 @@ func TestScheduleWakesDueDevices(t *testing.T) {
 	}
 	if h := st.History(1); len(h) != 1 || h[0].Source != "Zeitplan" || !h[0].Success {
 		t.Errorf("Verlauf: %+v", h)
+	}
+}
+
+func TestEventsStream(t *testing.T) {
+	h, _ := newTestServer(t, nil)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/api/v1/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("Content-Type %q", ct)
+	}
+	got := make(chan string, 10)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			if ev, ok := strings.CutPrefix(sc.Text(), "event: "); ok {
+				got <- ev
+			}
+		}
+	}()
+	time.Sleep(100 * time.Millisecond) // Abo steht
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/devices", strings.NewReader(`{"name":"PC","mac":"00:11:22:33:44:55","ip":"127.0.0.1"}`))
+	req.Header.Set("X-WolWeb", "1")
+	if r, err := http.DefaultClient.Do(req); err != nil || r.StatusCode != http.StatusCreated {
+		t.Fatalf("anlegen: %v", err)
+	}
+	seen := map[string]bool{}
+	timeout := time.After(5 * time.Second)
+	for !seen["devices"] || !seen["status"] {
+		select {
+		case ev := <-got:
+			seen[ev] = true
+		case <-timeout:
+			t.Fatalf("Ereignisse: %v", seen)
+		}
 	}
 }

@@ -74,18 +74,18 @@ func main() {
 	}
 	mon := status.New(st, prober, statusInterval)
 	scanner := discovery.New(st, cfg.Discovery.Networks, cfg.Discovery.MaxHosts)
+	ws := web.New(cfg, st, mon, scanner, prober.ICMPAvailable(), version) // hängt sich an mon und scanner
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go mon.Run(ctx)
+	go ws.RunSchedules(ctx)
 	go st.RunFlush(ctx)
 	if iv, _ := config.ParseDuration(cfg.Discovery.Interval); iv > 0 && len(cfg.Discovery.Networks) > 0 {
 		log.Printf("Automatische Suche alle %s in %v", iv, cfg.Discovery.Networks)
 		go autoScan(ctx, scanner, iv)
 	}
 
-	ws := web.New(cfg, st, mon, scanner, prober.ICMPAvailable(), version)
-	go ws.RunSchedules(ctx)
 	srv := &http.Server{
 		Addr:              cfg.Listen(),
 		Handler:           ws.Handler(),
@@ -94,6 +94,7 @@ func main() {
 		WriteTimeout:      11 * time.Minute, // ?wait= darf bis zu 10 Minuten warten
 		IdleTimeout:       2 * time.Minute,
 	}
+	srv.RegisterOnShutdown(ws.Close) // offene Live-Verbindungen beenden, sonst wartet Shutdown
 	go func() {
 		log.Printf("Weboberfläche auf http://%s%s", cfg.Listen(), cfg.VDir)
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {

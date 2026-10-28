@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"wolweb/internal/config"
@@ -38,6 +39,10 @@ type Server struct {
 	wakeTimeout time.Duration
 	tmpl        *template.Template
 	limiter     wakeLimiter
+	hub         hub
+
+	scanMu   sync.Mutex
+	scanLast time.Time
 }
 
 func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.Scanner, icmp bool, version string) *Server {
@@ -45,10 +50,14 @@ func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.
 	if wt <= 0 {
 		wt = 3 * time.Minute
 	}
-	return &Server{
+	s := &Server{
 		cfg: cfg, store: st, monitor: mon, scanner: sc, icmp: icmp, version: version, wakeTimeout: wt,
 		tmpl: template.Must(template.ParseFS(assets, "templates/*.html")),
 	}
+	// Live-Updates (und Benachrichtigungen) hängen an Monitor und Suche – daher vor deren Start.
+	mon.OnChange = s.statusChanged
+	sc.OnUpdate = s.scanChanged
+	return s
 }
 
 func (s *Server) Handler() http.Handler {
@@ -80,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	// API
 	api := base + "api/v1/"
 	mux.HandleFunc("GET "+api+"info", s.info)
+	mux.HandleFunc("GET "+api+"events", s.events)
 	mux.HandleFunc("GET "+api+"devices", s.listDevices)
 	mux.HandleFunc("POST "+api+"devices", s.writable(s.createDevice))
 	mux.HandleFunc("PUT "+api+"devices/{id}", s.writable(s.updateDevice))
@@ -347,6 +357,7 @@ func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("Gerät angelegt: %s (%s)", d.Name, d.MAC)
+	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
 	writeJSON(w, http.StatusCreated, s.view(d))
 }
@@ -366,6 +377,7 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("Gerät geändert: %s (%s)", d.Name, d.MAC)
+	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
 	writeJSON(w, http.StatusOK, s.view(d))
 }
@@ -375,6 +387,7 @@ func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		storeError(w, err)
 		return
 	}
+	s.devicesChanged()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
@@ -385,6 +398,7 @@ func (s *Server) rotateWakeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("Neuer Weckschlüssel für %s", d.Name)
+	s.devicesChanged()
 	writeJSON(w, http.StatusOK, s.view(d))
 }
 
@@ -455,6 +469,7 @@ func (s *Server) wake(r *http.Request, d store.Device, source string) (wakeResul
 		if err := s.store.RecordWake(ev); err != nil {
 			log.Printf("Verlauf speichern: %v", err)
 		}
+		s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
 	}()
 	res := wakeResult{Device: d.Name, ID: d.ID, Target: target}
 	hw, err := wol.ParseMAC(d.MAC)
@@ -623,6 +638,7 @@ func (s *Server) importDevices(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Import: %d Gerät(e) übernommen, %d schon vorhanden, %d fehlerhaft", res.Added, res.Skipped, len(res.Errors))
 	if res.Added > 0 {
+		s.devicesChanged()
 		go s.monitor.CheckAll(context.Background())
 	}
 	writeJSON(w, http.StatusOK, res)

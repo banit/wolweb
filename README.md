@@ -3,7 +3,8 @@
 Wake on LAN mit Weboberfläche – Neufassung von [sameerdhoot/wolweb](https://github.com/sameerdhoot/wolweb) in Go,
 als einzelne Datei ohne externe Abhängigkeiten im Browser.
 
-- **Übersicht** mit Online-Status jedes Geräts (Ping und TCP-Ports), Suche und Filter, hell/dunkel
+- **Übersicht** mit Online-Status jedes Geräts (Ping und TCP-Ports), Suche und Filter, hell/dunkel – Änderungen
+  erscheinen sofort in jedem offenen Fenster (Server-Sent Events)
 - **Feste Wecklinks** `/wake/<Name>`: im Browser eine Bestätigungsseite, die das Gerät prüft, das Magic Packet
   sendet und den Start verfolgt, bis das Gerät wirklich online ist
 - **Netzwerksuche**: findet eingeschaltete Geräte in freigegebenen Segmenten (IP, MAC, Hostname, Hersteller) –
@@ -152,6 +153,7 @@ Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site
 | Methode | Pfad | |
 |---|---|---|
 | GET | `/api/v1/info` | Einstellungen, lokale Netze |
+| GET | `/api/v1/events` | Live-Ereignisse (Server-Sent Events): `status`, `devices`, `scan` |
 | GET / POST | `/api/v1/devices` | Liste (mit Status) / anlegen |
 | PUT / DELETE | `/api/v1/devices/{id}` | ändern (`updated_at` mitschicken schützt vor Überschreiben) / löschen |
 | POST | `/api/v1/devices/{id}/wake` | Magic Packet senden |

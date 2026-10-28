@@ -33,6 +33,10 @@ type Monitor struct {
 	interval time.Duration
 	mu       sync.RWMutex
 	states   map[string]State
+
+	// OnChange wird nach jeder Änderung (Zustand, IP, Methode, Hinweis) außerhalb der Sperre
+	// aufgerufen; hadOld ist false beim ersten Ergebnis eines Geräts. Vor Run setzen.
+	OnChange func(d store.Device, old State, hadOld bool, st State)
 }
 
 func New(s *store.Store, p *probe.Prober, interval time.Duration) *Monitor {
@@ -151,15 +155,19 @@ func (m *Monitor) Current(d store.Device, maxAge time.Duration) (State, bool) {
 // der Weckseite.
 func (m *Monitor) set(d store.Device, st State) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	old, ok := m.states[d.ID]
 	if ok && old.started.After(st.started) {
+		m.mu.Unlock()
 		return
 	}
 	if ok && old.State != st.State && old.State != "" {
 		log.Printf("Status: %s %s → %s", d.Name, old.State, st.State)
 	}
 	m.states[d.ID] = st
+	m.mu.Unlock()
+	if m.OnChange != nil && (!ok || old.State != st.State || old.IP != st.IP || old.Method != st.Method || old.Note != st.Note) {
+		m.OnChange(d, old, ok, st)
+	}
 }
 
 func (m *Monitor) prune(devices []store.Device) {
