@@ -28,7 +28,12 @@ type Result struct {
 type Prober struct {
 	Ports   []int
 	Timeout time.Duration
-	pinger  *pinger
+	// OnLink sagt, ob eine IP im eigenen Netzsegment liegt. Nur dort beweist "Verbindung
+	// abgelehnt", dass das Gerät läuft – hinter einem Router kann auch eine Firewall
+	// stellvertretend ablehnen (TCP-Reset), dann wäre das Gerät immer "online".
+	// nil: Ablehnung zählt immer.
+	OnLink func(netip.Addr) bool
+	pinger *pinger
 }
 
 func New(ports []int, timeout time.Duration) *Prober {
@@ -47,6 +52,7 @@ func (p *Prober) Check(ctx context.Context, ip netip.Addr) Result {
 	res := make(chan Result, len(p.Ports)+1)
 	var wg sync.WaitGroup
 	start := time.Now()
+	refusedCounts := p.OnLink == nil || p.OnLink(ip)
 	if p.pinger != nil {
 		wg.Add(1)
 		go func() {
@@ -60,7 +66,7 @@ func (p *Prober) Check(ctx context.Context, ip netip.Addr) Result {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if ok, refused := tcpProbe(ctx, ip, port); ok {
+			if ok, refused := tcpProbe(ctx, ip, port); ok && (!refused || refusedCounts) {
 				m := "tcp/" + strconv.Itoa(port)
 				if refused {
 					m += " (abgelehnt)"

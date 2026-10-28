@@ -23,6 +23,8 @@ type State struct {
 	CheckedAt time.Time `json:"checked_at,omitzero"`
 	LastSeen  time.Time `json:"last_seen,omitzero"`
 	Note      string    `json:"note,omitempty"`
+
+	started time.Time // Beginn der Prüfung – ein älteres Ergebnis überschreibt kein neueres
 }
 
 type Monitor struct {
@@ -88,14 +90,15 @@ func (m *Monitor) CheckAll(ctx context.Context) {
 
 // Check prüft ein Gerät sofort und speichert das Ergebnis.
 func (m *Monitor) Check(ctx context.Context, d store.Device) State {
+	started := time.Now()
 	ip, src := m.Target(d)
 	if !ip.IsValid() {
-		st := State{State: "unknown", CheckedAt: time.Now().UTC()}
-		m.set(d.ID, st)
+		st := State{State: "unknown", CheckedAt: time.Now().UTC(), started: started}
+		m.set(d, st)
 		return st
 	}
 	r := m.prober.Check(ctx, ip)
-	st := State{State: "offline", IP: ip.String(), IPSource: src, CheckedAt: time.Now().UTC()}
+	st := State{State: "offline", IP: ip.String(), IPSource: src, CheckedAt: time.Now().UTC(), started: started}
 	m.mu.RLock()
 	st.LastSeen = m.states[d.ID].LastSeen
 	m.mu.RUnlock()
@@ -111,7 +114,7 @@ func (m *Monitor) Check(ctx context.Context, d store.Device) State {
 	// langsame Prüfung der alten IP das Ergebnis der neuen).
 	if cur, ok := m.store.Get(d.ID); ctx.Err() == nil && ok {
 		if curIP, _ := m.Target(cur); curIP == ip {
-			m.set(d.ID, st)
+			m.set(cur, st)
 		}
 	}
 	return st
@@ -130,13 +133,20 @@ func (m *Monitor) Current(d store.Device, maxAge time.Duration) (State, bool) {
 	return st, true
 }
 
-func (m *Monitor) set(id string, st State) {
+// set speichert das Ergebnis – außer eine später begonnene Prüfung ist schon fertig. Sonst
+// überschriebe z. B. die langsame Routineprüfung, die während des Starts lief, das "online"
+// der Weckseite.
+func (m *Monitor) set(d store.Device, st State) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if old, ok := m.states[id]; ok && old.State != st.State && old.State != "" {
-		log.Printf("Status: Gerät %s %s → %s", id, old.State, st.State)
+	old, ok := m.states[d.ID]
+	if ok && old.started.After(st.started) {
+		return
 	}
-	m.states[id] = st
+	if ok && old.State != st.State && old.State != "" {
+		log.Printf("Status: %s %s → %s", d.Name, old.State, st.State)
+	}
+	m.states[d.ID] = st
 }
 
 func (m *Monitor) prune(devices []store.Device) {

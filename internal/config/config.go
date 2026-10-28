@@ -161,6 +161,11 @@ func (c *Config) normalize() error {
 		}
 		c.Discovery.Networks[i] = p.Masked().String()
 	}
+	for _, p := range c.Status.Ports {
+		if p <= 0 || p > 65535 {
+			return fmt.Errorf("status.ports: ungültiger Port %d", p)
+		}
+	}
 	if c.Discovery.MaxHosts <= 0 {
 		c.Discovery.MaxHosts = 1024
 	}

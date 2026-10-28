@@ -23,7 +23,9 @@ Der Name ist nicht von Groß-/Kleinschreibung abhängig. Die Bestätigung „onl
 (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts.
 
 Online gilt ein Gerät, wenn es auf Ping antwortet oder einer der Ports (`status.ports`) eine Verbindung annimmt **oder
-ablehnt** – eine Ablehnung kommt nur von einem laufenden Betriebssystem.
+ablehnt** – eine Ablehnung kommt nur von einem laufenden Betriebssystem. Das gilt für Geräte im eigenen Netzsegment;
+hinter einem Router zählt nur eine angenommene Verbindung oder Ping, weil dort auch eine Firewall stellvertretend
+ablehnen kann.
 
 ## Netzwerksuche
 

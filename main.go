@@ -57,6 +57,7 @@ func main() {
 
 	statusInterval, _ := config.ParseDuration(cfg.Status.Interval)
 	prober := probe.New(cfg.Status.Ports, 1500*time.Millisecond)
+	prober.OnLink = discovery.OnLink
 	if prober.ICMPAvailable() {
 		log.Print("Online-Prüfung: ICMP-Ping und TCP")
 	} else {

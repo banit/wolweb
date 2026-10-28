@@ -67,6 +67,16 @@ func broadcastOf(p netip.Prefix) string {
 	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}).String()
 }
 
+// OnLink sagt, ob ip in einem direkt angeschlossenen Netz liegt.
+func OnLink(ip netip.Addr) bool {
+	for _, ln := range LocalNets() {
+		if ln.Prefix.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // localNetFor sucht die Schnittstelle, deren Netz das zu scannende Segment enthält.
 func localNetFor(target netip.Prefix) (LocalNet, bool) {
 	for _, ln := range LocalNets() {
