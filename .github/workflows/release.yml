@@ -1,5 +1,6 @@
-# Bei einem Tag v* (z. B. "git tag v1.1.0 && git push --tags"): Programme für alle Plattformen als
-# GitHub-Release und ein Multi-Arch-Image nach ghcr.io/<besitzer>/wolweb.
+# Bei einem Tag v* (z. B. "git tag v1.2.0 && git push --tags"): Programme für alle Plattformen als
+# GitHub-Release und ein Multi-Arch-Image nach ghcr.io/<besitzer>/wolweb – beides erst, wenn die
+# Prüfungen bestanden sind.
 name: Release
 on:
   push:
@@ -8,14 +9,29 @@ permissions:
   contents: write
   packages: write
 jobs:
-  binaries:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Formatierung
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Nicht mit gofmt formatiert:"; echo "$unformatted"; exit 1; fi
+      - run: go vet ./...
+      - run: GOOS=windows go vet ./...
       - run: go test ./...
+      - run: go test -race ./...
+  binaries:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - name: Bauen
         run: |
           v=${GITHUB_REF_NAME#v}
@@ -32,6 +48,7 @@ jobs:
           files: dist/*
           generate_release_notes: true
   image:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
