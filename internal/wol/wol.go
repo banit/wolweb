@@ -32,21 +32,35 @@ func ParseMAC(s string) (net.HardwareAddr, error) {
 
 func FormatMAC(hw net.HardwareAddr) string { return strings.ToUpper(hw.String()) }
 
-// Packet liefert die 102 Bytes: 6 × 0xFF, dann 16 × MAC.
-func Packet(hw net.HardwareAddr) []byte {
-	p := make([]byte, 0, 102)
+// Packet liefert die 102 Bytes: 6 × 0xFF, dann 16 × MAC – mit SecureOn-Passwort (6 Byte, von
+// manchen Netzwerkkarten verlangt) 108 Byte. secureOn darf nil sein.
+func Packet(hw net.HardwareAddr, secureOn []byte) []byte {
+	p := make([]byte, 0, 108)
 	for range 6 {
 		p = append(p, 0xFF)
 	}
 	for range 16 {
 		p = append(p, hw...)
 	}
-	return p
+	return append(p, secureOn...)
+}
+
+// ParseSecureOn prüft ein SecureOn-Passwort (6 Byte, Schreibweise wie eine MAC); leer = keins.
+func ParseSecureOn(s string) ([]byte, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	hw, err := ParseMAC(s)
+	if err != nil {
+		return nil, fmt.Errorf("%q ist kein gültiges SecureOn-Passwort (6 Byte, z. B. 01:02:03:04:05:06)", s)
+	}
+	return hw, nil
 }
 
 // Send schickt das Paket an target ("ip:port"). Ist iface gesetzt, geht es über diese
 // Schnittstelle hinaus (unter Linux per SO_BINDTODEVICE) und mit ihrer IPv4-Adresse als Absender.
-func Send(hw net.HardwareAddr, target, iface string) error {
+// secureOn ist das optionale SecureOn-Passwort (nil = keins).
+func Send(hw net.HardwareAddr, target, iface string, secureOn []byte) error {
 	raddr, err := net.ResolveUDPAddr("udp4", target)
 	if err != nil {
 		return fmt.Errorf("Zieladresse %q: %w", target, err)
@@ -71,7 +85,7 @@ func Send(hw net.HardwareAddr, target, iface string) error {
 		return fmt.Errorf("UDP-Socket für %s: %w", target, err)
 	}
 	defer conn.Close()
-	pkt := Packet(hw)
+	pkt := Packet(hw, secureOn)
 	// Zweimal senden – UDP geht gelegentlich verloren, doppelt schadet nicht.
 	for range 2 {
 		if n, err := conn.WriteTo(pkt, raddr); err != nil {

@@ -26,7 +26,7 @@ func TestParseMAC(t *testing.T) {
 
 func TestPacket(t *testing.T) {
 	hw, _ := ParseMAC("01:23:45:67:89:ab")
-	p := Packet(hw)
+	p := Packet(hw, nil)
 	if len(p) != 102 {
 		t.Fatalf("Länge %d", len(p))
 	}
@@ -47,14 +47,14 @@ func TestSendDeliversTwice(t *testing.T) {
 	}
 	defer l.Close()
 	hw, _ := ParseMAC("01:23:45:67:89:ab")
-	if err := Send(hw, l.LocalAddr().String(), ""); err != nil {
+	if err := Send(hw, l.LocalAddr().String(), "", nil); err != nil {
 		t.Fatal(err)
 	}
 	buf := make([]byte, 200)
 	for i := range 2 {
 		l.SetReadDeadline(time.Now().Add(time.Second))
 		n, _, err := l.ReadFrom(buf)
-		if err != nil || !bytes.Equal(buf[:n], Packet(hw)) {
+		if err != nil || !bytes.Equal(buf[:n], Packet(hw, nil)) {
 			t.Fatalf("Paket %d: %v (%d Byte)", i+1, err, n)
 		}
 	}
@@ -70,7 +70,7 @@ func TestSendIgnoresPortUnreachable(t *testing.T) {
 	target := l.LocalAddr().String()
 	l.Close() // Port ist jetzt geschlossen
 	hw, _ := ParseMAC("01:23:45:67:89:ab")
-	if err := Send(hw, target, ""); err != nil {
+	if err := Send(hw, target, "", nil); err != nil {
 		t.Fatalf("Senden an geschlossenen Port: %v", err)
 	}
 }
@@ -92,11 +92,29 @@ func TestSendViaInterface(t *testing.T) {
 	}
 	defer l.Close()
 	hw, _ := ParseMAC("01:23:45:67:89:ab")
-	if err := Send(hw, l.LocalAddr().String(), lo); err != nil {
+	if err := Send(hw, l.LocalAddr().String(), lo, nil); err != nil {
 		t.Fatal(err)
 	}
 	l.SetReadDeadline(time.Now().Add(time.Second))
 	if _, _, err := l.ReadFrom(make([]byte, 200)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSecureOn(t *testing.T) {
+	hw, _ := ParseMAC("01:23:45:67:89:ab")
+	pass, err := ParseSecureOn("a1-b2-c3-d4-e5-f6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Packet(hw, pass)
+	if len(p) != 108 || !bytes.Equal(p[102:], []byte{0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6}) {
+		t.Errorf("Paket mit Passwort falsch: % x", p[96:])
+	}
+	if pass, err := ParseSecureOn(" "); pass != nil || err != nil {
+		t.Error("leeres Passwort")
+	}
+	if _, err := ParseSecureOn("geheim"); err == nil {
+		t.Error("ungültiges Passwort angenommen")
 	}
 }

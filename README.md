@@ -10,6 +10,19 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
   per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen oder ignorieren
 - Übernimmt die `devices.json` und die Einstellungen des alten wolweb
 
+## Geräte
+
+Pflicht sind nur Name und MAC-Adresse. Die IP-Adresse braucht es für den Online-Status (sonst nimmt wolweb die IP
+aus der Netzwerksuche). Unter „Erweitert“:
+
+| Feld | Wofür |
+|---|---|
+| Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
+| Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
+| Ports | eigene Ports für die Online-Prüfung statt der allgemeinen Liste |
+| SecureOn-Passwort | 6 Byte, falls die Netzwerkkarte ein Passwort im Magic Packet verlangt |
+| Notiz | freier Text auf der Karte |
+
 ## Feste Wecklinks
 
 | Aufruf | Ergebnis |

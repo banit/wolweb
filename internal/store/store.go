@@ -32,6 +32,7 @@ type Device struct {
 	Icon      string     `json:"icon,omitempty"`
 	Note      string     `json:"note,omitempty"`
 	Ports     []int      `json:"ports,omitempty"` // eigene Ports für die Online-Prüfung, leer = Standard
+	SecureOn  string     `json:"secureon,omitempty"`
 	Vendor    string     `json:"vendor,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
@@ -343,6 +344,7 @@ type Input struct {
 	Icon      string `json:"icon"`
 	Note      string `json:"note"`
 	Ports     []int  `json:"ports"`
+	SecureOn  string `json:"secureon"`
 }
 
 var icons = []string{"desktop", "laptop", "server", "nas", "tv", "console", "router", "printer", "other"}
@@ -397,6 +399,13 @@ func (in *Input) validate() (Device, error) {
 	}
 	if len(d.Ports) > 16 {
 		return d, ValidationError{"Ports: höchstens 16 Stück."}
+	}
+	pass, err := wol.ParseSecureOn(in.SecureOn)
+	if err != nil {
+		return d, ValidationError{err.Error()}
+	}
+	if pass != nil {
+		d.SecureOn = wol.FormatMAC(pass)
 	}
 	return d, nil
 }

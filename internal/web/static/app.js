@@ -287,12 +287,13 @@
     form.interface.value = v.interface || "";
     form.note.value = v.note || "";
     form.ports.value = (v.ports || []).join(", ");
+    form.secureon.value = v.secureon || "";
     form.ports.placeholder = state.info.ports && state.info.ports.length ? "Standard: " + state.info.ports.slice(0, 5).join(", ") + (state.info.ports.length > 5 ? " …" : "") : "Standard";
     const ic = form.querySelector('input[name="icon"][value="' + (v.icon || "desktop") + '"]');
     if (ic) ic.checked = true;
     $("#vendor-hint").textContent = v.vendor ? "Hersteller: " + v.vendor : "";
     form.broadcast.placeholder = "automatisch" + (state.info.default_broadcast ? " (" + state.info.default_broadcast + ")" : "");
-    $(".advanced").open = !!(v.broadcast || v.interface || v.note || (v.ports && v.ports.length));
+    $(".advanced").open = !!(v.broadcast || v.interface || v.note || v.secureon || (v.ports && v.ports.length));
     $("#delete-device").hidden = !d;
     dlg.showModal();
     (v.name ? form.mac : form.name).focus();
@@ -306,6 +307,7 @@
       interface: form.interface.value, note: form.note.value,
       icon: (form.querySelector('input[name="icon"]:checked') || {}).value || "desktop",
       ports: form.ports.value.split(/[\s,;]+/).filter(Boolean).map(Number),
+      secureon: form.secureon.value,
     };
     const err = $("#form-error");
     for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
@@ -335,10 +337,11 @@
     } catch (e) {
       err.textContent = e.message;
       err.hidden = false;
-      if (/MAC/.test(e.message)) form.mac.setAttribute("aria-invalid", "true");
+      if (/^Die MAC/.test(e.message)) form.mac.setAttribute("aria-invalid", "true");
       else if (/IP-Adresse/.test(e.message)) form.ip.setAttribute("aria-invalid", "true");
       else if (/Broadcast/.test(e.message)) form.broadcast.setAttribute("aria-invalid", "true");
       else if (/^Ports/.test(e.message)) form.ports.setAttribute("aria-invalid", "true");
+      else if (/SecureOn/.test(e.message)) form.secureon.setAttribute("aria-invalid", "true");
       else if (/Name|namens/.test(e.message)) form.name.setAttribute("aria-invalid", "true");
     } finally {
       btn.disabled = false;

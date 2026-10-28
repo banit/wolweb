@@ -387,8 +387,12 @@ func (s *Server) wake(d store.Device) (wakeResult, int) {
 	target := s.wakeTarget(d)
 	res := wakeResult{Device: d.Name, ID: d.ID, Target: target}
 	hw, err := wol.ParseMAC(d.MAC)
+	var pass []byte
 	if err == nil {
-		err = wol.Send(hw, target, d.Interface)
+		pass, err = wol.ParseSecureOn(d.SecureOn)
+	}
+	if err == nil {
+		err = wol.Send(hw, target, d.Interface, pass)
 	}
 	if err != nil {
 		log.Printf("Wecken von %s fehlgeschlagen: %v", d.Name, err)
