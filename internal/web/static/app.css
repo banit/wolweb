@@ -384,6 +384,32 @@ textarea { resize: vertical; }
 .icon-picker span:hover { border-color: var(--border-strong); color: var(--text); }
 .icon-picker input:checked + span { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .icon-picker input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Zeitplan im Gerätedialog */
+.sched-box { border: 1px solid var(--border); border-radius: 12px; padding: .7rem 1rem .9rem; margin: 0; display: grid; gap: .8rem; min-width: 0; }
+.sched-box > legend { font-size: .85rem; font-weight: 600; padding: 0 .35rem; }
+.sched-body { display: grid; gap: .8rem; }
+.sched-body[hidden], .sched-simple[hidden] { display: none; }
+.sched-simple { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; align-items: flex-start; }
+.day-picker { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.day-picker legend { font-size: .85rem; font-weight: 600; margin-bottom: .35rem; padding: 0; }
+.day-picker label { position: relative; display: grid; }
+.day-picker input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.day-picker span {
+  display: grid; place-items: center; min-width: 42px; height: 38px; padding: 0 .45rem; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: .85rem; font-weight: 600;
+}
+.day-picker input:hover + span { border-color: var(--border-strong); color: var(--text); }
+.day-picker input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+.day-picker input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sched-time input { width: 8.5rem; }
+.sched-summary { display: grid; gap: .15rem; font-size: .88rem; }
+.sched-summary:empty { display: none; }
+.sched-summary strong { font-size: .95rem; }
+.sched-error { color: var(--err); }
+.sched-paused { color: var(--warn); } /* auch: Zeitzone des Servers weicht ab */
+.more summary { cursor: pointer; font-size: .85rem; font-weight: 600; color: var(--muted); padding: .2rem 0; width: max-content; }
+.more[open] summary { margin-bottom: .6rem; }
+.card-meta .sched.paused { color: var(--warn); }
 .advanced summary { cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--muted); padding: .2rem 0; }
 .advanced[open] summary { margin-bottom: .7rem; }
 .advanced > .field, .advanced > .field-row + .field-row { margin-top: .8rem; }
@@ -614,6 +640,8 @@ input:disabled, textarea:disabled, select:disabled { background: var(--surface-2
   .page-foot { gap: .5rem; }
   .icon-picker { gap: 8px; }
   .icon-picker span { width: 48px; height: 48px; }
+  .day-picker span { min-width: 46px; height: 46px; }
+  .more summary { padding: .75rem 0; }
   input, textarea, select { min-height: 44px; }
   .check { min-height: 44px; align-items: center; }
   .check input { width: 22px; height: 22px; margin: 0; }

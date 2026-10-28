@@ -57,7 +57,7 @@ aus der Netzwerksuche).
 | Feld | Wofür |
 |---|---|
 | Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken |
-| Zeitplan | automatische Weckzeiten, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` (englische Schreibweise wie `Mon-Fri 07:30` geht auch; gespeichert wird einheitlich die deutsche Form, angezeigt in der gewählten Sprache) |
+| Zeitplan | „Automatisch wecken“ einschalten, Wochentage antippen, Uhrzeit wählen – der Dialog zeigt dazu „Montag bis Freitag um 07:30 Uhr“, das nächste Wecken und die Zeitzone. „Pausieren“ setzt den Zeitplan aus, ohne die Zeiten zu vergessen. Mehrere Zeiten gehen unter „Weitere Möglichkeiten“ als Text, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` (englisch wie `Mon-Fri 07:30` geht auch; gespeichert wird einheitlich die deutsche Form) |
 | *Erweitert:* Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
 | *Erweitert:* Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
 | *Erweitert:* Ports | eigene Ports für die Online-Prüfung statt der allgemeinen Liste |
@@ -65,7 +65,8 @@ aus der Netzwerksuche).
 | *Erweitert:* Notiz | freier Text auf der Karte |
 
 Zeitpläne gelten in der Ortszeit des Rechners bzw. Containers (`TZ`, in `docker-compose.yml` voreingestellt).
-Die Karte zeigt die nächste geplante Weckzeit.
+Weicht sie von der Zeitzone des Browsers ab, sagt der Dialog das und nennt die Uhrzeit bei dir. Die Karte zeigt die
+nächste geplante Weckzeit oder „Zeitplan pausiert“.
 
 ## Feste Wecklinks
 
@@ -393,6 +394,7 @@ Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site
 | POST | `/api/v1/devices/{id}/wake` | Magic Packet senden |
 | GET | `/api/v1/devices/{id}/status` | sofort prüfen |
 | POST | `/api/v1/devices/{id}/wake-key` | neuen Weckschlüssel erzeugen |
+| GET | `/api/v1/schedule/preview?s=…` | Zeitplan prüfen, ohne zu speichern: einheitliche Schreibweise, nächste Weckzeit, Zeitzone des Servers |
 | GET | `/api/v1/groups` | Gruppen mit Mitgliedern (und Schlüssel des Gruppen-Wecklinks) |
 | POST | `/api/v1/groups/{name}/wake` | alle Geräte einer Gruppe wecken |
 | GET | `/api/v1/history` | Weckverlauf, neueste zuerst (`?limit=`) |
@@ -454,8 +456,10 @@ in **English and German**; it follows the browser language and can be switched i
 - **Settings page** with an overview of networks and VLANs (which ones wolweb is connected to, devices per network);
   changes apply without a restart
 - **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`;
-  **schedules** such as `Mon-Fri 07:30; Sat,Sun 09:00` wake devices automatically (German spellings work too;
-  devices.json always stores the canonical German form, the UI shows it in the chosen language)
+  **schedules** wake devices automatically: switch on "Wake automatically", tap the days, pick a time; the dialog
+  sums it up ("Monday to Friday at 07:30"), shows the next wake-up and the server's time zone, and "Pause" suspends
+  it without losing the times. Several times go under "More options" as text such as
+  `Mon-Fri 07:30; Sat,Sun 09:00` (German spellings work too; devices.json always stores the canonical German form)
 - **Notifications** via webhook (JSON) or ntfy push when a device goes online/offline or is woken – sent exactly to
   the configured address (servers on your LAN included); redirects (3xx) are not followed but logged as an error, so
   a redirecting server cannot divert messages to a target nobody configured; **Prometheus metrics** at `/metrics`

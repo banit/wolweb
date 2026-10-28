@@ -26,22 +26,24 @@ import (
 )
 
 type Device struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	MAC       string    `json:"mac"`
-	IP        string    `json:"ip,omitempty"`        // Adresse des Geräts (für die Online-Prüfung)
-	Broadcast string    `json:"broadcast,omitempty"` // Ziel des Magic Packets "ip:port", leer = Standard
-	Interface string    `json:"interface,omitempty"`
-	Icon      string    `json:"icon,omitempty"`
-	Note      string    `json:"note,omitempty"`
-	Ports     []int     `json:"ports,omitempty"` // eigene Ports für die Online-Prüfung, leer = Standard
-	SecureOn  string    `json:"secureon,omitempty"`
-	WakeKey   string    `json:"wake_key,omitempty"` // Schlüssel für Wecklinks ohne Anmeldung (auth.wake_keys)
-	Group     string    `json:"group,omitempty"`
-	Schedule  []string  `json:"schedule,omitempty"` // Weckzeiten, z. B. "Mo-Fr 07:30"
-	Vendor    string    `json:"vendor,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	MAC       string   `json:"mac"`
+	IP        string   `json:"ip,omitempty"`        // Adresse des Geräts (für die Online-Prüfung)
+	Broadcast string   `json:"broadcast,omitempty"` // Ziel des Magic Packets "ip:port", leer = Standard
+	Interface string   `json:"interface,omitempty"`
+	Icon      string   `json:"icon,omitempty"`
+	Note      string   `json:"note,omitempty"`
+	Ports     []int    `json:"ports,omitempty"` // eigene Ports für die Online-Prüfung, leer = Standard
+	SecureOn  string   `json:"secureon,omitempty"`
+	WakeKey   string   `json:"wake_key,omitempty"` // Schlüssel für Wecklinks ohne Anmeldung (auth.wake_keys)
+	Group     string   `json:"group,omitempty"`
+	Schedule  []string `json:"schedule,omitempty"` // Weckzeiten, z. B. "Mo-Fr 07:30"
+	// SchedulePaused setzt den Zeitplan aus, ohne die Zeiten zu vergessen.
+	SchedulePaused bool      `json:"schedule_paused,omitempty"`
+	Vendor         string    `json:"vendor,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Found ist ein Gerät, das die Netzwerksuche gesehen hat.
@@ -454,6 +456,8 @@ type Input struct {
 	SecureOn  string   `json:"secureon"`
 	Group     string   `json:"group"`
 	Schedule  []string `json:"schedule"`
+	// SchedulePaused fehlt bei älteren Aufrufern: dann läuft der Zeitplan (false).
+	SchedulePaused bool `json:"schedule_paused"`
 }
 
 var icons = []string{"desktop", "laptop", "server", "nas", "tv", "console", "router", "printer", "other"}
@@ -529,6 +533,7 @@ func (in *Input) validate() (Device, error) {
 	for _, e := range entries {
 		d.Schedule = append(d.Schedule, e.String())
 	}
+	d.SchedulePaused = in.SchedulePaused && len(d.Schedule) > 0 // ohne Zeiten gibt es nichts zu pausieren
 	return d, nil
 }
 
@@ -563,7 +568,8 @@ func nameTakenIn(list []Device, name, exceptID string) bool {
 // inputOf liefert die vom Benutzer gepflegten Felder eines Geräts (für Import und Prüfung).
 func inputOf(d Device) Input {
 	return Input{Name: d.Name, MAC: d.MAC, IP: d.IP, Broadcast: d.Broadcast, Interface: d.Interface,
-		Icon: d.Icon, Note: d.Note, Ports: d.Ports, SecureOn: d.SecureOn, Group: d.Group, Schedule: d.Schedule}
+		Icon: d.Icon, Note: d.Note, Ports: d.Ports, SecureOn: d.SecureOn, Group: d.Group, Schedule: d.Schedule,
+		SchedulePaused: d.SchedulePaused}
 }
 
 func (s *Store) Create(in Input) (Device, error) {

@@ -5,6 +5,6 @@ set -e
 dir=$(mktemp -d)
 cd "$(dirname "$0")/.."
 go build -o "$dir/wolweb" .
-export WOLWEB_DATA_DIR="$dir/data" WOLWEB_HOST=127.0.0.1 WOLWEB_PORT="${PORT:-8399}" WOLWEB_LANGUAGE=de \
+export TZ=UTC WOLWEB_DATA_DIR="$dir/data" WOLWEB_HOST=127.0.0.1 WOLWEB_PORT="${PORT:-8399}" WOLWEB_LANGUAGE=de \
   WOLWEB_BCASTIP=127.0.0.1 WOLWEB_WAKE_TIMEOUT=8s WOLWEB_WAKE_RETRY=2s
 exec "$dir/wolweb" -c "$dir/keine-config.json" -d "$dir/keine-devices.json"

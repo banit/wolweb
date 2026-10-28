@@ -149,19 +149,45 @@
           <input name="ip" placeholder="192.168.1.20" autocomplete="off" class="mono">
         </label>
       </div>
-      <div class="field-row">
-        <label class="field">
-          <span>{{.T "page.f.group"}}</span>
-          <input name="group" list="group-list" placeholder="{{.T "page.f.group_ph"}}" autocomplete="off" maxlength="32">
-          <datalist id="group-list"></datalist>
-          <small class="muted">{{.T "page.f.group_hint"}}</small>
+      <label class="field">
+        <span>{{.T "page.f.group"}}</span>
+        <input name="group" list="group-list" placeholder="{{.T "page.f.group_ph"}}" autocomplete="off" maxlength="32">
+        <datalist id="group-list"></datalist>
+        <small class="muted">{{.T "page.f.group_hint"}}</small>
+      </label>
+      <!-- Zeitplan: Schalter, Wochentage und Uhrzeit; die Textform steht unter „Weitere Möglichkeiten“ -->
+      <fieldset class="sched-box">
+        <legend>{{.T "page.f.schedule"}}</legend>
+        <label class="check">
+          <input type="checkbox" role="switch" id="sched-on">
+          <span>{{.T "page.f.sched_on"}}<small class="muted">{{.T "page.f.sched_on_hint"}}</small></span>
         </label>
-        <label class="field">
-          <span>{{.T "page.f.schedule"}}</span>
-          <input name="schedule" placeholder="{{.T "page.f.schedule_ph"}}" autocomplete="off">
-          <small class="muted">{{.T "page.f.schedule_hint"}}</small>
-        </label>
-      </div>
+        <div class="sched-body" id="sched-body" hidden>
+          <div class="sched-simple" id="sched-simple">
+            <fieldset class="day-picker" id="sched-days">
+              <legend>{{.T "page.f.sched_days"}}</legend>
+            </fieldset>
+            <label class="field sched-time">
+              <span>{{.T "page.f.sched_time"}}</span>
+              <input type="time" id="sched-time" value="07:30" required>
+            </label>
+          </div>
+          <p class="muted small" id="sched-multi" hidden>{{.T "page.f.sched_multi"}}</p>
+          <div class="sched-summary" id="sched-summary" aria-live="polite"></div>
+          <label class="check">
+            <input type="checkbox" role="switch" name="schedule_paused">
+            <span>{{.T "page.f.sched_pause"}}<small class="muted">{{.T "page.f.sched_pause_hint"}}</small></span>
+          </label>
+          <details class="more" id="sched-more">
+            <summary>{{.T "page.f.sched_more"}}</summary>
+            <label class="field">
+              <span>{{.T "page.f.sched_text"}}</span>
+              <input name="schedule" placeholder="{{.T "page.f.schedule_ph"}}" autocomplete="off" aria-describedby="sched-text-hint">
+              <small class="muted" id="sched-text-hint">{{.T "page.f.schedule_hint"}}</small>
+            </label>
+          </details>
+        </div>
+      </fieldset>
       <details class="advanced">
         <summary>{{.T "page.f.advanced"}}</summary>
         <div class="field-row">

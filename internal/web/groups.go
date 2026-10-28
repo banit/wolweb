@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -231,6 +232,9 @@ func (s *Server) wakeDue(t time.Time) []string {
 	devices, _ := s.store.Devices()
 	day := t.Format("2006-01-02")
 	for _, d := range devices {
+		if d.SchedulePaused {
+			continue
+		}
 		entries, _ := schedule.ParseList(d.Schedule)
 		for _, e := range entries {
 			if e.Due(t) && s.schedRan.first(d.ID+"|"+e.String()+"|"+day, t) {
@@ -271,11 +275,54 @@ func (r *ranSchedules) first(key string, t time.Time) bool {
 	return true
 }
 
-// nextWake liefert die nächste geplante Weckzeit eines Geräts (nil, wenn keine).
+// nextWake liefert die nächste geplante Weckzeit eines Geräts (nil, wenn keine oder pausiert).
 func nextWake(d store.Device) *time.Time {
+	if d.SchedulePaused {
+		return nil
+	}
 	entries, _ := schedule.ParseList(d.Schedule)
 	if t := schedule.NextOf(entries, time.Now()); !t.IsZero() {
 		return &t
 	}
 	return nil
+}
+
+// schedulePreview prüft einen Zeitplan, ohne etwas zu speichern, und liefert die einheitliche
+// Schreibweise, die nächste Weckzeit und die Zeitzone des Servers – für die Zusammenfassung im
+// Gerätedialog. Die Zeiten gelten in der Ortszeit des Servers, nicht des Browsers.
+func (s *Server) schedulePreview(w http.ResponseWriter, r *http.Request) {
+	entries, err := schedule.ParseList(r.URL.Query()["s"])
+	if err != nil {
+		s.storeError(w, r, store.ValidationError{Msg: i18n.M("val.schedule", err), Field: "schedule"})
+		return
+	}
+	texts := make([]string, 0, len(entries))
+	for _, e := range entries {
+		texts = append(texts, e.String())
+	}
+	out := map[string]any{"schedule": texts, "zone": localZone()}
+	if t := schedule.NextOf(entries, time.Now()); !t.IsZero() {
+		out["next"] = t
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// localZone nennt die Zeitzone, in der Zeitpläne laufen: den Namen (TZ, /etc/localtime), wenn er
+// sich ermitteln lässt, sonst das Kürzel (z. B. "UTC" in einem Container ohne Zeitzonendaten).
+func localZone() string {
+	if tz := strings.TrimPrefix(os.Getenv("TZ"), ":"); tz != "" {
+		if _, name, ok := strings.Cut(tz, "zoneinfo/"); ok {
+			return name
+		}
+		if !strings.HasPrefix(tz, "/") {
+			return tz
+		}
+	}
+	if p, err := os.Readlink("/etc/localtime"); err == nil {
+		if _, name, ok := strings.Cut(p, "zoneinfo/"); ok {
+			return name
+		}
+	}
+	name, _ := time.Now().Zone()
+	return name
 }

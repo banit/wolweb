@@ -252,7 +252,8 @@
           simple ? null : el("div", { class: "card-meta" },
             ip ? el("span", { class: "mono", text: ip, title: d.ip ? t("ui.ip_address") : t("ui.ip_from_scan") }) : null,
             el("span", { class: "mono", text: d.mac, title: vendorText(d.vendor) || t("ui.mac_address") }),
-            d.next_wake ? el("span", { class: "sched", title: t("ui.schedule_title", (d.schedule || []).map(scheduleText).join("; ")) }, icon("clock"), nextWakeText(d.next_wake)) : null)),
+            d.next_wake ? el("span", { class: "sched", title: t("ui.schedule_title", (d.schedule || []).map(scheduleText).join("; ")) }, icon("clock"), nextWakeText(d.next_wake)) : null,
+            d.schedule_paused ? el("span", { class: "sched paused", title: t("ui.schedule_title", (d.schedule || []).map(scheduleText).join("; ")) }, icon("clock"), t("ui.sched.paused_short")) : null)),
         ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.edit"), "aria-label": t("ui.edit"), "aria-describedby": nameID, "data-focus": "edit", onclick: () => openDialog(d) }, icon("edit"))),
       d.note && !simple ? el("p", { class: "card-note", text: d.note }) : null,
       el("div", { class: "status-line" }, statusLine(d)),
@@ -361,6 +362,144 @@
   const dlg = $("#device-dialog");
   const form = $("#device-form");
 
+  // ---------- Zeitplan im Gerätedialog ----------
+  // Schalter, Wochentage und Uhrzeit sind die einfache Form; gespeichert wird das Textfeld unter
+  // „Weitere Möglichkeiten“. Die Schalter schreiben hinein, und was dort getippt wird, zeigen sie an –
+  // solange es genau eine Weckzeit ist. Prüfen, vereinheitlichen und die nächste Weckzeit berechnen
+  // tut der Server (Ortszeit des Servers, nicht des Browsers).
+  const SCHED_DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]; // Schreibweise des Servers, Montag zuerst
+  const sched = {
+    on: $("#sched-on"), body: $("#sched-body"), days: $("#sched-days"), time: $("#sched-time"),
+    simple: $("#sched-simple"), multi: $("#sched-multi"), summary: $("#sched-summary"), more: $("#sched-more"),
+    timer: 0, seq: 0,
+  };
+  const dayName = (i, weekday) => new Date(2024, 0, 1 + i).toLocaleDateString(locale, { weekday }); // 1.1.2024: Montag
+  function buildDayPicker() {
+    SCHED_DAYS.forEach((d, i) => sched.days.append(el("label", {},
+      el("input", { type: "checkbox", value: d, "aria-label": dayName(i, "long") }),
+      el("span", { "aria-hidden": "true", text: dayName(i, "short") }))));
+  }
+  // runs fasst aufeinanderfolgende Tage zusammen: [[0, 4], [5, 5], [6, 6]] für Mo-Fr, Sa, So.
+  function runs(days) {
+    const out = [];
+    for (let i = 0; i < 7; i++) {
+      if (!days[i]) continue;
+      let j = i;
+      while (j + 1 < 7 && days[j + 1]) j++;
+      if (j - i >= 2) out.push([i, j]);
+      else for (let k = i; k <= j; k++) out.push([k, k]);
+      i = j;
+    }
+    return out;
+  }
+  // Einheitliche Schreibweise des Servers ("Mo-Fr 07:30", "täglich 22:00") ↔ Tage und Uhrzeit.
+  function entryText(days, time) {
+    if (days.every(Boolean)) return "täglich " + time;
+    return runs(days).map(([a, b]) => a === b ? SCHED_DAYS[a] : SCHED_DAYS[a] + "-" + SCHED_DAYS[b]).join(",") + " " + time;
+  }
+  function parseEntry(s) {
+    const m = /^(\S+) (\d\d:\d\d)$/.exec(s || "");
+    if (!m) return null;
+    const days = Array(7).fill(m[1] === "täglich");
+    if (m[1] !== "täglich") {
+      for (const part of m[1].split(",")) {
+        const [a, b] = part.split("-").map((x) => SCHED_DAYS.indexOf(x));
+        if (a < 0 || b < 0) return null;
+        for (let i = a; ; i = (i + 1) % 7) { days[i] = true; if (b === undefined || i === b) break; }
+      }
+    }
+    return { days, time: m[2] };
+  }
+  // describeEntry: „Montag bis Freitag um 07:30 Uhr“, „Täglich um 22:00 Uhr“.
+  function describeEntry(e) {
+    if (e.days.every(Boolean)) return t("ui.sched.daily", e.time);
+    const parts = runs(e.days).map(([a, b]) => a === b ? dayName(a, "long") : t("ui.sched.range", dayName(a, "long"), dayName(b, "long")));
+    return t("ui.sched.days", new Intl.ListFormat(locale, { type: "conjunction" }).format(parts), e.time);
+  }
+  const schedDays = () => [...sched.days.querySelectorAll("input")].map((i) => i.checked);
+  const schedList = () => form.schedule.value.split(";").map((x) => x.trim()).filter(Boolean);
+
+  // showEntries zeigt Weckzeiten (einheitliche Schreibweise) in den Schaltern an.
+  function showEntries(list) {
+    const one = list.length === 1 ? parseEntry(list[0]) : null;
+    sched.simple.hidden = list.length > 1;
+    sched.multi.hidden = list.length <= 1;
+    if (one) {
+      sched.days.querySelectorAll("input").forEach((i, k) => { i.checked = one.days[k]; });
+      sched.time.value = one.time;
+    }
+  }
+  function setSchedule(list, paused) {
+    sched.on.checked = list.length > 0;
+    sched.body.hidden = !sched.on.checked;
+    form.schedule.value = list.map(scheduleText).join("; ");
+    form.schedule_paused.checked = !!paused;
+    sched.more.open = false;
+    sched.days.querySelectorAll("input").forEach((i, k) => { i.checked = k < 5; }); // Vorschlag: werktags
+    sched.time.value = "07:30";
+    showEntries(list);
+    previewSchedule(0);
+  }
+  function simpleChanged() {
+    const days = schedDays();
+    form.schedule.value = days.some(Boolean) ? scheduleText(entryText(days, sched.time.value || "07:30")) : "";
+    previewSchedule(0);
+  }
+  function previewSchedule(delay) {
+    clearTimeout(sched.timer);
+    sched.timer = setTimeout(runPreview, delay);
+  }
+  async function runPreview() {
+    const seq = ++sched.seq;
+    const list = schedList();
+    if (!sched.on.checked) return sched.summary.replaceChildren();
+    if (!list.length) return renderSummary({ error: t("ui.sched.no_days") });
+    let res;
+    try {
+      res = await api("GET", "schedule/preview?" + new URLSearchParams(list.map((x) => ["s", x])));
+    } catch (e) {
+      if (seq === sched.seq) renderSummary({ error: e.message });
+      return;
+    }
+    if (seq !== sched.seq) return; // inzwischen geändert
+    if (document.activeElement !== form.schedule) showEntries(res.schedule);
+    renderSummary(res);
+  }
+  // renderSummary: was eingestellt ist, wann als Nächstes geweckt wird und in welcher Zeitzone.
+  function renderSummary(res) {
+    if (res.error) {
+      sched.summary.replaceChildren(el("p", { class: "sched-error", text: res.error }));
+      return;
+    }
+    const lines = res.schedule.map((x) => parseEntry(x)).filter(Boolean).map((e) => el("strong", { text: describeEntry(e) }));
+    if (form.schedule_paused.checked) {
+      lines.push(el("p", { class: "sched-paused", text: t("ui.sched.paused") }));
+    } else if (res.next) {
+      // Die Weckzeit gilt auf der Uhr des Servers: dessen Datum und Uhrzeit anzeigen, nicht die des Browsers.
+      const m = /^(\d+)-(\d+)-(\d+)T(\d+):(\d+)/.exec(res.next);
+      const wall = new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]);
+      const fmt = { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" };
+      lines.push(el("p", { text: t("ui.sched.next", wall.toLocaleString(locale, fmt)) }));
+      const off = /([+-])(\d\d):(\d\d)$/.exec(res.next);
+      const serverOffset = off ? (off[1] === "-" ? -1 : 1) * (off[2] * 60 + +off[3]) : 0; // "Z" = UTC
+      const at = new Date(res.next);
+      if (serverOffset === -at.getTimezoneOffset()) lines.push(el("p", { class: "muted small", text: t("ui.sched.zone", res.zone) }));
+      else lines.push(el("p", { class: "sched-paused small", text: t("ui.sched.zone_differs", res.zone, at.toLocaleString(locale, fmt)) }),
+        el("p", { class: "muted small", text: t("ui.sched.zone_hint") }));
+    }
+    sched.summary.replaceChildren(...lines);
+  }
+  sched.on.addEventListener("change", () => {
+    sched.body.hidden = !sched.on.checked;
+    if (sched.on.checked && !schedList().length) simpleChanged(); // gleich mit dem Vorschlag
+    else previewSchedule(0);
+  });
+  sched.days.addEventListener("change", simpleChanged);
+  sched.time.addEventListener("change", simpleChanged);
+  form.schedule_paused.addEventListener("change", () => previewSchedule(0));
+  form.schedule.addEventListener("input", () => previewSchedule(400));
+  form.schedule.addEventListener("change", () => previewSchedule(0)); // nach dem Tippen die Schalter angleichen
+
   function buildIconPicker() {
     const box = $("#icon-picker");
     for (const key of ICONS) {
@@ -387,7 +526,7 @@
     form.ports.value = (v.ports || []).join(", ");
     form.secureon.value = v.secureon || "";
     form.group.value = v.group || "";
-    form.schedule.value = (v.schedule || []).map(scheduleText).join("; ");
+    setSchedule(v.schedule || [], v.schedule_paused);
     $("#group-list").replaceChildren(...[...new Set(state.devices.map((x) => x.group).filter(Boolean))].map((g) => el("option", { value: g })));
     form.ports.placeholder = state.info.ports && state.info.ports.length ? t("ui.default_ports", state.info.ports.slice(0, 5).join(", ") + (state.info.ports.length > 5 ? " …" : "")) : t("ui.default");
     const ic = form.querySelector('input[name="icon"][value="' + (v.icon || "desktop") + '"]');
@@ -411,7 +550,8 @@
       ports: form.ports.value.split(/[\s,;]+/).filter(Boolean).map(Number),
       secureon: form.secureon.value,
       group: form.group.value,
-      schedule: form.schedule.value.split(";").map((x) => x.trim()).filter(Boolean),
+      schedule: sched.on.checked ? schedList() : [], // ausgeschaltet: Zeitplan entfernen
+      schedule_paused: sched.on.checked && form.schedule_paused.checked,
     };
     const err = $("#form-error");
     for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
@@ -445,7 +585,8 @@
       const field = e.data && e.data.field && form.elements[e.data.field];
       if (field) {
         field.setAttribute("aria-invalid", "true");
-        if (field.closest(".advanced")) $(".advanced").open = true;
+        const box = field.closest("details");
+        if (box) box.open = true;
       }
     } finally {
       btn.disabled = false;
@@ -867,6 +1008,7 @@
   // ---------- Start ----------
   async function init() {
     buildIconPicker();
+    buildDayPicker();
     updateThemeIcon();
     try {
       state.info = await api("GET", "info");

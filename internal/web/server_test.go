@@ -834,3 +834,68 @@ func TestEventsDropSlowReader(t *testing.T) {
 		}
 	}
 }
+
+// Ein pausierter Zeitplan weckt nicht und zeigt keine nächste Weckzeit, behält aber seine Zeiten.
+func TestSchedulePaused(t *testing.T) {
+	st, _, _ := store.Open(t.TempDir(), "")
+	s := New(config.Default(), st, status.New(st, probe.New(nil, 100*time.Millisecond), 0), discovery.New(st, nil, 16), false, "test")
+	d, err := st.Create(store.Input{Name: "Büro", MAC: "02:00:00:00:00:01", Schedule: []string{"täglich 07:30"}, SchedulePaused: true, Broadcast: udpSink(t)})
+	if err != nil || !d.SchedulePaused || len(d.Schedule) != 1 {
+		t.Fatalf("%+v %v", d, err)
+	}
+	at := time.Date(2026, 10, 28, 7, 30, 0, 0, time.Local)
+	if got := s.wakeDue(at); len(got) != 0 {
+		t.Errorf("pausiert geweckt: %v", got)
+	}
+	if v := s.view(d); v.NextWake != nil {
+		t.Errorf("pausiert, aber nächste Weckzeit %v", v.NextWake)
+	}
+	d, _ = st.Update(d.ID, store.Input{Name: "Büro", MAC: d.MAC, Schedule: d.Schedule, Broadcast: d.Broadcast}, nil)
+	if got := s.wakeDue(at); len(got) != 1 {
+		t.Errorf("nach der Pause nicht geweckt: %v", got)
+	}
+	// Ohne Zeiten gibt es nichts zu pausieren.
+	if d, _ = st.Update(d.ID, store.Input{Name: "Büro", MAC: d.MAC, SchedulePaused: true}, nil); d.SchedulePaused {
+		t.Error("Pause ohne Zeitplan gespeichert")
+	}
+}
+
+// Die Vorschau im Gerätedialog prüft und vereinheitlicht, ohne zu speichern, und nennt die nächste
+// Weckzeit samt Zeitzone des Servers.
+func TestSchedulePreview(t *testing.T) {
+	h, st := newTestServer(t, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/schedule/preview?s=werktags+6:45&s=Sa,So+09:00", nil))
+	var out struct {
+		Schedule []string  `json:"schedule"`
+		Next     time.Time `json:"next"`
+		Zone     string    `json:"zone"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); rec.Code != http.StatusOK || err != nil {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if strings.Join(out.Schedule, "; ") != "Mo-Fr 06:45; Sa,So 09:00" || out.Next.IsZero() || out.Zone == "" {
+		t.Errorf("%+v", out)
+	}
+	if devs, _ := st.Devices(); len(devs) != 0 {
+		t.Error("Vorschau hat etwas angelegt")
+	}
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/v1/schedule/preview?s=Xy+07:00", nil)
+	req.Header.Set("Accept-Language", "en")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"field":"schedule"`) || !strings.Contains(rec.Body.String(), "Xy") {
+		t.Errorf("ungültig: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestLocalZone(t *testing.T) {
+	t.Setenv("TZ", "Europe/Berlin")
+	if z := localZone(); z != "Europe/Berlin" {
+		t.Errorf("TZ=Europe/Berlin: %q", z)
+	}
+	t.Setenv("TZ", ":/usr/share/zoneinfo/America/New_York")
+	if z := localZone(); z != "America/New_York" {
+		t.Errorf("TZ als Pfad: %q", z)
+	}
+}
