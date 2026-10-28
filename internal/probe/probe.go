@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/net/icmp"
@@ -149,7 +148,7 @@ func tcpProbe(ctx context.Context, ip netip.Addr, port int) (ok, refused bool) {
 		c.Close()
 		return true, false
 	}
-	if errors.Is(err, syscall.ECONNREFUSED) || strings.Contains(strings.ToLower(err.Error()), "refused") {
+	if isRefused(err) { // an der Fehlernummer, nicht am übersetzbaren Text (refused_*.go)
 		return true, true
 	}
 	return false, false

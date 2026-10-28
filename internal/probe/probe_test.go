@@ -37,7 +37,8 @@ func TestOpenPortIsOnline(t *testing.T) {
 }
 
 func TestRefusedCountsOnlyOnLink(t *testing.T) {
-	p := &Prober{ports: []int{freePort(t)}, Timeout: time.Second}
+	// Windows meldet eine Ablehnung auf localhost erst nach etwa zwei Sekunden (Wiederholungen).
+	p := &Prober{ports: []int{freePort(t)}, Timeout: 5 * time.Second}
 	if r := p.Check(context.Background(), loopback, nil, ""); !r.Online {
 		t.Error("Ablehnung im eigenen Netz sollte als online gelten")
 	}

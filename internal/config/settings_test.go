@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -172,7 +173,8 @@ func TestSettingsReset(t *testing.T) {
 	if _, err := m.Save(e); err != nil {
 		t.Fatal(err)
 	}
-	if fi, err := os.Stat(filepath.Join(dataDir, "settings.json")); err != nil || fi.Mode().Perm() != 0o600 {
+	// Windows kennt keine Unix-Rechte; dort genügt, dass die Datei existiert.
+	if fi, err := os.Stat(filepath.Join(dataDir, "settings.json")); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Fatalf("settings.json: %v %v", fi, err)
 	}
 	c, err := m.Reset()
