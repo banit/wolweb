@@ -13,7 +13,7 @@ services:
     environment:
       WOLWEB_PORT: "8089"
       WOLWEB_NETWORKS: "192.168.1.0/24"   # Segmente für die Netzwerksuche, kommagetrennt
-      WOLWEB_BCASTIP: "192.168.1.255:9"
+      # WOLWEB_BCASTIP: "192.168.1.255:9"      # leer = automatisch (Netz der Geräte-IP bzw. des Suchsegments)
       WOLWEB_SCAN_INTERVAL: "30m"
       # WOLWEB_USER: "admin"
       # WOLWEB_PASSWORD: "bitte-ändern"

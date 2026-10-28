@@ -69,7 +69,7 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 |---|---|---|---|
 | `host`, `port` | `WOLWEBHOST`, `WOLWEBPORT` | `0.0.0.0`, `8089` | Adresse der Weboberfläche |
 | `vdir` | `WOLWEBVDIR` | `/` | Unterpfad, z. B. `/wolweb` hinter einem Reverse-Proxy |
-| `bcastip` | `WOLWEBBCASTIP` | `192.168.1.255:9` | Standardziel, wenn weder Gerät noch Netz eins liefern |
+| `bcastip` | `WOLWEBBCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
 | `read_only` | `WOLWEBREADONLY` | `false` | nur wecken, nichts ändern |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`) und Suchergebnisse (`discovered.json`) |
 | `discovery.networks` | `WOLWEB_NETWORKS` | – | Segmente für die Suche (CIDR, kommagetrennt) |
@@ -83,7 +83,9 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 | `auth.public_wake` | `WOLWEB_PUBLIC_WAKE` | `true` | Wecklinks funktionieren ohne Anmeldung |
 
 Die Broadcast-Adresse eines Geräts wird automatisch aus dem Netz seiner IP bestimmt; nur bei Sonderfällen im
-Gerät unter „Erweitert“ eintragen.
+Gerät unter „Erweitert“ eintragen. Ist keine IP bekannt, gilt `bcastip`, ohne Einstellung die Broadcast-Adresse des
+Suchsegments (wenn genau eins eingetragen ist), sonst `255.255.255.255:9`. Ist am Gerät eine Netzwerkschnittstelle
+eingetragen, verlässt das Paket den Rechner unter Linux auch wirklich über diese Schnittstelle.
 
 ## API
 

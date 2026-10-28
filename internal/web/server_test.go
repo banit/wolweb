@@ -99,3 +99,28 @@ func TestVDir(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultBroadcast(t *testing.T) {
+	st, _, err := store.Open(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mon := status.New(st, probe.New(nil, 100*time.Millisecond), 0)
+	for _, tc := range []struct {
+		bcast string
+		nets  []string
+		want  string
+	}{
+		{"", nil, "255.255.255.255:9"},
+		{"", []string{"10.9.8.0/24"}, "10.9.8.255:9"},
+		{"", []string{"10.9.8.0/24", "10.9.9.0/24"}, "255.255.255.255:9"},
+		{"192.168.5.255", []string{"10.9.8.0/24"}, "192.168.5.255:9"},
+	} {
+		cfg := config.Default()
+		cfg.BcastIP = tc.bcast
+		s := New(cfg, st, mon, discovery.New(st, tc.nets, 1024), false, "test")
+		if got := s.wakeTarget(store.Device{MAC: "00:11:22:33:44:55"}); got != tc.want {
+			t.Errorf("bcastip=%q Netze=%v: %s statt %s", tc.bcast, tc.nets, got, tc.want)
+		}
+	}
+}

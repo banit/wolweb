@@ -135,6 +135,15 @@ func (s *Scanner) Networks() []string {
 	return out
 }
 
+// Broadcast liefert die Broadcast-Adresse (mit Port 9) des Suchsegments, wenn genau eins
+// eingestellt ist – sonst "".
+func (s *Scanner) Broadcast() string {
+	if len(s.networks) != 1 || s.networks[0].Bits() > 30 {
+		return ""
+	}
+	return broadcastOf(s.networks[0]) + ":9"
+}
+
 func (s *Scanner) Job() Job {
 	s.mu.Lock()
 	defer s.mu.Unlock()

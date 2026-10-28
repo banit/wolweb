@@ -277,7 +277,7 @@ func pathEscape(s string) string {
 	return strings.ReplaceAll(template.URLQueryEscaper(s), "+", "%20")
 }
 
-// wakeTarget: eingetragene Broadcast-Adresse, sonst die des Netzes der Geräte-IP, sonst Standard.
+// wakeTarget: eingetragene Broadcast-Adresse, sonst die des Netzes der Geräte-IP, sonst der Standard.
 func (s *Server) wakeTarget(d store.Device) string {
 	if d.Broadcast != "" {
 		return d.Broadcast
@@ -288,7 +288,17 @@ func (s *Server) wakeTarget(d store.Device) string {
 			return b
 		}
 	}
+	return s.defaultBroadcast()
+}
+
+// defaultBroadcast: eingestellte Adresse (bcastip), sonst die des einzigen Suchsegments, sonst
+// 255.255.255.255 – das geht über die Schnittstelle der Standardroute hinaus. Früher war fest
+// 192.168.1.255 voreingestellt; in jedem anderen Netz verschwand das Paket dann still.
+func (s *Server) defaultBroadcast() string {
 	if b, err := config.NormalizeBroadcast(s.cfg.BcastIP); err == nil && b != "" {
+		return b
+	}
+	if b := s.scanner.Broadcast(); b != "" {
 		return b
 	}
 	return "255.255.255.255:9"
@@ -492,7 +502,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"networks":          s.scanner.Networks(),
 		"local_networks":    discovery.LocalNets(),
 		"icmp":              s.icmp,
-		"default_broadcast": s.cfg.BcastIP,
+		"default_broadcast": s.defaultBroadcast(),
 		"auth":              s.cfg.AuthEnabled(),
 		"public_wake":       s.cfg.Auth.PublicWake,
 		"wake_timeout":      int(s.wakeTimeout.Seconds()),

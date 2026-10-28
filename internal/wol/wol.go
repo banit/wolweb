@@ -2,6 +2,7 @@
 package wol
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -43,30 +44,37 @@ func Packet(hw net.HardwareAddr) []byte {
 	return p
 }
 
-// Send schickt das Paket an target ("ip:port"). Ist iface gesetzt, wird dessen IPv4-Adresse als
-// Absender benutzt.
+// Send schickt das Paket an target ("ip:port"). Ist iface gesetzt, geht es über diese
+// Schnittstelle hinaus (unter Linux per SO_BINDTODEVICE) und mit ihrer IPv4-Adresse als Absender.
 func Send(hw net.HardwareAddr, target, iface string) error {
 	raddr, err := net.ResolveUDPAddr("udp4", target)
 	if err != nil {
 		return fmt.Errorf("Zieladresse %q: %w", target, err)
 	}
-	var laddr *net.UDPAddr
+	laddr := &net.UDPAddr{}
+	var lc net.ListenConfig
 	if iface != "" {
 		ip, err := interfaceIPv4(iface)
 		if err != nil {
 			return err
 		}
-		laddr = &net.UDPAddr{IP: ip}
+		laddr.IP = ip
+		// Nur die Absender-IP reicht nicht: Für 255.255.255.255 wählt Linux die Schnittstelle
+		// nach der Routingtabelle, nicht nach der Absenderadresse.
+		lc.Control = bindToDevice(iface)
 	}
-	conn, err := net.DialUDP("udp4", laddr, raddr)
+	// Unverbundener Socket: Bei einem verbundenen ließe eine ICMP-Fehlermeldung auf das erste
+	// Paket (z. B. "Port unreachable" von einem Unicast-Ziel) das zweite mit ECONNREFUSED
+	// scheitern – obwohl das erste längst unterwegs ist.
+	conn, err := lc.ListenPacket(context.Background(), "udp4", laddr.String())
 	if err != nil {
-		return fmt.Errorf("UDP-Verbindung zu %s: %w", target, err)
+		return fmt.Errorf("UDP-Socket für %s: %w", target, err)
 	}
 	defer conn.Close()
 	pkt := Packet(hw)
 	// Zweimal senden – UDP geht gelegentlich verloren, doppelt schadet nicht.
 	for range 2 {
-		if n, err := conn.Write(pkt); err != nil {
+		if n, err := conn.WriteTo(pkt, raddr); err != nil {
 			return fmt.Errorf("Senden an %s: %w", target, err)
 		} else if n != len(pkt) {
 			return errors.New("Paket unvollständig gesendet")

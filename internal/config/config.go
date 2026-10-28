@@ -19,7 +19,7 @@ type Config struct {
 	Host      string    `json:"host"`
 	Port      int       `json:"port"`
 	VDir      string    `json:"vdir"`
-	BcastIP   string    `json:"bcastip"`
+	BcastIP   string    `json:"bcastip"` // Ziel, wenn weder Gerät noch Netz eins liefern; leer = automatisch
 	ReadOnly  bool      `json:"read_only"`
 	DataDir   string    `json:"data_dir"`
 	Discovery Discovery `json:"discovery"`
@@ -58,7 +58,6 @@ func Default() Config {
 		Host:    "0.0.0.0",
 		Port:    8089,
 		VDir:    "/",
-		BcastIP: "192.168.1.255:9",
 		DataDir: "data",
 		Discovery: Discovery{
 			Interval: "30m",
