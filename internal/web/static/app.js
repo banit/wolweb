@@ -16,6 +16,9 @@
     search: "",
     waking: new Map(), // id -> { start }
     editing: null,
+    fresh: null, // { id, adopted } – eben angelegtes Gerät: die Karte zeigt die nächsten Schritte
+    naming: null, // MAC eines Suchtreffers ohne Namen, für den gerade ein Name abgefragt wird
+    namingValue: "",
     selecting: false, // Mehrfachauswahl für Gruppen
     selected: new Set(),
     live: false, // Live-Verbindung (Server-Sent Events) steht – dann kaum noch Abfragen
@@ -265,6 +268,7 @@
         ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.edit"), "aria-label": t("ui.edit"), "aria-describedby": nameID, "data-focus": "edit", onclick: () => openDialog(d) }, icon("edit"))),
       d.note && !simple ? el("p", { class: "card-note", text: d.note }) : null,
       el("div", { class: "status-line" }, statusLine(d)),
+      state.fresh && state.fresh.id === d.id && !ro ? nextSteps(d) : null,
       el("div", { class: "card-actions" },
         el("button", { class: "btn btn-primary btn-wake", disabled: s === "waking", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wake(d) },
           icon("power"), el("span", { text: s === "waking" ? t("ui.being_started") : s === "online" ? t("ui.wake_again") : t("ui.wake") })),
@@ -278,6 +282,26 @@
       card.append(el("div", { class: "progress", "aria-hidden": "true" }, bar)); // die Zeit steht als Text daneben
     }
     return card;
+  }
+
+  // nextSteps: Hinweis auf einer eben angelegten Karte – Wecken steht direkt darunter.
+  function nextSteps(d) {
+    return el("div", { class: "card-next", role: "group", "aria-label": t("ui.next.title", d.name) },
+      el("p", {}, icon("check"), el("span", { text: state.fresh.adopted ? t("ui.next.adopted") : t("ui.next.added") })),
+      el("div", { class: "card-next-actions" },
+        el("button", { class: "btn btn-secondary btn-sm", "data-focus": "details", onclick: () => openDialog(d) }, icon("edit"), el("span", { text: t("ui.next.details") })),
+        el("span", { class: "spacer" }),
+        el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.next.dismiss"), "aria-label": t("ui.next.dismiss"), "data-focus": "dismiss",
+          onclick: () => { state.fresh = null; renderDevices(); focusCard(d.id); } }, icon("x"))));
+  }
+  // focusCard setzt den Fokus auf den Weckknopf einer Karte und lässt sie kurz aufleuchten.
+  function focusCard(id) {
+    const card = $('.card[data-id="' + CSS.escape(id) + '"]');
+    if (!card) return;
+    card.scrollIntoView({ block: "nearest" });
+    card.querySelector('[data-focus="wake"]').focus({ preventScroll: true });
+    card.classList.add("card-flash");
+    setTimeout(() => card.classList.remove("card-flash"), 1300);
   }
 
   function copyLink(d) { return copyURL(wakeURL(d), t("ui.link_copied"), t("ui.copy_link")); }
@@ -576,6 +600,7 @@
 
   function openDialog(d, prefill) {
     state.editing = d || null;
+    state.prefilled = !d && !!prefill;
     form.reset();
     $("#form-error").hidden = true;
     for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
@@ -597,6 +622,7 @@
     const ic = form.querySelector('input[name="icon"][value="' + (v.icon || "desktop") + '"]');
     if (ic) ic.checked = true;
     $("#vendor-hint").textContent = v.vendor ? t("ui.vendor", vendorText(v.vendor)) : "";
+    $("#mac-hint").hidden = !!(d || prefill); // von Hand: sagen, wo es die MAC gibt – und dass die Suche leichter ist
     form.broadcast.placeholder = state.info.default_broadcast ? t("ui.automatic_x", state.info.default_broadcast) : t("ui.automatic");
     $(".advanced").open = !!(v.broadcast || v.interface || v.note || v.secureon || (v.ports && v.ports.length));
     $("#delete-device").hidden = !d;
@@ -604,6 +630,20 @@
     dlg.showModal();
     (v.name ? form.mac : form.name).focus();
     if (prefill && !prefill.name) form.name.focus();
+  }
+
+  // formError zeigt einen Fehler des Servers im Dialog; das betroffene Feld nennt er mit ("field"),
+  // Felder in aufklappbaren Bereichen werden dafür geöffnet.
+  function formError(e) {
+    const err = $("#form-error");
+    err.textContent = e.message;
+    err.hidden = false;
+    const field = e.data && e.data.field && form.elements[e.data.field];
+    if (field) {
+      field.setAttribute("aria-invalid", "true");
+      const box = field.closest("details");
+      if (box) box.open = true;
+    }
   }
 
   form.addEventListener("submit", async (ev) => {
@@ -641,18 +681,16 @@
       }
       dlg.close();
       toast("ok", state.editing ? t("ui.saved") : t("ui.device_added"), saved.name + " · " + saved.mac);
+      const created = !state.editing;
+      if (created) {
+        state.fresh = { id: saved.id, adopted: state.prefilled };
+        if (state.prefilled) { state.naming = null; closeDrawer(); } // aus der Suche übernommen: Leiste zu
+      }
       await loadDevices();
+      if (created) focusCard(saved.id);
       if (drawerOpen()) loadDiscovery();
     } catch (e) {
-      err.textContent = e.message;
-      err.hidden = false;
-      // Der Server nennt das betroffene Feld; Felder unter "Erweitert" dafür aufklappen.
-      const field = e.data && e.data.field && form.elements[e.data.field];
-      if (field) {
-        field.setAttribute("aria-invalid", "true");
-        const box = field.closest("details");
-        if (box) box.open = true;
-      }
+      formError(e);
     } finally {
       btn.disabled = false;
     }
@@ -878,13 +916,74 @@
           el("span", { class: "mono", text: f.mac }),
           f.hostname && f.vendor ? el("span", { text: vendorText(f.vendor) }) : null,
           el("span", { text: t("ui.found.seen", ago(f.last_seen)) }))),
-      el("div", { class: "found-actions" }, actions));
+      state.naming === f.mac && kind === "new" ? nameForm(f) : el("div", { class: "found-actions" }, actions));
   }
 
-  function adopt(f) {
+  // Name aus dem Hostnamen ableiten ("nas.fritz.box" → "nas"); ist er schon vergeben, mit der
+  // letzten Stelle der IP-Adresse.
+  function suggestName(f) {
     let name = (f.hostname || "").split(".")[0];
     if (name && state.devices.some((d) => d.name.toLowerCase() === name.toLowerCase())) name += "-" + f.ip.split(".").pop();
-    openDialog(null, { name, mac: f.mac, ip: f.ip, vendor: f.vendor, icon: guessIcon(f) });
+    return name;
+  }
+  // Vorschlag, wenn der Treffer keinen Hostnamen hat: Hersteller oder "Gerät" plus letzte Stelle der IP.
+  function fallbackName(f) {
+    const vendor = f.vendor && f.vendor !== "Private/zufällige MAC" ? f.vendor.split(/[\s,]+/)[0] : t("ui.found.device");
+    return vendor + "-" + f.ip.split(".").pop();
+  }
+
+  // adopt übernimmt einen Treffer direkt – ohne Dialog, wenn sich der Name ableiten lässt; sonst wird
+  // nur der Name gefragt. Danach schließt die Suchleiste und die neue Karte bekommt den Fokus.
+  async function adopt(f, name) {
+    name = name === undefined ? suggestName(f) : name;
+    if (!name) {
+      state.naming = f.mac;
+      state.namingValue = fallbackName(f);
+      renderDiscovery();
+      const input = $("#found-list [data-focus='name']");
+      if (input) { input.focus(); input.select(); }
+      return;
+    }
+    const body = { name, mac: f.mac, ip: f.ip, icon: guessIcon(f) };
+    let d;
+    try {
+      d = await api("POST", "devices", body);
+    } catch (e) {
+      // z. B. Name schon vergeben: im Dialog nachbessern, mit allen Angaben und der Meldung
+      openDialog(null, Object.assign(body, { vendor: f.vendor }));
+      formError(e);
+      return;
+    }
+    state.naming = null;
+    state.fresh = { id: d.id, adopted: true };
+    closeDrawer();
+    toast("ok", t("ui.adopted", d.name), d.ip + " · " + d.mac);
+    await loadDevices();
+    focusCard(d.id);
+    loadDiscovery();
+  }
+
+  // Nur der Name fehlt: kleines Formular direkt im Treffer.
+  function nameForm(f) {
+    const err = el("p", { class: "form-error small", id: "found-name-err", hidden: true });
+    const input = el("input", { maxlength: "64", autocomplete: "off", "data-focus": "name", value: state.namingValue,
+      "aria-describedby": "found-name-err", oninput: (ev) => { state.namingValue = ev.target.value; } });
+    return el("form", { class: "found-name", novalidate: true, onsubmit: (ev) => {
+      ev.preventDefault();
+      if (!input.value.trim()) {
+        err.textContent = t("ui.found.name_missing");
+        err.hidden = false;
+        input.setAttribute("aria-invalid", "true");
+        input.focus();
+        return;
+      }
+      adopt(f, input.value.trim());
+    } },
+      el("label", { class: "field" }, el("span", { text: t("ui.found.name_needed") }), input),
+      err,
+      el("div", { class: "found-actions" },
+        el("button", { type: "button", class: "btn btn-ghost btn-sm", "data-focus": "cancel-name", onclick: () => { state.naming = null; renderDiscovery(); } }, t("ui.cancel")),
+        el("button", { type: "submit", class: "btn btn-primary btn-sm", "data-focus": "save-name" }, icon("plus"), el("span", { text: t("ui.found.adopt") }))));
   }
 
   async function setIgnored(f, ignored) {

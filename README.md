@@ -37,7 +37,8 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
   Gerät mit IP nach 45 Sekunden noch nicht, schickt wolweb es von selbst noch einmal – auch bei Wecklinks,
   Gruppen und Zeitplänen, wenn niemand mehr zuschaut
 - **Netzwerksuche**: findet eingeschaltete Geräte in freigegebenen Segmenten (IP, MAC, Hostname, Hersteller) –
-  per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen oder ignorieren
+  per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen (Name aus dem Hostnamen, ohne Dialog; fehlt er, wird nur
+  der Name gefragt) oder ignorieren
 - **Einstellungsseite** mit Übersicht der Netze und VLANs (an welchen wolweb hängt, Geräte je Netz); Änderungen
   gelten ohne Neustart
 - **Gruppen** („Homelab“, „Büro“) gemeinsam wecken, auch per festem Gruppen-Wecklink; **Zeitpläne** wie
@@ -453,7 +454,8 @@ in **English and German**; it follows the browser language and can be switched i
   IP address still does not respond after 45 seconds (`status.wake_retry`), wolweb sends it once more by itself –
   for wake links, groups and schedules too, when nobody is watching
 - **Network scan**: finds devices that are switched on in the configured segments (IP, MAC, host name, vendor) –
-  on demand or periodically; add new devices with one click or ignore them
+  on demand or periodically; add new devices with one click (the name comes from the host name, no dialog; only a missing name is asked
+  for) or ignore them
 - **Settings page** with an overview of networks and VLANs (which ones wolweb is connected to, devices per network);
   changes apply without a restart
 - **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`; assign

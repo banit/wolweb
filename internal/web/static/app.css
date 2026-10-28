@@ -384,6 +384,14 @@ textarea { resize: vertical; }
 .icon-picker span:hover { border-color: var(--border-strong); color: var(--text); }
 .icon-picker input:checked + span { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .icon-picker input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Eben angelegt: nächste Schritte auf der Karte */
+.card-next { display: grid; gap: .5rem; padding: .6rem .75rem; border-radius: 12px; background: var(--ok-soft); font-size: .88rem; }
+.card-next p { display: flex; align-items: center; gap: .4rem; font-weight: 600; }
+.card-next p .ico { color: var(--ok); flex: none; }
+.card-next-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+/* Suchtreffer ohne Namen: nur den Namen fragen */
+.found-name { grid-column: 1 / -1; display: grid; gap: .5rem; }
+.found-name .found-actions { justify-content: flex-end; }
 /* Gruppen: vorhandene zum Antippen, Mehrfachauswahl */
 .group-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -.3rem; }
 .group-chips[hidden] { display: none; }

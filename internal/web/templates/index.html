@@ -155,7 +155,8 @@
       <div class="field-row">
         <label class="field">
           <span>{{.T "ui.mac_address"}}</span>
-          <input name="mac" required placeholder="00:11:22:33:44:55" autocomplete="off" class="mono">
+          <input name="mac" required placeholder="00:11:22:33:44:55" autocomplete="off" class="mono" aria-describedby="mac-hint vendor-hint">
+          <small class="muted" id="mac-hint">{{.T "page.f.mac_hint"}}</small>
           <small class="muted" id="vendor-hint"></small>
         </label>
         <label class="field">

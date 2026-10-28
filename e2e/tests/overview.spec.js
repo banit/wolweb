@@ -200,3 +200,47 @@ test("Gruppen: mehrere Geräte auf einmal zuordnen, Reichweite auf dem Knopf", a
   await dlg.locator("#save-device").click();
   await expect(wakeAll).toHaveText("Alle 4 Geräte wecken");
 });
+
+test("Übernahme aus der Suche: direkt, nur ein fehlender Name wird gefragt", async ({ page, request }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: /^Geräte suchen/ }).click();
+  const drawer = page.locator("#discovery");
+  await expect(drawer).toHaveClass(/open/);
+  // Mit Hostnamen: ein Klick, kein Dialog; die Leiste schließt, die neue Karte hat den Fokus.
+  await drawer.locator(".found", { hasText: "mediapc.example.com" }).getByRole("button", { name: "Übernehmen" }).click();
+  await expect(drawer).not.toHaveClass(/open/);
+  await expect(page.locator("#device-dialog")).toBeHidden();
+  const card = page.locator(".card", { hasText: "mediapc" });
+  await expect(card.locator('[data-focus="wake"]')).toBeFocused();
+  await expect(card).toContainText("192.168.1.40");
+  await expect(card.getByRole("group", { name: "Nächste Schritte für mediapc" })).toContainText("Übernommen");
+  await card.getByRole("button", { name: "Details bearbeiten" }).click();
+  await expect(page.locator("#device-dialog")).toBeVisible();
+  await expect(page.locator('#device-form input[name="name"]')).toHaveValue("mediapc");
+  await page.keyboard.press("Escape");
+
+  // Ohne Hostnamen: nur der Name wird gefragt, mit Vorschlag
+  await page.getByRole("button", { name: /^Geräte suchen/ }).click();
+  const hit = drawer.locator(".found", { hasText: "192.168.1.41" });
+  await hit.getByRole("button", { name: "Übernehmen" }).click();
+  const name = hit.getByLabel("Name für dieses Gerät");
+  await expect(name).toBeFocused();
+  await expect(name).toHaveValue("Gerät-41");
+  await name.fill("");
+  await hit.getByRole("button", { name: "Übernehmen" }).click();
+  await expect(hit).toContainText("Bitte einen Gerätenamen eingeben.");
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await name.fill("Werkstatt");
+  await name.press("Enter");
+  await expect(drawer).not.toHaveClass(/open/);
+  await expect(page.locator(".card", { hasText: "Werkstatt" }).locator('[data-focus="wake"]')).toBeFocused();
+  const devs = await (await request.get("api/v1/devices")).json();
+  expect(devs.map((d) => [d.name, d.ip]).sort()).toEqual([["Werkstatt", "192.168.1.41"], ["mediapc", "192.168.1.40"]]);
+});
+
+test("Gerät von Hand: Hinweis, wo es die MAC-Adresse gibt", async ({ page }) => {
+  await page.goto("./");
+  await page.click("#add-device");
+  const mac = page.locator('#device-form input[name="mac"]');
+  await expect(mac).toHaveAccessibleDescription(/Netzwerkeinstellungen des Rechners.*Geräte suchen/);
+});
