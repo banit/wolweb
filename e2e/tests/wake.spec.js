@@ -30,9 +30,21 @@ test("keine Antwort: Paket wird wiederholt, dann Tipps", async ({ page, request 
   const nas = await offlineDevice(request, "NAS");
   await page.goto("wake/NAS");
   // Server: WOLWEB_WAKE_RETRY=2s, WOLWEB_WAKE_TIMEOUT=8s
+  await expect(page.locator('[data-step="check"] [data-detail]')).toHaveText("Noch nicht erreichbar – Weckruf wird gesendet");
+  await expect(page.locator("#wake-note")).toHaveText("Wir prüfen den Start bis zu 8 Sekunden und versuchen es bei Bedarf automatisch erneut.");
   await expect(page.locator('[data-step="wait"] [data-detail]')).toContainText("erneut gesendet", { timeout: 10000 });
   await expect(page.locator("#wake")).toHaveAttribute("data-state", "timeout", { timeout: 20000 });
-  await expect(page.locator("#wake-result li")).toHaveCount(3);
+  const result = page.locator("#wake-result");
+  await expect(result).toContainText("Start nicht bestätigt");
+  await expect(result).toContainText("Prüfe zuerst Stromversorgung und Netzwerkkabel. Ist der Rechner bereits an, kann die Rückmeldung blockiert sein.");
+  await expect(result.locator("details.help li")).toHaveCount(4); // Technisches unter „Hilfe“
+  await expect(result.locator("details.help li").first()).toBeHidden();
+  await result.getByText("Hilfe").click();
+  await expect(result.locator("details.help li").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Erneut wecken" })).toBeVisible();
+  await page.getByRole("button", { name: "Nochmals prüfen" }).click();
+  await expect(result).toContainText("Weiterhin keine Antwort");
+  await expect(page.locator("#wake")).toHaveAttribute("data-state", "timeout");
   await expect(async () => {
     const { events } = await (await request.get("api/v1/history")).json();
     expect(events.filter((e) => e.id === nas.id).map((e) => !!e.retry).sort()).toEqual([false, true]);
@@ -66,4 +78,20 @@ test("Gruppenseite: alle mit IP erreichbar heißt Start bestätigt", async ({ pa
   await page.goto("wake-group/Rack");
   await expect(page.locator("#group")).toHaveAttribute("data-state", "online", { timeout: 15000 });
   await expect(page.locator("#group-result")).toHaveClass(/\bok\b/);
+});
+
+test("Gruppenseite: keine Antwort – Hinweis, Hilfe, nochmals prüfen", async ({ page, request }) => {
+  test.setTimeout(45000);
+  await offlineDevice(request, "NAS", { group: "Keller" });
+  await onlineDevice(request, "Proxmox", { group: "Keller" });
+  await page.goto("wake-group/Keller");
+  await expect(page.locator("#group-note")).toContainText("Wir prüfen den Start bis zu 8 Sekunden");
+  await expect(page.locator("#group")).toHaveAttribute("data-state", "timeout", { timeout: 20000 });
+  const result = page.locator("#group-result");
+  await expect(result).toContainText("Prüfe zuerst Stromversorgung und Netzwerkkabel der fehlenden Geräte.");
+  await expect(result.locator("details.help li")).toHaveCount(4);
+  await expect(page.locator('#members li[data-s="late"]')).toHaveCount(1);
+  await page.getByRole("button", { name: "Nochmals prüfen" }).click();
+  await expect(result).toContainText("Weiterhin keine Antwort");
+  await expect(page.getByRole("button", { name: "Erneut wecken" })).toBeVisible();
 });

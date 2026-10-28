@@ -1,6 +1,6 @@
 // Übersicht: Geräte anlegen, suchen, filtern, wecken, Sprache und einfache Ansicht.
 const { test, expect } = require("@playwright/test");
-const { reset, addDevice, onlineDevice } = require("./helpers");
+const { reset, addDevice, onlineDevice, offlineDevice } = require("./helpers");
 
 test.beforeEach(async ({ request }) => {
   await reset(request);
@@ -277,4 +277,26 @@ test("Wecklink im Ablauf: nach dem Anlegen anbieten, Umbenennen hält alte Links
   await page.goto("wake/" + encodeURIComponent("Büro-PC"));
   await expect(page).toHaveURL(/\/wake\/Arbeitszimmer$/);
   await expect(page.locator("#wake-title")).toContainText("Arbeitszimmer");
+});
+
+test("Start nicht bestätigt: Warnung bleibt stehen, nochmals prüfen", async ({ page, request }) => {
+  test.setTimeout(45000);
+  await offlineDevice(request, "NAS");
+  await page.goto("./");
+  const card = page.locator(".card", { hasText: "NAS" });
+  await card.locator(".btn-wake").click();
+  // Server: WOLWEB_WAKE_TIMEOUT=8s
+  const warn = card.locator(".card-warn");
+  await expect(warn).toContainText("Start nicht bestätigt", { timeout: 20000 });
+  const toast = page.locator(".toast.warn", { hasText: "NAS" });
+  await expect(toast).toBeVisible();
+  await page.waitForTimeout(5000); // früher nach 4 s verschwunden
+  await expect(toast).toBeVisible();
+  await expect(warn).toBeVisible();
+  await warn.getByRole("button", { name: "Nochmals prüfen" }).click();
+  await expect(page.locator("#toasts")).toContainText("NAS antwortet weiterhin nicht");
+  await toast.getByRole("button", { name: "Schließen" }).click();
+  await expect(toast).toBeHidden();
+  await warn.getByRole("button", { name: "Hinweis schließen" }).click();
+  await expect(card.locator(".card-warn")).toHaveCount(0);
 });

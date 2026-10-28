@@ -15,6 +15,7 @@
     foundFilter: "new",
     search: "",
     waking: new Map(), // id -> { start }
+    unconfirmed: new Set(), // Geräte, deren Start nach dem Wecken nicht bestätigt wurde – bis sie antworten
     editing: null,
     fresh: null, // { id, adopted } – eben angelegtes Gerät: die Karte zeigt die nächsten Schritte
     naming: null, // MAC eines Suchtreffers ohne Namen, für den gerade ein Name abgefragt wird
@@ -112,13 +113,16 @@
     if (n) n.focus({ preventScroll: true });
   }
 
+  // toast meldet kurz, was passiert ist. Warnungen bleiben stehen, bis sie geschlossen werden.
   function toast(kind, title, text) {
     const box = $("#toasts");
-    const t = el("div", { class: "toast " + kind }, // der Kasten selbst ist die Ansage (role=status)
+    const close = () => { n.classList.add("out"); setTimeout(() => n.remove(), 250); };
+    const n = el("div", { class: "toast " + kind }, // der Kasten selbst ist die Ansage (role=status)
       icon(kind === "ok" ? "check" : kind === "sent" ? "send" : kind === "err" ? "x" : "alert"),
-      el("div", {}, el("strong", { text: title }), text ? el("p", { text }) : null));
-    box.append(t);
-    setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 250); }, kind === "err" ? 7000 : 4200);
+      el("div", {}, el("strong", { text: title }), text ? el("p", { text }) : null),
+      kind === "warn" ? el("button", { class: "btn btn-ghost btn-sm icon-only toast-close", title: t("page.close"), "aria-label": t("page.close"), onclick: close }, icon("x")) : null);
+    box.append(n);
+    if (kind !== "warn") setTimeout(close, kind === "err" ? 7000 : 4200);
   }
 
   // ---------- Geräte ----------
@@ -158,6 +162,7 @@
       b.replaceChildren(b.dataset.label || (b.dataset.label = b.textContent), el("span", { class: "count", text: n }));
     }
     const list = state.devices.filter(matches);
+    for (const d of state.devices) if (deviceState(d) === "online") state.unconfirmed.delete(d.id); // doch noch gestartet
     $("#select-toggle").hidden = state.info.read_only || total < 2;
     for (const id of state.selected) if (!state.devices.some((d) => d.id === id)) state.selected.delete(id);
     $("#empty").hidden = total !== 0;
@@ -269,6 +274,7 @@
       d.note && !simple ? el("p", { class: "card-note", text: d.note }) : null,
       el("div", { class: "status-line" }, statusLine(d)),
       state.fresh && state.fresh.id === d.id && !ro ? nextSteps(d) : null,
+      state.unconfirmed.has(d.id) && s !== "waking" ? unconfirmedNote(d) : null,
       el("div", { class: "card-actions" },
         el("button", { class: "btn btn-primary btn-wake", disabled: s === "waking", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wake(d) },
           icon("power"), el("span", { text: s === "waking" ? t("ui.being_started") : s === "online" ? t("ui.wake_again") : t("ui.wake") })),
@@ -333,6 +339,7 @@
 
   async function wake(d) {
     if (state.waking.has(d.id)) return;
+    state.unconfirmed.delete(d.id);
     let res;
     try {
       res = await api("POST", "devices/" + encodeURIComponent(d.id) + "/wake");
@@ -392,8 +399,33 @@
       renderDevices();
     }
     state.waking.delete(d.id);
+    state.unconfirmed.add(d.id); // die Karte sagt es weiter, bis das Gerät antwortet
     renderDevices();
     toast("warn", t("ui.x_no_answer", d.name), t("ui.no_answer_after", fmtDuration(Date.now() - start)));
+  }
+
+  // unconfirmedNote: Start nicht bestätigt – bleibt auf der Karte, mit „Nochmals prüfen“.
+  function unconfirmedNote(d) {
+    return el("div", { class: "card-warn" },
+      el("p", {}, icon("alert"), el("span", { text: t("ui.unconfirmed", d.name) })),
+      el("div", { class: "card-next-actions" },
+        el("button", { class: "btn btn-secondary btn-sm", "data-focus": "recheck", "aria-describedby": "dn-" + d.id, onclick: () => recheck(d) }, icon("search"), el("span", { text: t("wake.btn.recheck") })),
+        el("span", { class: "spacer" }),
+        el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.next.dismiss"), "aria-label": t("ui.next.dismiss"), "data-focus": "dismiss-warn",
+          onclick: () => { state.unconfirmed.delete(d.id); renderDevices(); focusCard(d.id); } }, icon("x"))));
+  }
+  async function recheck(d) {
+    let st = null;
+    try { st = await api("GET", "devices/" + encodeURIComponent(d.id) + "/status"); } catch (e) { /* keine Antwort */ }
+    const cur = state.devices.find((x) => x.id === d.id);
+    if (cur && st) cur.status = st;
+    if (st && st.state === "online") {
+      state.unconfirmed.delete(d.id);
+      toast("ok", t("ui.x_is_online", d.name), t("wake.result.late_text", d.name));
+    } else {
+      toast("err", t("ui.still_no_answer", d.name), t("ui.unconfirmed_hint"));
+    }
+    renderDevices();
   }
 
   // Laufende Zeitanzeige beim Wecken

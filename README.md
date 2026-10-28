@@ -82,7 +82,11 @@ nächste geplante Weckzeit oder „Zeitplan pausiert“.
 Der Name ist nicht von Groß-/Kleinschreibung abhängig. Nach dem Umbenennen gelten alte Links weiter: Browser
 werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich bis zu zehn frühere Namen; vergibt man
 einen davon neu, gehört der Link ab dann dem neuen Gerät). Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
-ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts.
+ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts. Während
+des Wartens nennt sie, wie lange geprüft wird (`status.wake_timeout`) und ob automatisch erneut gesendet wird. Kommt
+keine Antwort, bleibt „Start nicht bestätigt“ mit dem Naheliegenden stehen (Strom, Netzwerkkabel, blockierte
+Rückmeldung), dazu „Nochmals prüfen“ (ohne zu wecken), „Erneut wecken“ und technische Tipps unter „Hilfe“. Die
+Übersicht zeigt die Warnung auf der Karte, bis das Gerät antwortet.
 `HEAD`-Anfragen (Linkprüfer, Vorschauen in Messengern) wecken nie.
 
 Tipp: Die Weckseite auf dem Handy „Zum Home-Bildschirm“ hinzufügen – dann weckt ein Tipp aufs Symbol das Gerät.

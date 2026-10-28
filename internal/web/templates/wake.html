@@ -42,11 +42,13 @@
     <li data-step="online"><span class="step-dot"></span><div><strong>{{.T "ui.online"}}</strong><small class="muted" data-detail></small></div></li>
   </ol>
 
+  <p class="muted small wake-note" id="wake-note" hidden></p>
   <p class="sr-only" id="wake-live" role="status"></p>
   <div class="wake-result" id="wake-result" hidden></div>
 
   <div class="wake-actions">
     <a class="btn btn-ghost" href="./"><svg aria-hidden="true" class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.overview"}}</a>
+    <button class="btn btn-secondary" id="wake-check" hidden><svg aria-hidden="true" class="ico"><use href="#i-search"/></svg><span>{{.T "wake.btn.recheck"}}</span></button>
     <button class="btn btn-secondary" id="wake-again" hidden><svg aria-hidden="true" class="ico"><use href="#i-refresh"/></svg><span>{{.T "wake.btn.again"}}</span></button>
   </div>
 {{else}}

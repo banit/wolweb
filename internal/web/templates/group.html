@@ -43,11 +43,13 @@
     {{end}}
   </ul>
 
+  <p class="muted small wake-note" id="group-note" hidden></p>
   <p class="sr-only" id="group-live" role="status"></p>
   <div class="wake-result" id="group-result" hidden></div>
 
   <div class="wake-actions">
     <a class="btn btn-ghost" href="./"><svg aria-hidden="true" class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.overview"}}</a>
+    <button class="btn btn-secondary" id="group-check" hidden><svg aria-hidden="true" class="ico"><use href="#i-search"/></svg><span>{{.T "wake.btn.recheck"}}</span></button>
     <button class="btn btn-secondary" id="group-again" hidden><svg aria-hidden="true" class="ico"><use href="#i-refresh"/></svg><span>{{.T "wake.btn.again"}}</span></button>
   </div>
 </main>

@@ -12,6 +12,8 @@
   const title = document.getElementById("wake-title");
   const result = document.getElementById("wake-result");
   const again = document.getElementById("wake-again");
+  const recheckBtn = document.getElementById("wake-check");
+  const note = document.getElementById("wake-note"); // wie lange geprüft wird
   const live = document.getElementById("wake-live"); // sagt Screenreadern die Phasen an
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -24,6 +26,10 @@
   function fmt(ms) {
     const s = Math.floor(ms / 1000);
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+  // duration: „3 Minuten“, „90 Sekunden“ – für die Ansage, wie lange geprüft wird.
+  function duration(sec) {
+    return sec >= 60 && sec % 60 === 0 ? window.wolwebI18n.tn("wake.minutes", sec / 60) : window.wolwebI18n.tn("wake.seconds", sec);
   }
   function human(ms) {
     const s = Math.round(ms / 1000);
@@ -48,14 +54,19 @@
       p.textContent = text;
       result.append(p);
     }
-    if (tips) {
+    if (tips) { // technische Tipps aufklappbar unter „Hilfe“
+      const box = document.createElement("details");
+      box.className = "help";
+      const sum = document.createElement("summary");
+      sum.textContent = t("wake.help");
       const ul = document.createElement("ul");
-      for (const t of tips) {
+      for (const tip of tips) {
         const li = document.createElement("li");
-        li.textContent = t;
+        li.textContent = tip;
         ul.append(li);
       }
-      result.append(ul);
+      box.append(sum, ul);
+      result.append(box);
     }
     result.hidden = false;
   }
@@ -90,6 +101,7 @@
     if (running) return;
     running = true;
     again.hidden = true;
+    recheckBtn.hidden = true;
     result.hidden = true;
     for (const id of ["check", "send", "wait", "online"]) step(id, "", "");
     setTitle(t("wake.title.starting", name), t("wake.tab.start", name));
@@ -156,6 +168,8 @@
 
     // 3. Warten, bis das Gerät antwortet
     setState("wait");
+    note.textContent = t(retry ? "wake.wait.note_retry" : "wake.wait.note", duration(timeout / 1000));
+    note.hidden = false;
     const start = Date.now();
     step("wait", "active", t("wake.wait.active", "0:00"));
     const tick = setInterval(() => {
@@ -171,6 +185,7 @@
       } catch (e) { /* kurz nicht erreichbar – weiter versuchen */ }
     }
     clearInterval(tick);
+    note.hidden = true;
     const took = Date.now() - start;
 
     if (online) {
@@ -184,13 +199,46 @@
       step("online", "", "");
       setState("timeout");
       setTitle(t("wake.title.no_answer"), "! " + name);
-      showResult("warn", t("wake.result.timeout"), t("wake.result.timeout_text"), [t("wake.tip.bios"), t("wake.tip.power"), t("wake.tip.firewall")]);
-      again.querySelector("span").textContent = t("wake.btn.again");
+      // Bleibt stehen, bis der Nutzer etwas tut: erst das Naheliegende, Technisches unter „Hilfe“.
+      showResult("warn", t("wake.result.timeout"), t("wake.result.timeout_text"), [t("wake.tip.bios"), t("wake.tip.windows"), t("wake.tip.power"), t("wake.tip.firewall")]);
+      again.querySelector("span").textContent = t("wake.btn.wake_again");
       again.hidden = false;
+      recheckBtn.hidden = false;
     }
     running = false;
   }
 
+  // recheck prüft nach Ablauf noch einmal, ohne zu wecken – der Start kann länger gedauert haben.
+  async function recheck() {
+    if (running) return;
+    running = true;
+    recheckBtn.disabled = true;
+    let st = null;
+    try { st = await status(); } catch (e) { /* zählt als keine Antwort */ }
+    recheckBtn.disabled = false;
+    running = false;
+    if (st && st.state === "online") {
+      step("wait", "done", "");
+      step("online", "done", via(st));
+      setState("online");
+      setTitle(t("wake.title.confirmed", name), "✓ " + name);
+      showResult("ok", t("wake.result.started"), t("wake.result.late_text", name));
+      recheckBtn.hidden = true;
+      again.querySelector("span").textContent = t("wake.btn.send_anyway");
+      return;
+    }
+    const clock = new Date().toLocaleTimeString(window.wolwebI18n.locale, { hour: "2-digit", minute: "2-digit" });
+    let p = result.querySelector("[data-still]");
+    if (!p) {
+      p = document.createElement("p");
+      p.dataset.still = "";
+      result.querySelector("strong").after(p);
+    }
+    p.textContent = t("wake.result.still_no_answer", clock);
+    live.textContent = p.textContent;
+  }
+
   again.addEventListener("click", () => run(true));
+  recheckBtn.addEventListener("click", recheck);
   run(false);
 })();
