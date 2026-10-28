@@ -1,20 +1,25 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"wolweb/internal/i18n"
 )
 
 func TestLegacyImport(t *testing.T) {
 	dir := t.TempDir()
 	legacy := filepath.Join(dir, "old.json")
 	os.WriteFile(legacy, []byte(`{"devices":[
-		{"name":"NAS","mac":"28-c6-8e-36-dc-38","ip":"192.168.1.255:9","interface":""},
-		{"name":"NAS","mac":"28:c6:8e:36:dc:39","ip":"10.0.0.255"},
+		{"name":"NAS","mac":"02-aa-bb-cc-dc-38","ip":"192.168.1.255:9","interface":""},
+		{"name":"NAS","mac":"02:aa:bb:cc:dc:39","ip":"10.0.0.255"},
 		{"name":"kaputt","mac":"xyz","ip":""}]}`), 0o644)
 	s, notes, err := Open(filepath.Join(dir, "data"), legacy)
 	if err != nil {
@@ -30,7 +35,7 @@ func TestLegacyImport(t *testing.T) {
 	if devs[0].Name != "NAS" || devs[1].Name != "NAS 2" {
 		t.Errorf("Namen: %q, %q", devs[0].Name, devs[1].Name)
 	}
-	if devs[0].MAC != "28:C6:8E:36:DC:38" || devs[0].Broadcast != "192.168.1.255:9" || devs[1].Broadcast != "10.0.0.255:9" {
+	if devs[0].MAC != "02:AA:BB:CC:DC:38" || devs[0].Broadcast != "192.168.1.255:9" || devs[1].Broadcast != "10.0.0.255:9" {
 		t.Errorf("Umwandlung falsch: %+v", devs)
 	}
 	// Neu öffnen: eigenes Format, gleiche Daten
@@ -149,17 +154,82 @@ func TestOldFoundEntriesExpire(t *testing.T) {
 
 func TestLegacyFileInDataDirIsBackedUp(t *testing.T) {
 	dir := t.TempDir()
-	orig := []byte(`{"devices":[{"name":"NAS","mac":"28:c6:8e:36:dc:38","ip":"192.168.1.255:9"}]}`)
+	orig := []byte(`{"devices":[{"name":"NAS","mac":"02:00:00:00:00:38","ip":"192.168.1.255:9"}]}`)
 	os.WriteFile(filepath.Join(dir, "devices.json"), orig, 0o644)
 	if _, _, err := Open(dir, ""); err != nil {
 		t.Fatal(err)
 	}
-	baks, _ := filepath.Glob(filepath.Join(dir, "devices.json.alt-*"))
+	baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-original-*", "devices.json"))
 	if len(baks) != 1 {
 		t.Fatalf("Sicherungen: %v", baks)
 	}
 	if b, _ := os.ReadFile(baks[0]); string(b) != string(orig) {
 		t.Errorf("Sicherung weicht ab: %s", b)
+	}
+}
+
+// Update von 1.0.x: Vor dem ersten Schreiben im neuen Format liegt eine Sicherung mit Versionsangabe
+// bereit (für den Weg zurück), einmal – nicht bei jedem Start. Unicast-Ziele bleiben, wie sie sind.
+func TestUpdateFrom10BacksUpOnce(t *testing.T) {
+	old := AppVersion
+	AppVersion = "1.2.0"
+	defer func() { AppVersion = old }()
+	dir := t.TempDir()
+	orig := []byte(`{"version":2,"devices":[
+		{"id":"abc","name":"NAS","mac":"02:00:00:00:00:01","broadcast":"10.0.0.5:7","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","last_wake":"2026-09-01T10:00:00Z"},
+		{"id":"def","name":"PC","mac":"02:00:00:00:00:02","broadcast":"10.0.0.255:9","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}`)
+	os.WriteFile(filepath.Join(dir, "devices.json"), orig, 0o644)
+	os.WriteFile(filepath.Join(dir, "discovered.json"), []byte(`[]`), 0o644)
+	s, notes, err := Open(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-1.0.x-*"))
+	if len(baks) != 1 || !strings.Contains(strings.Join(notes, " "), "1.0.x") {
+		t.Fatalf("Sicherungen: %v, Hinweise %v", baks, notes)
+	}
+	if b, _ := os.ReadFile(filepath.Join(baks[0], "devices.json")); string(b) != string(orig) {
+		t.Errorf("Sicherung weicht ab: %s", b)
+	}
+	if _, err := os.Stat(filepath.Join(baks[0], "discovered.json")); err != nil {
+		t.Errorf("discovered.json nicht gesichert: %v", err)
+	}
+	// Unicast-Ziel in einem anderen Netz unverändert, auch nach dem Speichern
+	if d, _ := s.Get("abc"); d.Broadcast != "10.0.0.5:7" {
+		t.Errorf("Ziel geändert: %q", d.Broadcast)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "devices.json"))
+	if !strings.Contains(string(b), `"writer": "1.2.0"`) || !strings.Contains(string(b), `"broadcast": "10.0.0.5:7"`) {
+		t.Errorf("neu geschrieben: %s", b)
+	}
+	// Zweiter Start derselben Version: keine weitere Sicherung
+	if _, _, err := Open(dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	if baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-*")); len(baks) != 1 {
+		t.Errorf("weitere Sicherung: %v", baks)
+	}
+	// Nächstes Update (1.2.0 → 1.3.0): wieder eine Sicherung, jetzt mit der alten Version im Namen
+	AppVersion = "1.3.0"
+	if _, _, err := Open(dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	if baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-1.2.0-*")); len(baks) != 1 {
+		t.Errorf("keine Sicherung von 1.2.0: %v", baks)
+	}
+}
+
+// Original-wolweb: ein Unicast-Ziel (einzelne IP:Port in einem anderen Netz) wird wörtlich übernommen.
+func TestLegacyUnicastTargetKept(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "old.json")
+	os.WriteFile(legacy, []byte(`{"devices":[{"name":"Server","mac":"02:00:00:00:00:03","ip":"10.0.0.5:7","interface":""}]}`), 0o644)
+	s, _, err := Open(filepath.Join(dir, "data"), legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if devs, _ := s.Devices(); len(devs) != 1 || devs[0].Broadcast != "10.0.0.5:7" {
+		t.Errorf("%+v", devs)
 	}
 }
 
@@ -295,5 +365,122 @@ func TestImportKeepsWakeKeysAndSecret(t *testing.T) {
 	res, _ = other.Import(b, "de")
 	if res.SecretRestored || !bytesEqual(other.Secret(), before) {
 		t.Error("Geheimnis einer bestehenden Installation überschrieben")
+	}
+}
+
+// Alte Dateien: Jeder ungültige Eintrag wird gemeldet, ein ungültiges Ziel nie still durch den
+// Standard ersetzt – beim ausdrücklichen Import wie beim automatischen beim Start.
+func TestLegacyProblemsReported(t *testing.T) {
+	old := []byte(`{"devices":[
+		{"name":"Gut","mac":"02:00:00:00:00:01","ip":"10.0.0.255:9"},
+		{"name":"Port","mac":"02:00:00:00:00:02","ip":"10.0.0.5:70000"},
+		{"name":"Kaputt","mac":"xyz","ip":""}]}`)
+	s, _, _ := Open(t.TempDir(), "")
+	res, err := s.Import(old, i18n.DE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Added != 1 || len(res.Errors) != 2 || !strings.Contains(res.Errors[0], "Kaputt") && !strings.Contains(res.Errors[1], "Kaputt") ||
+		!strings.Contains(strings.Join(res.Errors, " "), "10.0.0.5:70000") {
+		t.Errorf("%+v", res)
+	}
+	if devs, _ := s.Devices(); len(devs) != 1 || devs[0].Broadcast != "10.0.0.255:9" {
+		t.Errorf("übernommen: %+v", devs)
+	}
+
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "alt.json")
+	os.WriteFile(legacy, old, 0o644)
+	s2, notes, err := Open(filepath.Join(dir, "data"), legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(notes, "\n")
+	if !strings.Contains(all, "Port") || !strings.Contains(all, "70000") || !strings.Contains(all, "Kaputt") {
+		t.Errorf("Hinweise: %s", all)
+	}
+	if devs, _ := s2.Devices(); len(devs) != 1 {
+		t.Errorf("beim Start übernommen: %+v", devs)
+	}
+}
+
+// Scheitert das Speichern des Verlaufs, holt FlushState es später nach.
+func TestRecordWakeRetriedAfterSaveError(t *testing.T) {
+	dir := t.TempDir()
+	s, _, _ := Open(dir, "")
+	d, _ := s.Create(Input{Name: "PC", MAC: "02:00:00:00:00:01"})
+	path := filepath.Join(dir, "state.json")
+	os.Remove(path)
+	os.Mkdir(path, 0o755) // an der Stelle steht jetzt ein Ordner: Schreiben scheitert
+	if err := s.RecordWake(Event{ID: d.ID, Device: d.Name, Source: "api", Success: true}); err == nil {
+		t.Fatal("Speichern hätte scheitern müssen")
+	}
+	os.Remove(path)
+	if err := s.FlushState(); err != nil {
+		t.Fatal(err)
+	}
+	s2, _, err := Open(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := s2.History(0); len(h) != 1 || h[0].Device != "PC" || s2.LastWake(d.ID).IsZero() {
+		t.Errorf("Verlauf verloren: %+v", h)
+	}
+}
+
+// Frühere Namen: höchstens maxAliases, und Export/Import behält sie (nicht aber fremde).
+func TestAliasesCappedAndImported(t *testing.T) {
+	st, _, _ := Open(t.TempDir(), "")
+	d, _ := st.Create(Input{Name: "PC0", MAC: "02:00:00:00:00:01"})
+	for i := 1; i <= maxAliases+3; i++ {
+		var err error
+		if d, err = st.Update(d.ID, Input{Name: fmt.Sprintf("PC%d", i), MAC: d.MAC}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(d.Aliases) != maxAliases || d.Aliases[len(d.Aliases)-1] != fmt.Sprintf("PC%d", maxAliases+2) {
+		t.Fatalf("%v", d.Aliases)
+	}
+	if got, ok := st.FindByName("PC5"); !ok || got.ID != d.ID {
+		t.Error("alter Name nicht gefunden")
+	}
+	b, err := json.Marshal(map[string]any{"version": 2, "devices": []Device{d}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, _ := Open(t.TempDir(), "")
+	other.Create(Input{Name: "PC5", MAC: "02:00:00:00:00:09"}) // trägt einen der alten Namen schon
+	if _, err := other.Import(b, i18n.DE); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := other.FindByName(d.Name)
+	if len(got.Aliases) != maxAliases-1 || slices.Contains(got.Aliases, "PC5") {
+		t.Errorf("importiert: %v", got.Aliases)
+	}
+}
+
+// Das Importergebnis nennt jeden Eintrag: übernommen (ggf. umbenannt), schon vorhanden, fehlerhaft.
+func TestImportListsEveryEntry(t *testing.T) {
+	st, _, _ := Open(t.TempDir(), "")
+	st.Create(Input{Name: "NAS", MAC: "02:00:00:00:00:01"})
+	b := []byte(`{"version":2,"devices":[
+		{"name":"Speicher","mac":"02:00:00:00:00:01"},
+		{"name":"NAS","mac":"02:00:00:00:00:02"},
+		{"name":"Kaputt","mac":"xyz"},
+		{"name":"Drucker","mac":"02:00:00:00:00:03"}]}`)
+	res, err := st.Import(b, i18n.DE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, it := range res.Items {
+		got = append(got, it.Name+"|"+it.Result+"|"+it.NewName)
+	}
+	want := []string{"Speicher|skipped|", "NAS|added|NAS 2", "Kaputt|error|", "Drucker|added|"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("%v", got)
+	}
+	if res.Items[0].Detail != "NAS" || res.Items[2].Detail == "" || res.Added != 2 || res.Skipped != 1 || len(res.Errors) != 1 {
+		t.Errorf("%+v", res)
 	}
 }

@@ -1,9 +1,12 @@
 services:
   wolweb:
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: "1.2.0" # steht unten in der Übersicht und benennt die Sicherung beim nächsten Update
     image: wolweb:latest
     # Statt selbst zu bauen das fertige Image (amd64, arm64, armv7) eines Releases nehmen:
-    # image: ghcr.io/banit/wolweb:latest   – und die Zeile "build: ." entfernen
+    # image: ghcr.io/banit/wolweb:latest   – und den Block "build:" entfernen
     container_name: wolweb
     restart: unless-stopped
     # Magic Packets (Broadcast) und ARP-Scan brauchen das Netz des Hosts – Port-Mappings gibt es dann nicht.
@@ -14,10 +17,10 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       WOLWEB_PORT: "8089"
-      # Gesetzte Variablen haben Vorrang und sind auf der Einstellungsseite gesperrt. Wer Netze und Suche
-      # lieber dort pflegt (mit Namen und VLAN), lässt die nächsten beiden Zeilen weg.
-      WOLWEB_NETWORKS: "192.168.1.0/24"   # Netze für die Netzwerksuche, kommagetrennt
-      WOLWEB_SCAN_INTERVAL: "30m"
+      # Netze für die Suche: ohne Angabe erkennt wolweb das Heimnetz selbst (bei mehreren fragt die
+      # Oberfläche). Gesetzte Variablen haben Vorrang und sind auf der Einstellungsseite gesperrt.
+      # WOLWEB_NETWORKS: "192.168.1.0/24"   # nur nötig, um das Netz fest vorzugeben (kommagetrennt)
+      # WOLWEB_SCAN_INTERVAL: "30m"
       # WOLWEB_BCASTIP: "192.168.1.255:9"      # leer = automatisch (Netz der Geräte-IP bzw. des Suchsegments)
       # WOLWEB_USER: "admin"
       # WOLWEB_PASSWORD: "bitte-ändern"

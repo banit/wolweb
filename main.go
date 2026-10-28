@@ -40,6 +40,11 @@ func main() {
 		os.Exit(runHealthcheck(cfg))
 	}
 	log.Printf("wolweb %s", version)
+	if !cfg.AuthEnabled() && len(cfg.AllowedHosts) == 0 {
+		log.Print("Hinweis: Ohne Anmeldung nimmt wolweb nur Aufrufe über IP-Adressen und lokale Namen (nas, *.lan, " +
+			"*.local, *.fritz.box …) an – Schutz vor DNS-Rebinding. Läuft es hinter einem Reverse-Proxy mit eigener " +
+			`Domain, diese erlauben: in den Einstellungen unter Sicherheit oder mit "allowed_hosts" bzw. WOLWEB_ALLOWED_HOSTS.`)
+	}
 	if cfg.Auth.WakeKeys && !cfg.AuthEnabled() {
 		log.Print("Hinweis: auth.wake_keys wirkt nur zusammen mit einer Anmeldung (auth.username/password oder api_token)")
 	}
@@ -53,6 +58,7 @@ func main() {
 	}
 
 	legacy, _ := filepath.Abs(*legacyPath)
+	store.AppVersion = version
 	st, notes, err := store.Open(cfg.DataDir, legacy)
 	if errors.Is(err, fs.ErrPermission) {
 		log.Fatalf("Datenverzeichnis %s ist nicht beschreibbar: %v\n"+
@@ -87,7 +93,16 @@ func main() {
 	go mon.Run(ctx)
 	go ws.RunSchedules(ctx)
 	go st.RunFlush(ctx)
-	if nets := cfg.Discovery.ScanCIDRs(); scanInterval > 0 && len(nets) > 0 {
+	switch home := discovery.HomeNets(cfg.Discovery.MaxHosts); {
+	case len(cfg.Discovery.Networks) > 0:
+	case len(home) == 1:
+		log.Printf("Netzwerksuche: Heimnetz %s (%s) automatisch erkannt", home[0].Prefix, home[0].Interface)
+	case len(home) > 1:
+		log.Printf("Netzwerksuche: %d mögliche Heimnetze – in der Oberfläche unter „Geräte suchen“ eins wählen", len(home))
+	default:
+		log.Print("Netzwerksuche: kein Heimnetz erkannt – in den Einstellungen ein Netz eintragen")
+	}
+	if nets := scanner.Networks(); scanInterval > 0 && len(nets) > 0 {
 		log.Printf("Automatische Suche alle %s in %v", scanInterval, nets)
 	}
 	go scanner.RunAuto(ctx) // ruht, solange kein Abstand eingestellt ist

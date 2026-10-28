@@ -37,10 +37,10 @@ func TestCatalogsMatch(t *testing.T) {
 }
 
 func TestT(t *testing.T) {
-	if got := T(EN, "msg.wake_sent", "NAS"); got != "Magic packet sent to NAS." {
+	if got := T(EN, "msg.wake_sent", "NAS"); got != "Wake-up call sent to NAS." {
 		t.Errorf("EN: %q", got)
 	}
-	if got := T(DE, "msg.group_sent", 2, 3, "Homelab"); got != "Magic Packet an 2 von 3 Geräten der Gruppe Homelab gesendet." {
+	if got := T(DE, "msg.group_sent", 2, 3, "Homelab"); got != "Weckruf an 2 von 3 Geräten der Gruppe Homelab gesendet." {
 		t.Errorf("DE: %q", got)
 	}
 	if got := T(EN, "gibt.es.nicht"); got != "gibt.es.nicht" {
@@ -48,8 +48,8 @@ func TestT(t *testing.T) {
 	}
 	// Verschachtelte Meldung wird mitübersetzt, Fehler bleiben mit errors.Is erreichbar.
 	inner := errors.New("connection refused")
-	m := M("wol.send", "1.2.3.4:9", inner)
-	if got := m.In(EN); got != "Sending to 1.2.3.4:9: connection refused" {
+	m := M("wol.send", "192.168.1.255:9", inner)
+	if got := m.In(EN); got != "Sending to 192.168.1.255:9: connection refused" {
 		t.Errorf("verschachtelt: %q", got)
 	}
 	if !errors.Is(m, inner) {

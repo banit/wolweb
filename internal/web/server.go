@@ -44,6 +44,8 @@ type Server struct {
 	retry    retries
 	tmpl     *template.Template
 	limiter  wakeLimiter
+	rejected rejectedHosts // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
+	schedRan ranSchedules  // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
 	hub      hub
 
 	wakesMu sync.Mutex
@@ -123,11 +125,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+api+"events", s.events)
 	mux.HandleFunc("GET "+api+"devices", s.listDevices)
 	mux.HandleFunc("POST "+api+"devices", s.writable(s.createDevice))
+	mux.HandleFunc("POST "+api+"devices/group", s.writable(s.setGroup))
 	mux.HandleFunc("PUT "+api+"devices/{id}", s.writable(s.updateDevice))
 	mux.HandleFunc("DELETE "+api+"devices/{id}", s.writable(s.deleteDevice))
 	mux.HandleFunc("POST "+api+"devices/{id}/wake", s.wakeDevice)
 	mux.HandleFunc("GET "+api+"devices/{id}/status", s.deviceStatus)
 	mux.HandleFunc("POST "+api+"devices/{id}/wake-key", s.writable(s.rotateWakeKey))
+	mux.HandleFunc("GET "+api+"schedule/preview", s.schedulePreview)
 	mux.HandleFunc("GET "+api+"groups", s.listGroups)
 	mux.HandleFunc("POST "+api+"groups/{name}/wake", s.wakeGroupAPI)
 	mux.HandleFunc("GET "+api+"history", s.history)
@@ -138,6 +142,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+api+"discovery/cancel", s.cancelScan)
 	mux.HandleFunc("POST "+api+"discovery/{mac}/ignore", s.writable(s.ignoreFound))
 	mux.HandleFunc("DELETE "+api+"discovery/{mac}", s.writable(s.forgetFound))
+	mux.HandleFunc("POST "+api+"discovery/network", s.withSettings(s.writable(s.chooseNetwork)))
 	mux.HandleFunc("GET "+base+"settings", s.withSettings(s.settingsPage))
 	mux.HandleFunc("GET "+api+"settings", s.withSettings(s.getSettings))
 	mux.HandleFunc("PUT "+api+"settings", s.withSettings(s.writable(s.putSettings)))
@@ -199,7 +204,9 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 		default:
 			if r.Header.Get("X-WolWeb") == "" && !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
-				s.fail(w, r, http.StatusForbidden, "err.csrf")
+				// Die Meldung ist für Menschen; wer die API anspricht, liest in "error", was fehlt.
+				writeJSON(w, http.StatusForbidden, map[string]any{"success": false, "message": i18n.T(s.lang(r), "err.csrf"),
+					"error": `header "X-WolWeb: 1" missing`})
 				return
 			}
 		}
@@ -309,6 +316,7 @@ type pageData struct {
 	Retry   int // Sekunden bis zur automatischen Wiederholung, 0 = keine
 	Missing string
 	Key     string // Weckschlüssel, den die Weckseite bei ihren Aufrufen mitschickt
+	Host    string // abgelehnter Hostname (blocked.html)
 	Group   *groupView
 
 	Lang      i18n.Lang         // Sprache der Seite
@@ -460,6 +468,39 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(d))
 }
 
+// setGroup ordnet mehrere Geräte auf einmal einer Gruppe zu (Mehrfachauswahl in der Übersicht);
+// eine leere Gruppe nimmt sie aus ihrer Gruppe.
+func (s *Server) setGroup(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		IDs   []string `json:"ids"`
+		Group string   `json:"group"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	if len(in.IDs) == 0 {
+		s.storeError(w, r, store.Invalid("err.none_selected"))
+		return
+	}
+	devs, err := s.store.SetGroup(in.IDs, in.Group)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	group := in.Group
+	if len(devs) > 0 {
+		group = devs[0].Group // Schreibweise einer schon vorhandenen Gruppe
+	}
+	log.Printf("Gruppe %q für %d Geräte gesetzt", group, len(devs))
+	s.devicesChanged()
+	out := make([]deviceView, 0, len(devs))
+	for _, d := range devs {
+		out = append(out, s.view(d))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"group": group, "devices": out})
+}
+
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Delete(r.PathValue("id")); err != nil {
 		s.storeError(w, r, err)
@@ -505,6 +546,7 @@ type wakeResult struct {
 	ID      string `json:"id,omitempty"`
 	Target  string `json:"target,omitempty"`
 	Online  *bool  `json:"online,omitempty"`
+	Already bool   `json:"already,omitempty"` // eben erst geweckt – kein neuer Weckruf, der Start läuft
 }
 
 // caller beschreibt den Aufrufer für den Verlauf: IP-Adresse (hinter einem Reverse-Proxy samt
@@ -551,8 +593,15 @@ const (
 
 // wake sendet das Magic Packet und trägt den Versuch in den Verlauf ein. r darf nil sein
 // (Zeitplan); source sagt, woher der Auftrag kam, group nennt bei Gruppen deren Namen.
+// Wurde d eben erst geweckt, geht kein weiterer Weckruf raus (siehe wakeDedupWindow).
 func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wakeResult, int) {
+	if res, busy := s.alreadyWaking(r, d); busy {
+		return res, http.StatusOK
+	}
 	res, code, a := s.sendWake(r, d, source, group)
+	if !res.Success {
+		s.limiter.release(d.ID)
+	}
 	s.recordWakes(a)
 	return res, code
 }
@@ -572,6 +621,13 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 	evs := make([]store.Event, len(as))
 	for i, a := range as {
 		evs[i] = a.ev
+		// Für den Verlauf in Worten: Ließ sich der Start prüfen, lief das Gerät schon?
+		if ip, _ := s.monitor.Target(a.d); ip.IsValid() {
+			evs[i].Checkable = true
+			if st, ok := s.monitor.Get(a.d.ID); ok && st.State == "online" && !a.ev.Retry {
+				evs[i].WasOnline = true
+			}
+		}
 	}
 	if err := s.store.RecordWake(evs...); err != nil {
 		log.Printf("Verlauf speichern: %v", err)
@@ -579,11 +635,14 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 	s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
 	for _, a := range as {
 		ev := a.ev
+		if ev.Success {
+			s.limiter.mark(ev.ID) // auch Zeitplan und Wiederholung: ein Tippen gleich danach weckt nicht nochmal
+		}
 		// Benachrichtigungen in der eingestellten Sprache – sie gehen an niemand Bestimmtes.
 		src := i18n.T(s.rt().lang, "ui.src."+ev.Source, ev.Group)
 		result, kind, msg := "ok", notify.Wake, i18n.T(s.rt().lang, "notify.wake", ev.Device, src)
 		if !ev.Success {
-			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.rt().lang, "notify.wake_failed", ev.Device, ev.Error)
+			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.rt().lang, "notify.wake_failed", ev.Device, ev.Localized(s.rt().lang).Error)
 		}
 		s.wakesMu.Lock()
 		s.wakes[[2]string{ev.ID, result}]++
@@ -614,7 +673,7 @@ func (s *Server) sendWake(r *http.Request, d store.Device, source, group string)
 	if err != nil {
 		log.Printf("Wecken von %s fehlgeschlagen: %v", d.Name, err)
 		res.Message, res.Error = i18n.T(l, "msg.wake_failed", d.Name), i18n.Text(l, err)
-		a.ev.Error = res.Error
+		a.ev.SetError(l, err) // im Verlauf später in der Sprache des Betrachters
 		return res, http.StatusInternalServerError, a
 	}
 	log.Printf("Magic Packet an %s (%s) über %s gesendet (%s)", d.Name, d.MAC, target, source)
@@ -664,6 +723,16 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 			s.render(w, r, http.StatusNotFound, "wake.html", pageData{Missing: name})
 			return
 		}
+		// Alter Name nach dem Umbenennen: zur neuen Adresse weiterleiten (Schlüssel & Co. bleiben dran),
+		// damit das Lesezeichen sichtbar die neue Adresse zeigt. Ohne Browser gilt der alte Name direkt.
+		if store.IsAlias(d, name) {
+			to := s.conf().VDir + "wake/" + pathEscape(d.Name)
+			if r.URL.RawQuery != "" {
+				to += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, to, http.StatusTemporaryRedirect) // nicht dauerhaft: der Name kann neu vergeben werden
+			return
+		}
 		v := s.view(d)
 		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds())}
 		if s.needsKey(r) {
@@ -674,9 +743,6 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		writeJSON(w, http.StatusNotFound, wakeResult{Message: i18n.T(s.lang(r), "err.device_not_found_name", name), Error: "not found"})
-		return
-	}
-	if s.limitPublic(w, r, "gerät:"+d.ID, "err.rate_limited", d.Name) {
 		return
 	}
 	res, code := s.wake(r, d, srcLink, "")
@@ -718,9 +784,6 @@ func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
-	if s.limitPublic(w, r, "gerät:"+d.ID, "err.rate_limited", d.Name) {
-		return
-	}
 	res, code := s.wake(r, d, srcPage, "")
 	writeJSON(w, code, res)
 }
@@ -741,7 +804,11 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > store.HistoryMax {
 		limit = 200
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": s.store.History(limit)})
+	events := s.store.History(limit)
+	for i := range events {
+		events[i] = events[i].Localized(s.lang(r))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
 
 func (s *Server) export(w http.ResponseWriter, r *http.Request) {
@@ -782,6 +849,8 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"version":           s.version,
 		"read_only":         s.conf().ReadOnly,
 		"networks":          s.scanner.Networks(),
+		"networks_auto":     s.scanner.Auto(),   // ohne Einstellung erkannt (genau ein Heimnetz)
+		"network_choices":   s.networkChoices(), // ohne Einstellung und ohne eindeutiges Heimnetz: zur Wahl
 		"segments":          s.segments(),
 		"settings":          s.settings != nil,
 		"local_networks":    discovery.LocalNets(),
@@ -793,6 +862,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"wake_retry":        int(s.rt().wakeRetry.Seconds()),
 		"ports":             s.conf().Status.Ports,
 		"wake_keys":         s.conf().Auth.WakeKeys && s.conf().AuthEnabled(),
+		"timezone":          localZone(), // Zeitpläne laufen in der Ortszeit des Servers
 	})
 }
 

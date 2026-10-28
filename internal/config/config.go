@@ -47,7 +47,7 @@ type Discovery struct {
 }
 
 // Network ist ein Netzsegment, oft ein VLAN. In config.json genügt "192.168.1.0/24"; mit Namen:
-// {"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20, "scan": false}.
+// {"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}.
 type Network struct {
 	CIDR string `json:"cidr"`
 	Name string `json:"name,omitempty"`
@@ -405,15 +405,26 @@ func (c *Config) normalize() error {
 	return nil
 }
 
-// CheckURL prüft eine Adresse für Benachrichtigungen (leer ist erlaubt).
+// CheckURL prüft eine Adresse für Benachrichtigungen (leer ist erlaubt). Die Meldung nennt die
+// Adresse nur gekürzt: Pfad, Parameter und Zugangsdaten enthalten oft das Geheimnis (ntfy-Thema,
+// Webhook-Token), und Konfigurationsfehler landen im Log.
 func CheckURL(field, v string) error {
 	if v == "" {
 		return nil
 	}
 	if p, err := url.Parse(v); err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" {
-		return invalid(field, "cfg.url", v)
+		return invalid(field, "cfg.url", RedactURL(v))
 	}
 	return nil
+}
+
+// RedactURL kürzt eine Adresse auf Schema und Host ("https://ntfy.example.com/…").
+func RedactURL(v string) string {
+	p, err := url.Parse(strings.TrimSpace(v))
+	if err != nil || p.Host == "" {
+		return "…"
+	}
+	return p.Scheme + "://" + p.Hostname() + "/…"
 }
 
 // ParseDuration akzeptiert Go-Dauern ("30s", "5m"); leer oder "0" bedeutet 0.

@@ -5,11 +5,43 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
 
 *English: see [below](#english).*
 
+## Schnellstart
+
+**Voraussetzungen:** ein Rechner, der ständig läuft und im selben Netz hängt wie die Geräte, die geweckt werden
+sollen – z. B. ein Raspberry Pi, ein NAS oder ein Proxmox-Container – mit Linux (für Docker: Docker mit Compose).
+Auf den Zielrechnern muss Wake on LAN eingeschaltet sein (BIOS/UEFI, unter Windows zusätzlich bei der
+Netzwerkkarte).
+
+1. **Starten**
+
+   mit Docker:
+
+   ```sh
+   git clone https://github.com/banit/wolweb.git && cd wolweb
+   docker compose up -d --build
+   ```
+
+   oder ohne Docker: die passende Datei unter [Releases](https://github.com/banit/wolweb/releases) laden
+   (z. B. `wolweb-1.2.0-linux-arm64` für einen Raspberry Pi 4/5) und starten:
+
+   ```sh
+   chmod +x wolweb-1.2.0-linux-arm64 && sudo ./wolweb-1.2.0-linux-arm64
+   ```
+
+2. **Öffnen:** `http://<Adresse>:8089` im Browser, z. B. `http://192.168.1.10:8089`.
+3. **Gerät übernehmen:** den Zielrechner einschalten, „Geräte suchen“ → „Übernehmen“. Das Heimnetz erkennt wolweb
+   selbst; Name, IP- und MAC-Adresse kommen aus der Suche.
+4. **Wecklink kopieren:** Die neue Karte bietet „Wecklink kopieren“ und „Auf dem Handy einrichten“. Ab dann weckt
+   das Öffnen von `http://<Adresse>:8089/wake/<Name>` den Rechner, und die Seite zeigt, wann er wirklich läuft.
+
+Alles Weitere – Dauerbetrieb mit systemd, Update, mehrere Netze und VLANs, Konfiguration, Benachrichtigungen,
+Metriken und die API – steht weiter unten.
+
 ![Übersicht mit Gruppen, Online-Status und nächster geplanter Weckzeit](docs/screenshots/overview-light.png)
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/wake-waiting.png" alt="Weckseite: Magic Packet gesendet, wartet auf den Start"></td>
+<td width="50%"><img src="docs/screenshots/wake-waiting.png" alt="Weckseite: Weckruf gesendet, wartet auf den Start"></td>
 <td width="50%"><img src="docs/screenshots/wake-online.png" alt="Weckseite: Gerät ist online"></td>
 </tr>
 <tr>
@@ -37,14 +69,16 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
   Gerät mit IP nach 45 Sekunden noch nicht, schickt wolweb es von selbst noch einmal – auch bei Wecklinks,
   Gruppen und Zeitplänen, wenn niemand mehr zuschaut
 - **Netzwerksuche**: findet eingeschaltete Geräte in freigegebenen Segmenten (IP, MAC, Hostname, Hersteller) –
-  per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen oder ignorieren
+  per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen (Name aus dem Hostnamen, ohne Dialog; fehlt er, wird nur
+  der Name gefragt) oder ignorieren
 - **Einstellungsseite** mit Übersicht der Netze und VLANs (an welchen wolweb hängt, Geräte je Netz); Änderungen
   gelten ohne Neustart
 - **Gruppen** („Homelab“, „Büro“) gemeinsam wecken, auch per festem Gruppen-Wecklink; **Zeitpläne** wie
   `Mo-Fr 07:30` wecken Geräte automatisch
 - **Benachrichtigungen** per Webhook (JSON) oder ntfy aufs Handy, wenn ein Gerät online/offline geht oder
   geweckt wird; **Prometheus-Metriken** unter `/metrics`
-- **Verlauf** jedes Weckversuchs (wer, wann, woher, Ergebnis), **Export/Import** der Geräte als JSON
+- **Verlauf** in Worten: je Weckversuch ein Satz („Weckruf gesendet“, „Start bestätigt (nach 0:42 min)“, „Start nicht
+  bestätigt“), wer, woher und wohin unter „Details“; **Export/Import** der Geräte als JSON
 - **Deutsch und Englisch**: Die Oberfläche folgt der Sprache des Browsers und lässt sich oben rechts umschalten;
   auch die Meldungen der API kommen in der gewählten Sprache
 - Übernimmt die `devices.json` und die Einstellungen des alten wolweb
@@ -56,8 +90,8 @@ aus der Netzwerksuche).
 
 | Feld | Wofür |
 |---|---|
-| Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken |
-| Zeitplan | automatische Weckzeiten, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` (englische Schreibweise wie `Mon-Fri 07:30` geht auch; gespeichert wird einheitlich die deutsche Form, angezeigt in der gewählten Sprache) |
+| Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken; vorhandene Gruppen stehen unter dem Feld zum Antippen. Mehrere Geräte auf einmal zuordnen: in der Übersicht „Auswählen“, Geräte ankreuzen, Gruppenname eingeben. Der Gruppenknopf nennt, wie viele er weckt („Alle 4 Geräte wecken“) |
+| Zeitplan | „Automatisch wecken“ einschalten, Wochentage antippen, Uhrzeit wählen – der Dialog zeigt dazu „Montag bis Freitag um 07:30 Uhr“, das nächste Wecken und die Zeitzone. „Pausieren“ setzt den Zeitplan aus, ohne die Zeiten zu vergessen. Mehrere Zeiten gehen unter „Weitere Möglichkeiten“ als Text, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` (englisch wie `Mon-Fri 07:30` geht auch; gespeichert wird einheitlich die deutsche Form) |
 | *Erweitert:* Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
 | *Erweitert:* Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
 | *Erweitert:* Ports | eigene Ports für die Online-Prüfung statt der allgemeinen Liste |
@@ -65,24 +99,32 @@ aus der Netzwerksuche).
 | *Erweitert:* Notiz | freier Text auf der Karte |
 
 Zeitpläne gelten in der Ortszeit des Rechners bzw. Containers (`TZ`, in `docker-compose.yml` voreingestellt).
-Die Karte zeigt die nächste geplante Weckzeit.
+Weicht sie von der Zeitzone des Browsers ab, sagt der Dialog das und nennt die Uhrzeit bei dir. Die Karte zeigt die
+nächste geplante Weckzeit oder „Zeitplan pausiert“.
 
 ## Feste Wecklinks
 
 | Aufruf | Ergebnis |
 |---|---|
-| `http://host:8089/wake/NAS` im Browser | Weckseite mit Fortschritt: *Gerät prüfen → Magic Packet senden → Auf Start warten → Online* |
+| `http://host:8089/wake/NAS` im Browser | Weckseite mit Fortschritt: *Gerät prüfen → Weckruf senden → Auf Start warten → Online* (IP, MAC, Ziel und Ping/Port/ms unter „Technische Details“) |
 | `curl http://host:8089/wake/NAS` | weckt sofort, Antwort JSON `{"success":true,"message":…}` (wie im Original) |
 | `curl "http://host:8089/wake/NAS?wait=120"` | weckt und wartet bis zu 120 s, bis das Gerät antwortet (`"online": true/false`; fehlt, wenn keine IP bekannt ist) |
 | `…/wake/NAS?format=html` / `?format=json` | Ausgabe erzwingen |
 | `http://host:8089/wake-group/Homelab` | ganze Gruppe: im Browser eine Seite mit dem Start jedes Geräts, sonst JSON (auch `?wait=`) |
 
-Der Name ist nicht von Groß-/Kleinschreibung abhängig. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
-ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts.
+Der Name ist nicht von Groß-/Kleinschreibung abhängig. Nach dem Umbenennen gelten alte Links weiter: Browser
+werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich bis zu zehn frühere Namen; vergibt man
+einen davon neu, gehört der Link ab dann dem neuen Gerät). Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
+ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts. Während
+des Wartens nennt sie, wie lange geprüft wird (`status.wake_timeout`) und ob automatisch erneut gesendet wird. Kommt
+keine Antwort, bleibt „Start nicht bestätigt“ mit dem Naheliegenden stehen (Strom, Netzwerkkabel, blockierte
+Rückmeldung), dazu „Nochmals prüfen“ (ohne zu wecken), „Erneut wecken“ und technische Tipps unter „Hilfe“. Die
+Übersicht zeigt die Warnung auf der Karte, bis das Gerät antwortet.
 `HEAD`-Anfragen (Linkprüfer, Vorschauen in Messengern) wecken nie.
 
 Tipp: Die Weckseite auf dem Handy „Zum Home-Bildschirm“ hinzufügen – dann weckt ein Tipp aufs Symbol das Gerät.
-Die Übersicht selbst lässt sich ebenso als App ablegen.
+Nach dem Anlegen bietet die Karte dafür „Wecklink kopieren“ und „Auf dem Handy einrichten“ (kurze Anleitung für
+iPhone und Android). Die Übersicht selbst lässt sich ebenso als App ablegen.
 
 Online gilt ein Gerät, wenn es auf Ping antwortet oder einer der Ports (`status.ports`) eine Verbindung annimmt **oder
 ablehnt** – eine Ablehnung kommt nur von einem laufenden Betriebssystem. Das gilt für Geräte im eigenen Netzsegment;
@@ -95,9 +137,13 @@ SSH-Log). Pro Gerät lassen sich unter „Erweitert“ eigene Ports eintragen, z
 
 ## Netzwerksuche
 
-Die Netze stehen in den [Einstellungen](#einstellungen) unter „Netze und VLANs“ (oder in `discovery.networks` bzw.
-`WOLWEB_NETWORKS`), z. B. `192.168.1.0/24`. Gesucht wird nur in Netzen, an denen der Rechner direkt hängt – ARP und
-Wake on LAN gehen nicht über Router. Für weitere VLANs siehe [Mehrere Netze und VLANs](#mehrere-netze-und-vlans).
+Einrichten muss man dafür meist nichts: Hängt der Rechner an genau einem Heimnetz, sucht wolweb dort von selbst
+(Container-Brücken, VMs und VPNs zählen nicht). Hat er mehrere, fragt „Geräte suchen“ einmal: „Wähle das Netzwerk, in
+dem dein Rechner steht“ – die Wahl landet in den Einstellungen. Fest vorgeben lassen sich die Netze in den
+[Einstellungen](#einstellungen) unter „Netze und VLANs“ (oder in `discovery.networks` bzw. `WOLWEB_NETWORKS`, etwa
+`192.168.1.0/24`); eine solche Angabe geht der Erkennung immer vor. Gesucht wird nur in Netzen, an denen der Rechner
+direkt hängt – ARP und Wake on LAN gehen nicht über Router. Für weitere VLANs siehe
+[Mehrere Netze und VLANs](#mehrere-netze-und-vlans).
 
 - **Linux mit `CAP_NET_RAW`**: aktiver ARP-Scan – findet auch Geräte, die Ping und alle Ports blocken.
 - **Sonst**: jede Adresse bekommt ein UDP-Paket, danach wird die Nachbartabelle gelesen (etwas ungenauer).
@@ -136,12 +182,55 @@ Fertige Images für amd64, arm64 (Raspberry Pi 4/5) und armv7 baut GitHub bei je
 ### Direkt / Proxmox-LXC
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.1.0" -o wolweb .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.2.0" -o wolweb .
 ```
 
 Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `deploy/wolweb.service` nach
 `/etc/systemd/system/` (Benutzer `wolweb` anlegen, `data/` beschreibbar machen), dann
 `systemctl enable --now wolweb`.
+
+## Update von 1.0.x / 1.1.x
+
+Geräte und Einstellungen werden beim ersten Start automatisch übernommen. Selbst tun musst du nur dann etwas, wenn
+du wolweb **ohne Anmeldung über eine eigene Domain** aufrufst, etwa hinter einem Reverse-Proxy
+(`https://wol.example.com`): Seit 1.1 nimmt wolweb ohne Anmeldung nur IP-Adressen und lokale Namen (`nas`,
+`*.lan`, `*.local`, `*.fritz.box` …) an, als Schutz vor DNS-Rebinding. Unter der Domain erscheint dann eine Seite,
+die genau sagt, was einzutragen ist. Am einfachsten öffnest du wolweb einmal über seine IP-Adresse
+(`http://192.168.1.5:8089`) und erlaubst den Namen in den Einstellungen unter „Sicherheit“ – er steht dort schon
+bereit. Alternativ in `config.json` `"allowed_hosts": ["wol.example.com"]` bzw. in Docker
+`WOLWEB_ALLOWED_HOSTS=wol.example.com`. Beim Start steht ein entsprechender Hinweis im Log.
+
+**Sicherung und Weg zurück:** Bevor eine neue Version die Daten zum ersten Mal schreibt, legt sie eine Kopie an:
+`data/sicherung-<alte Version>-<Datum>/` (etwa `sicherung-1.0.x-20261028-160512/` mit `devices.json`,
+`discovered.json` und – ab 1.1 – `state.json` und `settings.json`). Das passiert einmal je Versionswechsel. Eine
+ältere Version kann die neuen Dateien zwar lesen, verwirft beim nächsten Speichern aber, was sie nicht kennt
+(SecureOn, Weckschlüssel, Gruppen, Zeitpläne, eigene Ports, Verlauf). Zurück geht es so: wolweb stoppen, die
+Dateien aus dem Sicherungsordner nach `data/` kopieren, Dateien, die in der Sicherung fehlen (bei 1.0.x
+`state.json` und `settings.json`), aus `data/` löschen, dann die alte Version starten. Was seit dem Update
+geändert wurde, fehlt danach.
+
+**Was sich mit 1.2 ändert – und ob du etwas tun musst:**
+
+- *Netzwerksuche ohne eingetragenes Netz:* Bisher war sie dann aus. Jetzt nimmt wolweb das eine direkt
+  angeschlossene Heimnetz von selbst und sucht dort alle 30 Minuten (`discovery.interval`). Soll das nicht sein:
+  `discovery.interval` auf `0` setzen (Einstellungsseite oder `WOLWEB_SCAN_INTERVAL=0`). Mit mehreren Netzen bietet
+  die Suchleiste eine Auswahl an; ein eingetragenes Netz geht wie bisher vor.
+- *Benachrichtigungen folgen keinen Weiterleitungen mehr:* Leitet die Webhook- oder ntfy-Adresse weiter (etwa
+  `http://` → `https://`), trage die endgültige Adresse ein – „Testnachricht senden“ zeigt, ob es klappt.
+- *Kein doppeltes Wecken:* Ein zweiter Weckruf für dasselbe Gerät innerhalb von 10 Sekunden wird nicht gesendet,
+  sondern mit `"already": true` beantwortet – auf allen Wegen. Automationen, die absichtlich kurz hintereinander
+  zweimal wecken, brauchen das nicht mehr (wolweb sendet jeden Weckruf ohnehin dreimal und wiederholt ihn bei
+  Bedarf selbst).
+- *Neue Felder in den Daten:* `schedule_paused` und `aliases` (frühere Namen) bei Geräten, dazu Angaben zum
+  Ergebnis im Verlauf. Eine ältere Version verwirft sie beim Speichern – Pausen, alte Wecklinks und die Sätze im
+  Verlauf gingen dann verloren; die Sicherung (siehe oben) enthält den Stand vor dem Update.
+- *Meldungen der API:* sagen jetzt „Weckruf“ statt „Magic Packet“ (z. B. `"message": "Weckruf an NAS gesendet."`).
+  Wer in einer Automation auf den genauen Text prüft, sollte auf `"success"` umstellen.
+- *Docker:* Die neue `docker-compose.yml` setzt `WOLWEB_NETWORKS` und `WOLWEB_SCAN_INTERVAL` nicht mehr (nur noch
+  als Beispiel auskommentiert) – das Netz wird erkannt, und die Felder auf der Einstellungsseite sind nicht mehr
+  gesperrt. Wer sein Netz dort fest vorgegeben hatte und das behalten will, übernimmt die Zeile in die neue Datei.
+  Zeitpläne laufen in der Zeitzone des Containers (`TZ`, voreingestellt); weicht sie vom Browser ab, sagt das der
+  Gerätedialog.
 
 ## Einstellungen
 
@@ -181,7 +270,7 @@ zusätzlichen Schnittstellen eintragen – die Standardroute bleibt im Hauptnetz
 *Container → Netzwerk → Hinzufügen* (Bridge `vmbr0`, VLAN-Tag `20`, IPv4 statisch, Gateway leer) oder auf dem Host:
 
 ```sh
-pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=192.168.20.5/24
+pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=10.0.0.5/24
 ```
 
 Die Bridge muss „VLAN aware“ sein (*Host → System → Netzwerk → vmbr0 → VLAN aware*, bzw. `bridge-vlan-aware yes` in
@@ -191,7 +280,7 @@ Die Bridge muss „VLAN aware“ sein (*Host → System → Netzwerk → vmbr0 �
 
 ```sh
 sudo ip link add link eth0 name eth0.20 type vlan id 20
-sudo ip addr add 192.168.20.5/24 dev eth0.20
+sudo ip addr add 10.0.0.5/24 dev eth0.20
 sudo ip link set eth0.20 up
 ```
 
@@ -199,7 +288,7 @@ Dauerhaft mit NetworkManager (Raspberry Pi OS ab Bookworm, Ubuntu Desktop):
 
 ```sh
 sudo nmcli con add type vlan con-name vlan20 dev eth0 id 20 \
-  ipv4.method manual ipv4.addresses 192.168.20.5/24 ipv4.never-default yes ipv6.method disabled
+  ipv4.method manual ipv4.addresses 10.0.0.5/24 ipv4.never-default yes ipv6.method disabled
 ```
 
 mit ifupdown (Debian, Paket `vlan`) in `/etc/network/interfaces.d/vlan20`:
@@ -207,7 +296,7 @@ mit ifupdown (Debian, Paket `vlan`) in `/etc/network/interfaces.d/vlan20`:
 ```
 auto eth0.20
 iface eth0.20 inet static
-    address 192.168.20.5/24
+    address 10.0.0.5/24
 ```
 
 mit netplan (Ubuntu Server) in `/etc/netplan/60-vlan20.yaml`, danach `sudo netplan apply`:
@@ -219,12 +308,12 @@ network:
     vlan20:
       id: 20
       link: eth0
-      addresses: [192.168.20.5/24]
+      addresses: [10.0.0.5/24]
 ```
 
 **Docker:** Mit `network_mode: host` (wie in `docker-compose.yml`) sieht wolweb alle Schnittstellen des Hosts –
 das VLAN-Interface also wie oben auf dem Host anlegen, am Container ändert sich nichts. Ohne Host-Netz geht es mit
-je einem macvlan-Netz pro VLAN (`docker network create -d macvlan -o parent=eth0.20 --subnet 192.168.20.0/24 vlan20`),
+je einem macvlan-Netz pro VLAN (`docker network create -d macvlan -o parent=eth0.20 --subnet 10.0.0.0/24 vlan20`),
 das ist aber umständlicher. Docker Desktop (Windows, macOS) kann beides nicht.
 
 **Absichern:** Eine Schnittstelle in einem abgeschotteten Netz (IoT, Gäste) macht wolweb auch von dort erreichbar.
@@ -232,7 +321,7 @@ Mit `host` in `config.json` (bzw. `WOLWEB_HOST`) die Weboberfläche nur an die A
 `"host": "192.168.1.5"` – Wecken und Suche im VLAN funktionieren trotzdem.
 
 Geht keine eigene Schnittstelle, zeigt die Einstellungsseite das Netz als „nicht direkt angeschlossen“ und weckt
-Geräte darin per gerichtetem Broadcast (z. B. `192.168.20.255:9`). Ankommen wird er nur, wenn der Router ihn ins
+Geräte darin per gerichtetem Broadcast (z. B. `10.0.0.255:9`). Ankommen wird er nur, wenn der Router ihn ins
 VLAN weiterleitet – bei OPNsense und pfSense etwa mit dem Plugin „UDP Broadcast Relay“; die meisten Heimrouter
 können das nicht, und suchen lässt sich dort ohnehin nicht.
 
@@ -243,19 +332,19 @@ können das nicht, und suchen lässt sich dort ohnehin nicht.
 
 | Schlüssel | Variable | Standard | Bedeutung |
 |---|---|---|---|
-| `host`, `port` | `WOLWEBHOST`, `WOLWEBPORT` | `0.0.0.0`, `8089` | Adresse der Weboberfläche |
-| `vdir` | `WOLWEBVDIR` | `/` | Unterpfad, z. B. `/wolweb` hinter einem Reverse-Proxy |
-| `bcastip` | `WOLWEBBCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
-| `read_only` | `WOLWEBREADONLY` | `false` | nur wecken, nichts ändern |
+| `host`, `port` | `WOLWEBHOST` / `WOLWEB_HOST`, `WOLWEBPORT` / `WOLWEB_PORT` | `0.0.0.0`, `8089` | Adresse der Weboberfläche |
+| `vdir` | `WOLWEBVDIR` / `WOLWEB_VDIR` | `/` | Unterpfad, z. B. `/wolweb` hinter einem Reverse-Proxy |
+| `bcastip` | `WOLWEBBCASTIP` / `WOLWEB_BCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
+| `read_only` | `WOLWEBREADONLY` / `WOLWEB_READONLY` | `false` | nur wecken, nichts ändern |
 | `language` | `WOLWEB_LANGUAGE` | `de` | `de` oder `en`: Sprache, wenn weder Umschalter noch Browser eine nennen (auch für Benachrichtigungen) |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`), Suchergebnisse (`discovered.json`) und Änderungen der Einstellungsseite (`settings.json`) |
-| `discovery.networks` | `WOLWEB_NETWORKS` | – | Netze (CIDR, Variable kommagetrennt), auch mit Namen: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
+| `discovery.networks` | `WOLWEB_NETWORKS` | automatisch | Netze (CIDR, Variable kommagetrennt); leer = das eine Heimnetz automatisch, bei mehreren Auswahl in der Oberfläche; auch mit Namen: `{"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus (mindestens `1m`) |
 | `discovery.max_hosts` | – | `1024` | größtes erlaubtes Segment |
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | Online-Prüfung aller Geräte, `0` = aus (mindestens `5s`) |
 | `status.ports` | – | 22, 80, 443, 445, … | Ports für die Online-Prüfung |
 | `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | so lange wartet die Weckseite (`5s` bis `10m`) |
-| `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | antwortet ein geweckter Rechner so lange nicht, geht das Paket einmal erneut raus; `0` = nie |
+| `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | antwortet ein geweckter Rechner so lange nicht, geht der Weckruf einmal erneut raus; `0` = nie |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | Anmeldung (HTTP Basic) |
 | `auth.api_token` | `WOLWEB_TOKEN` | – | `Authorization: Bearer …` für Automationen |
 | `auth.public_wake` | `WOLWEB_PUBLIC_WAKE` | `true` | Wecklinks funktionieren ohne Anmeldung |
@@ -291,6 +380,12 @@ Mit `notify.webhook` bekommt eine URL jedes Ereignis als JSON, z. B. für einen 
 Mit `notify.ntfy` kommt eine Push-Nachricht aufs Handy (App „ntfy“, Thema abonnieren). Gemeldet werden nur echte
 Wechsel online ↔ offline, nicht das erste Ergebnis nach dem Start.
 
+wolweb schickt Benachrichtigungen genau an die eingetragene Adresse – auch an Server im eigenen Netz, etwa ein
+selbst gehostetes ntfy oder Home Assistant. **Weiterleitungen folgt es nicht**: Antwortet das Ziel mit einer
+Umleitung (3xx), geht die Nachricht nicht weiter, sondern es steht ein Fehler im Log (und bei „Testnachricht
+senden“). Sonst könnte ein umgeleiteter Server die Nachricht an ein Ziel schicken lassen, das niemand eingetragen
+hat. Abhilfe: die endgültige Adresse direkt eintragen (z. B. mit `https://` statt `http://`).
+
 `/metrics` liefert Kennzahlen im Prometheus-Format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
 `wolweb_device_last_seen_timestamp_seconds`, `wolweb_wakes_total`, `wolweb_discovery_found` …). Mit Anmeldung
 braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_token>}`.
@@ -301,8 +396,18 @@ braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_
   für Automationen.
 - **Öffentliche Wecklinks** (`auth.public_wake`): Mit Anmeldung bleiben `/wake/<Name>` und die Weckseite ohne Login
   erreichbar. Damit niemand Geräte über erratene Namen weckt, verlangt `auth.wake_keys` zusätzlich einen Schlüssel
-  je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern. Ohne
-  Anmeldung kann ein Gerät höchstens alle 10 s geweckt werden.
+  je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern.
+- **Kein doppeltes Wecken**: Jedes Gerät bekommt höchstens alle 10 s einen Weckruf – mit und ohne Anmeldung, über
+  Wecklink, Gruppenlink, Weckseite und API gemeinsam. Ein zweiter Aufruf in dieser Zeit (zweimal getippt, Seite neu
+  geladen) ist kein Fehler: Er meldet „wird bereits geweckt“ (`"already": true`) und die Seite verfolgt den
+  laufenden Start, ohne erneut zu senden. Zeitpläne und die automatische Wiederholung werden nie gebremst.
+- **Wecklinks von fremden Seiten**: Ein Wecklink weckt beim Öffnen – mit Absicht, auch wenn er auf einer anderen
+  Seite steht (Home-Assistant-Dashboard, Glance, Lesezeichenseite). Das heißt aber auch: Jede Webseite, die du
+  besuchst, kann deinen Browser zu `/wake/<Name>` oder `/wake-group/<Name>` schicken, und die ausgelieferte
+  Weckseite weckt dann. Mehr als Wecken ist so nicht möglich, und `HEAD` (Linkvorschauen in Messengern, Linkprüfer)
+  weckt nie. Wer auch das verhindern will, schaltet die Anmeldung samt `auth.wake_keys` ein: Dann braucht jeder
+  Link – Gerät wie Gruppe gleichermaßen – den Schlüssel, den „Wecklink kopieren“ anhängt, und Namen lassen sich
+  nicht erraten.
 - **DNS-Rebinding**: Ohne Anmeldung nimmt wolweb nur Aufrufe unter IP-Adressen, Namen ohne Punkt (`nas`), lokalen
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus
   `allowed_hosts` an (`"wol.example.com"`, `"*.example.com"`, `"*"` schaltet die Prüfung ab). Sonst könnte eine
@@ -342,21 +447,24 @@ Touch-Ziele auf einem Handy.
 
 ## API
 
-Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site-Requests) oder ein Bearer-Token.
+Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site-Requests) oder ein Bearer-Token;
+fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in `"error"`.
 
 | Methode | Pfad | |
 |---|---|---|
 | GET | `/api/v1/info` | Einstellungen, lokale Netze |
 | GET | `/api/v1/events` | Live-Ereignisse (Server-Sent Events): `status`, `devices`, `scan` |
 | GET / POST | `/api/v1/devices` | Liste (mit Status) / anlegen |
+| POST | `/api/v1/devices/group` | mehrere Geräte einer Gruppe zuordnen: `{"ids": […], "group": "Homelab"}` (leer = aus der Gruppe nehmen) |
 | PUT / DELETE | `/api/v1/devices/{id}` | ändern (`updated_at` mitschicken schützt vor Überschreiben) / löschen |
 | POST | `/api/v1/devices/{id}/wake` | Magic Packet senden |
 | GET | `/api/v1/devices/{id}/status` | sofort prüfen |
 | POST | `/api/v1/devices/{id}/wake-key` | neuen Weckschlüssel erzeugen |
+| GET | `/api/v1/schedule/preview?s=…` | Zeitplan prüfen, ohne zu speichern: einheitliche Schreibweise, nächste Weckzeit, Zeitzone des Servers |
 | GET | `/api/v1/groups` | Gruppen mit Mitgliedern (und Schlüssel des Gruppen-Wecklinks) |
 | POST | `/api/v1/groups/{name}/wake` | alle Geräte einer Gruppe wecken |
 | GET | `/api/v1/history` | Weckverlauf, neueste zuerst (`?limit=`) |
-| GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen |
+| GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen; die Antwort nennt jeden Eintrag (`items`: `added` – ggf. mit `new_name` –, `skipped`, `error` mit Grund), die Oberfläche zeigt die vollständige Liste |
 | GET | `/api/v1/discovery` | letzte Suche und Treffer |
 | POST | `/api/v1/discovery/scan`, `/cancel` | Suche starten / abbrechen |
 | POST | `/api/v1/discovery/{mac}/ignore` | `{"ignored":true}` |
@@ -386,8 +494,11 @@ npx playwright install chromium
 npx playwright test
 ```
 
+Die Screenshots in `docs/screenshots/` erzeugt `node screenshots.js` (im Ordner `e2e`) neu – mit erfundenen
+Geräten, Adressen aus 192.168.1.x / 10.0.0.x und lokal verwalteten MACs, nie mit echten Daten des Rechners.
+
 GitHub Actions prüft jeden Push und Pull Request (gofmt, `go vet`, `go test -race`, Builds für Linux amd64/arm64/
-armv7, Windows, macOS, Browsertests, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.1.0 && git push --tags`)
+armv7, Windows, macOS, Browsertests, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.2.0 && git push --tags`)
 erzeugt ein Release mit fertigen Programmen und das Image auf ghcr.io – das Paket danach einmal unter
 „Packages“ auf öffentlich stellen.
 
@@ -399,27 +510,69 @@ erzeugt ein Release mit fertigen Programmen und das Image auf ghcr.io – das Pa
 a single binary (or a 23 MB Docker image) with no external dependencies in the browser. The interface is available
 in **English and German**; it follows the browser language and can be switched in the top right corner.
 
+### Quick start
+
+**Requirements:** a machine that is always on and sits in the same network as the devices you want to wake – e.g. a
+Raspberry Pi, a NAS or a Proxmox container – running Linux (for Docker: Docker with Compose). Wake on LAN must be
+enabled on the target computers (BIOS/UEFI, on Windows also for the network adapter).
+
+1. **Start**
+
+   with Docker:
+
+   ```sh
+   git clone https://github.com/banit/wolweb.git && cd wolweb
+   docker compose up -d --build
+   ```
+
+   or without Docker: download the matching file from [Releases](https://github.com/banit/wolweb/releases)
+   (e.g. `wolweb-1.2.0-linux-arm64` for a Raspberry Pi 4/5) and run it:
+
+   ```sh
+   chmod +x wolweb-1.2.0-linux-arm64 && sudo ./wolweb-1.2.0-linux-arm64
+   ```
+
+2. **Open** `http://<address>:8089` in a browser, e.g. `http://192.168.1.10:8089`.
+3. **Add a device:** switch the target computer on, then "Find devices" → "Add". wolweb detects the home network by
+   itself; name, IP and MAC address come from the scan.
+4. **Copy the wake link:** the new card offers "Copy wake link" and "Set up on your phone". From then on, opening
+   `http://<address>:8089/wake/<name>` wakes the computer, and the page shows when it is really up.
+
+Everything else – running it permanently with systemd, updating, multiple networks and VLANs, configuration,
+notifications, metrics and the API – follows below.
+
 ### Features
 
 - **Overview** with the online status of every device (ping and TCP ports), search and filters, light/dark mode –
   changes appear instantly in every open window (Server-Sent Events)
 - **Fixed wake links** `/wake/<name>`: in a browser a confirmation page that checks the device, sends the magic
   packet and follows the start until the device is really online; `curl` and Home Assistant get JSON
-  (`?wait=120` waits until the device responds)
+  (`?wait=120` waits until the device responds). After renaming, old links keep working (browsers are redirected,
+  `curl` wakes directly). Right after adding a device, its card offers "Copy wake link" and "Set up on your phone"
 - **Reliable waking**: the magic packet goes out three times within one second to ports 9 and 7; if a device with an
   IP address still does not respond after 45 seconds (`status.wake_retry`), wolweb sends it once more by itself –
   for wake links, groups and schedules too, when nobody is watching
 - **Network scan**: finds devices that are switched on in the configured segments (IP, MAC, host name, vendor) –
-  on demand or periodically; add new devices with one click or ignore them
+  on demand or periodically; add new devices with one click (the name comes from the host name, no dialog; only a missing name is asked
+  for) or ignore them
 - **Settings page** with an overview of networks and VLANs (which ones wolweb is connected to, devices per network);
   changes apply without a restart
-- **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`;
-  **schedules** such as `Mon-Fri 07:30; Sat,Sun 09:00` wake devices automatically (German spellings work too;
-  devices.json always stores the canonical German form, the UI shows it in the chosen language)
-- **Notifications** via webhook (JSON) or ntfy push when a device goes online/offline or is woken;
-  **Prometheus metrics** at `/metrics`
-- **History** of every wake attempt (who, when, from where, result), **export/import** of devices as JSON
-- **Security**: optional login (HTTP Basic, API token), per-device keys for public wake links, rate limiting,
+- **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`; assign
+  several devices at once with "Select" in the overview, the group button says how many it wakes;
+  **schedules** wake devices automatically: switch on "Wake automatically", tap the days, pick a time; the dialog
+  sums it up ("Monday to Friday at 07:30"), shows the next wake-up and the server's time zone, and "Pause" suspends
+  it without losing the times. Several times go under "More options" as text such as
+  `Mon-Fri 07:30; Sat,Sun 09:00` (German spellings work too; devices.json always stores the canonical German form)
+- **Notifications** via webhook (JSON) or ntfy push when a device goes online/offline or is woken – sent exactly to
+  the configured address (servers on your LAN included); redirects (3xx) are not followed but logged as an error, so
+  a redirecting server cannot divert messages to a target nobody configured; **Prometheus metrics** at `/metrics`
+- **History** in words: one sentence per wake attempt ("Wake-up call sent", "Start confirmed (after 0:42 min)",
+  "Start not confirmed"), who, from where and to where under "Details"; **export/import** of devices as JSON
+- **Security**: optional login (HTTP Basic, API token), per-device keys for public wake links, no double waking (one
+  wake-up call per device every 10 s on all paths; a second call reports `"already": true`). A wake link wakes when
+  opened – on purpose, also from dashboards on other sites; any website you visit could therefore send your browser
+  to `/wake/<name>` or `/wake-group/<name>` (`HEAD` never wakes). To prevent that, enable the login together with
+  `auth.wake_keys`: every link, device or group alike, then needs its key,
   protection against DNS rebinding
 - Per-device ports for the online check, SecureOn passwords, sending via a specific network interface,
   home-screen icons (web app manifest)
@@ -429,11 +582,7 @@ in **English and German**; it follows the browser language and can be switched i
   A device's wake link wakes it as soon as it is opened, so a home-screen icon is a single tap
 - Imports the `devices.json` and settings of the original wolweb
 
-### Quick start (Docker)
-
-```sh
-docker compose up -d --build
-```
+### Installation
 
 `docker-compose.yml` uses `network_mode: host` (required for broadcasts and ARP) and grants only `NET_RAW`. Data is
 stored in `./data`; the folder must belong to root (let Docker create it, or `sudo chown -R root:root data`). To import
@@ -443,6 +592,44 @@ network – waking and scanning do not work there.
 
 Without Docker: `CGO_ENABLED=0 go build -o wolweb .`, adapt `config.example.json` as `config.json`, and use
 `deploy/wolweb.service` for systemd (it grants `CAP_NET_RAW` for ping and ARP scans).
+
+### Updating from 1.0.x / 1.1.x
+
+Devices and settings are taken over automatically on the first start. You only need to act if you open wolweb
+**without login via your own domain**, e.g. behind a reverse proxy (`https://wol.example.com`): since 1.1 wolweb
+only accepts IP addresses and local names (`nas`, `*.lan`, `*.local`, `*.fritz.box` …) without login, as protection
+against DNS rebinding. The domain then shows a page that says exactly what to add. The easiest way: open wolweb once
+via its IP address (`http://192.168.1.5:8089`) and allow the name in the settings under “Security” – it is already
+offered there. Alternatively `"allowed_hosts": ["wol.example.com"]` in `config.json` or
+`WOLWEB_ALLOWED_HOSTS=wol.example.com` in Docker. A hint is logged at start-up.
+
+**Backup and going back:** before a new version writes the data for the first time, it makes a copy in
+`data/sicherung-<old version>-<date>/` (e.g. `sicherung-1.0.x-20261028-160512/`), once per version change. An older
+version can read the new files but drops what it does not know (SecureOn, wake keys, groups, schedules, custom
+ports, history) on its next save. To go back: stop wolweb, copy the files from the backup folder into `data/`,
+delete files from `data/` that the backup does not contain (for 1.0.x `state.json` and `settings.json`), and start
+the old version. Changes made since the update are lost.
+
+**What changes with 1.2 – and whether you need to act:**
+
+- *Network scan without a configured network:* it used to be off. Now wolweb picks the one directly connected home
+  network by itself and scans it every 30 minutes (`discovery.interval`). If you do not want that, set
+  `discovery.interval` to `0` (settings page or `WOLWEB_SCAN_INTERVAL=0`). With several networks the scan panel
+  offers a choice; a configured network still takes precedence.
+- *Notifications no longer follow redirects:* if your webhook or ntfy address redirects (e.g. `http://` →
+  `https://`), enter the final address – “Send test message” shows whether it works.
+- *No double waking:* a second wake-up call for the same device within 10 seconds is not sent but answered with
+  `"already": true` – on every path. Automations that deliberately wake twice in a row no longer need to (wolweb
+  sends every wake-up call three times and repeats it by itself if needed).
+- *New fields in the data:* `schedule_paused` and `aliases` (former names) on devices, plus outcome details in the
+  history. An older version drops them on save – pauses, old wake links and the history sentences would be lost;
+  the backup (see above) holds the state from before the update.
+- *API messages* now say “wake-up call” instead of “magic packet” (e.g. `"message": "Wake-up call sent to NAS."`).
+  If an automation checks the exact text, switch it to `"success"`.
+- *Docker:* the new `docker-compose.yml` no longer sets `WOLWEB_NETWORKS` and `WOLWEB_SCAN_INTERVAL` (they are only
+  commented examples now) – the network is detected, and the fields on the settings page are no longer locked. If you
+  had pinned your network there and want to keep it, copy the line into the new file. Schedules run in the
+  container's time zone (`TZ`, preset); if it differs from the browser, the device dialog says so.
 
 ### Settings page
 
@@ -460,44 +647,51 @@ wake and scan – usually an additional VLAN-tagged interface on the machine run
 gateway; the switch port or bridge must carry the VLAN tagged). Once it exists, it appears in the settings under
 “Interfaces of this machine”; “Add” lists the network, and you can give it a name and VLAN ID.
 
-- **Proxmox LXC:** add a second NIC with a VLAN tag, e.g. `pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=192.168.20.5/24`
+- **Proxmox LXC:** add a second NIC with a VLAN tag, e.g. `pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=10.0.0.5/24`
   (the bridge must be VLAN aware).
 - **Linux / Docker host:** `ip link add link eth0 name eth0.20 type vlan id 20` (persistently via NetworkManager,
   ifupdown or netplan – examples in the German section [Mehrere Netze und VLANs](#mehrere-netze-und-vlans)); with
   `network_mode: host` the container sees it automatically.
 - **Hardening:** bind the web interface to the main network with `host` (e.g. `"host": "192.168.1.5"`), otherwise wolweb
   is also reachable from the VLAN.
-- Without an interface, wolweb uses the network's directed broadcast (e.g. `192.168.20.255:9`); it only arrives if the
+- Without an interface, wolweb uses the network's directed broadcast (e.g. `10.0.0.255:9`); it only arrives if the
   router forwards it (OPNsense/pfSense: “UDP Broadcast Relay”), and scanning is not possible there.
 
 ### Configuration
 
-`config.json` is optional; the settings page overrides it, environment variables override everything. The most
-important settings:
+`config.json` is optional (see `config.example.json`); the settings page overrides it, environment variables
+override everything. Where two variable names are given, the first is the one of the original wolweb – both work.
 
 | Key | Variable | Default | Meaning |
 |---|---|---|---|
-| `port` | `WOLWEB_PORT` | `8089` | port of the web interface |
+| `host`, `port` | `WOLWEBHOST` / `WOLWEB_HOST`, `WOLWEBPORT` / `WOLWEB_PORT` | `0.0.0.0`, `8089` | address of the web interface |
+| `vdir` | `WOLWEBVDIR` / `WOLWEB_VDIR` | `/` | sub path, e.g. `/wolweb` behind a reverse proxy |
+| `bcastip` | `WOLWEBBCASTIP` / `WOLWEB_BCASTIP` | automatic | fallback target when neither device nor network provide one |
+| `read_only` | `WOLWEBREADONLY` / `WOLWEB_READONLY` | `false` | wake only, change nothing |
 | `language` | `WOLWEB_LANGUAGE` | `de` | `en` or `de`: language when neither the switch nor the browser name one (also used for notifications) |
-| `discovery.networks` | `WOLWEB_NETWORKS` | – | networks, e.g. `192.168.1.0/24` (variable: comma separated), also with name: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20}` |
-| `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off |
-| `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | online check of all devices |
-| `bcastip` | `WOLWEBBCASTIP` | automatic | fallback target when neither device nor network provide one |
+| `data_dir` | `WOLWEB_DATA_DIR` | `data` | devices (`devices.json`), runtime data (`state.json`), scan results (`discovered.json`) and changes made on the settings page (`settings.json`) |
+| `discovery.networks` | `WOLWEB_NETWORKS` | automatic | networks, e.g. `192.168.1.0/24` (variable: comma separated); empty = the one home network automatically, with several a choice in the UI; also with name: `{"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` means show, but do not scan |
+| `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off (at least `1m`) |
+| `discovery.max_hosts` | – | `1024` | largest allowed segment |
+| `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | online check of all devices, `0` = off (at least `5s`) |
+| `status.ports` | – | 22, 80, 443, 445, … | ports for the online check |
+| `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | how long the wake page waits (`5s` to `10m`) |
+| `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | if a woken machine does not respond for this long, the wake-up call is sent once more; `0` = never |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | login (HTTP Basic – use HTTPS on the internet) |
 | `auth.api_token` | `WOLWEB_TOKEN` | – | `Authorization: Bearer …` for automations |
 | `auth.public_wake` | `WOLWEB_PUBLIC_WAKE` | `true` | wake links work without login |
 | `auth.wake_keys` | `WOLWEB_WAKE_KEYS` | `false` | wake links without login need the device key (`?key=…`) |
 | `allowed_hosts` | `WOLWEB_ALLOWED_HOSTS` | – | additional host names, e.g. `wol.example.com` (DNS rebinding protection) |
-| `notify.webhook` / `notify.ntfy` | `WOLWEB_WEBHOOK` / `WOLWEB_NTFY` | – | notification targets |
-
-All keys are described in the German [configuration table](#konfiguration) above; their names are the same.
+| `notify.webhook` | `WOLWEB_WEBHOOK` | – | URL that receives every event as JSON via POST |
+| `notify.ntfy` | `WOLWEB_NTFY` | – | ntfy topic, e.g. `https://ntfy.sh/my-secret-topic` |
+| `notify.events` | `WOLWEB_NOTIFY_EVENTS` | all | selection of `online`, `offline`, `wake`, `wake_failed` |
 
 ### API
 
 The REST API lives under `/api/v1/` (see the [table above](#api)); changing requests need the header
-`X-WolWeb: 1` or a bearer token. Messages follow `Accept-Language` (or `?lang=en`), validation errors name the
+`X-WolWeb: 1` or a bearer token (without it: 403, the technical reason in `"error"`). Messages follow `Accept-Language` (or `?lang=en`), validation errors name the
 affected field (`"field": "mac"`). Wake links stay compatible with the original:
-`curl http://host:8089/wake/NAS` → `{"success":true,"message":"Magic packet sent to NAS."}` (with
+`curl http://host:8089/wake/NAS` → `{"success":true,"message":"Wake-up call sent to NAS."}` (with
 `Accept-Language: en`).
 
 ### Development
@@ -506,5 +700,6 @@ affected field (`"field": "mac"`). Wake links stay compatible with the original:
 contain the same keys and every key used by the templates and scripts). Browser tests (Playwright, axe-core) live in
 `e2e/`: `cd e2e && npm ci && npx playwright install chromium && npx playwright test` builds wolweb, starts it on
 port 8399 with an empty data directory and checks the overview, dialogs, wake and group pages, keyboard use, touch
-target sizes and WCAG 2.2 AA. GitHub Actions checks formatting, `go vet`, the race detector, builds for all
+target sizes and WCAG 2.2 AA. `node screenshots.js` (in `e2e`) regenerates the screenshots with invented devices and
+addresses only. GitHub Actions checks formatting, `go vet`, the race detector, builds for all
 platforms and runs the browser tests.

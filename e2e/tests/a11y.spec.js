@@ -2,7 +2,7 @@
 // Screenreader-Namen und Touch-Ziele.
 const { test, expect, devices } = require("@playwright/test");
 const AxeBuilder = require("@axe-core/playwright").default;
-const { reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets } = require("./helpers");
+const { reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets, contrast } = require("./helpers");
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"];
 
@@ -51,6 +51,48 @@ for (const colorScheme of ["light", "dark"]) {
       await request.post("api/v1/groups/Homelab/wake", { headers: { "X-WolWeb": "1" } });
       await page.click("#open-history");
       await expect(page.locator("#history-list li", { hasText: "Proxmox" }).first()).toBeVisible();
+      await expectAccessible(page);
+    });
+
+    test("Neu angelegt: nächste Schritte und Handy-Anleitung", async ({ page }) => {
+      await overview(page);
+      await page.click("#add-device");
+      await page.fill('#device-form input[name="name"]', "Werkstatt");
+      await page.fill('#device-form input[name="mac"]', "02:00:00:00:00:c1");
+      await page.click("#save-device");
+      const next = page.locator(".card-next");
+      await expect(next).toBeVisible();
+      await expectAccessible(page);
+      await next.getByRole("button", { name: "Auf dem Handy einrichten" }).click();
+      await expect(page.locator("#phone-dialog")).toBeVisible();
+      await expectAccessible(page);
+    });
+
+    test("Löschen bestätigen und Treffer-Plakette (gefüllte Fehlerflächen)", async ({ page }) => {
+      await overview(page);
+      await expect(page.locator("#new-badge")).toBeVisible(); // Testserver: zwei neue Suchtreffer
+      expect(await contrast(page, "#new-badge")).toBeGreaterThanOrEqual(4.5);
+      await expectAccessible(page);
+      await page.locator(".card", { hasText: "Büro-PC" }).locator('[data-focus="edit"]').click();
+      await page.click("#delete-device");
+      await expect(page.locator("#confirm-dialog")).toBeVisible();
+      expect(await contrast(page, "#confirm-ok")).toBeGreaterThanOrEqual(4.5);
+      await expectAccessible(page);
+    });
+
+    test("Importergebnis", async ({ page }) => {
+      await overview(page);
+      const file = JSON.stringify({ version: 2, devices: [{ name: "Neu", mac: "02:00:00:00:30:01" }, { name: "Kaputt", mac: "xyz" }] });
+      await page.setInputFiles("#import-file", { name: "geraete.json", mimeType: "application/json", buffer: Buffer.from(file) });
+      await expect(page.locator("#import-dialog")).toBeVisible();
+      await expectAccessible(page);
+    });
+
+    test("Mehrfachauswahl", async ({ page }) => {
+      await overview(page);
+      await page.click("#select-toggle");
+      await page.getByRole("checkbox", { name: "NAS auswählen" }).check();
+      await expect(page.locator("#select-bar")).toBeVisible();
       await expectAccessible(page);
     });
 
@@ -131,6 +173,9 @@ test.describe("Touch", () => {
   test("alle Ziele mindestens 44 × 44 px", async ({ page }) => {
     await overview(page);
     expect(await smallTargets(page), "Übersicht").toEqual([]);
+    await page.click("#select-toggle");
+    expect(await smallTargets(page), "Mehrfachauswahl").toEqual([]);
+    await page.click("#sel-done");
     await page.evaluate(() => document.querySelector("#add-device").click());
     await page.evaluate(() => { document.querySelector(".advanced").open = true; });
     expect(await smallTargets(page), "Gerätedialog").toEqual([]);
@@ -143,5 +188,16 @@ test.describe("Touch", () => {
     await page.goto("wake/" + encodeURIComponent("Büro-PC"));
     await expect(page.locator("#wake")).toHaveAttribute("data-state", "sent");
     expect(await smallTargets(page), "Weckseite").toEqual([]);
+  });
+
+  test("Hauptknöpfe: Name für Screenreader, kurze Beschriftung sichtbar", async ({ page }) => {
+    await overview(page);
+    // Der Suchknopf nennt neue Treffer mit („Geräte suchen – 1 neu“).
+    for (const [name, visible] of [[/^Geräte suchen( – \d+ neu)?$/, "Suchen"], [/^Gerät hinzufügen$/, "Hinzufügen"]]) {
+      const b = page.getByRole("button", { name });
+      await expect(b).toBeVisible();
+      await expect(b.getByText(visible, { exact: true })).toBeVisible();
+    }
+    await expectAccessible(page);
   });
 });

@@ -15,7 +15,13 @@
     foundFilter: "new",
     search: "",
     waking: new Map(), // id -> { start }
+    unconfirmed: new Set(), // Geräte, deren Start nach dem Wecken nicht bestätigt wurde – bis sie antworten
     editing: null,
+    fresh: null, // { id, adopted } – eben angelegtes Gerät: die Karte zeigt die nächsten Schritte
+    naming: null, // MAC eines Suchtreffers ohne Namen, für den gerade ein Name abgefragt wird
+    namingValue: "",
+    selecting: false, // Mehrfachauswahl für Gruppen
+    selected: new Set(),
     live: false, // Live-Verbindung (Server-Sent Events) steht – dann kaum noch Abfragen
   };
 
@@ -107,25 +113,45 @@
     if (n) n.focus({ preventScroll: true });
   }
 
+  // toast meldet kurz, was passiert ist. Warnungen bleiben stehen, bis sie geschlossen werden.
   function toast(kind, title, text) {
     const box = $("#toasts");
-    const t = el("div", { class: "toast " + kind }, // der Kasten selbst ist die Ansage (role=status)
-      icon(kind === "ok" ? "check" : kind === "err" ? "x" : "alert"),
-      el("div", {}, el("strong", { text: title }), text ? el("p", { text }) : null));
-    box.append(t);
-    setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 250); }, kind === "err" ? 7000 : 4200);
+    const close = () => { n.classList.add("out"); setTimeout(() => n.remove(), 250); };
+    const n = el("div", { class: "toast " + kind }, // der Kasten selbst ist die Ansage (role=status)
+      icon(kind === "ok" ? "check" : kind === "sent" ? "send" : kind === "err" ? "x" : "alert"),
+      el("div", {}, el("strong", { text: title }), text ? el("p", { text }) : null),
+      kind === "warn" ? el("button", { class: "btn btn-ghost btn-sm icon-only toast-close", title: t("page.close"), "aria-label": t("page.close"), onclick: close }, icon("x")) : null);
+    box.append(n);
+    if (kind !== "warn") setTimeout(close, kind === "err" ? 7000 : 4200);
   }
 
   // ---------- Geräte ----------
-  async function loadDevices() {
-    try {
-      state.devices = await api("GET", "devices");
-      state.groups = state.devices.some((d) => d.group) ? await api("GET", "groups") : [];
-      renderDevices();
-    } catch (e) {
-      if (e.status === 401) location.reload();
-      $("#summary").textContent = t("ui.server_unreachable");
+  // loadDevices lädt die Geräteliste. Abrufe laufen nacheinander: Kommt während eines Abrufs ein
+  // weiterer Anlass (Live-Ereignis, eigene Änderung), folgt ein zweiter. Sonst könnte eine ältere
+  // Antwort eine neuere überschreiben – eine eben angelegte Karte verschwände kurz samt Fokus. Das
+  // Versprechen erfüllt sich, wenn der neueste Stand gezeichnet ist.
+  let devicesLoading = null, devicesAgain = false;
+  function loadDevices() {
+    if (devicesLoading) {
+      devicesAgain = true;
+      return devicesLoading;
     }
+    devicesLoading = (async () => {
+      do {
+        devicesAgain = false;
+        try {
+          const devices = await api("GET", "devices");
+          state.groups = devices.some((d) => d.group) ? await api("GET", "groups") : [];
+          state.devices = devices;
+          renderDevices();
+        } catch (e) {
+          if (e.status === 401) location.reload();
+          $("#summary").textContent = t("ui.server_unreachable");
+        }
+      } while (devicesAgain);
+      devicesLoading = null;
+    })();
+    return devicesLoading;
   }
 
   function deviceState(d) {
@@ -153,6 +179,9 @@
       b.replaceChildren(b.dataset.label || (b.dataset.label = b.textContent), el("span", { class: "count", text: n }));
     }
     const list = state.devices.filter(matches);
+    for (const d of state.devices) if (deviceState(d) === "online") state.unconfirmed.delete(d.id); // doch noch gestartet
+    $("#select-toggle").hidden = state.info.read_only || total < 2;
+    for (const id of state.selected) if (!state.devices.some((d) => d.id === id)) state.selected.delete(id);
     $("#empty").hidden = total !== 0;
     $("#empty-filter").hidden = total === 0 || list.length !== 0;
     const existing = new Map([...grid.querySelectorAll(".card")].map((c) => [c.dataset.id, c]));
@@ -189,7 +218,8 @@
       el("h2", { id: nameID, text: g.name }),
       el("span", { class: "muted", text: t("ui.x_of_y_online", online, members.length) }),
       el("span", { class: "spacer" }),
-      el("button", { class: "btn btn-secondary btn-sm", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: t("ui.wake_group") })),
+      // Die Reichweite steht auf dem Knopf – alle Mitglieder, auch wenn die Suche gerade einige ausblendet.
+      el("button", { class: "btn btn-secondary btn-sm", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: tn("ui.wake_all", members.length) })),
       state.simple ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.copy_group_link"), "aria-label": t("ui.copy_group_link"), "aria-describedby": nameID, "data-focus": "copy", onclick: () => copyURL(groupURL(g), t("ui.group_link_copied"), t("ui.copy_group_link")) }, icon("link")));
   }
 
@@ -226,7 +256,8 @@
         resent ? el("span", { text: t("ui.resent") }) : null];
     }
     if (s === "online") {
-      return [el("span", { class: "pill online", text: t("ui.online") }), el("span", { text: methodText(st.method) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "") })];
+      // Ping/Port/ms nur in der normalen Ansicht – die einfache bleibt bei „Online“.
+      return [el("span", { class: "pill online", text: t("ui.online") }), state.simple ? null : el("span", { text: methodText(st.method) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "") })];
     }
     if (s === "unknown") {
       return [el("span", { class: "pill unknown", text: t("ui.no_status") }), el("span", { text: t("ui.no_ip_known") })];
@@ -246,16 +277,22 @@
     const nameID = "dn-" + d.id;
     const card = el("article", { class: "card", "data-id": d.id, "data-state": s, "aria-labelledby": nameID },
       el("div", { class: "card-top" },
+        state.selecting && !ro ? el("label", { class: "select-box" },
+          el("input", { type: "checkbox", "aria-label": t("ui.sel.select", d.name), "data-focus": "select", checked: state.selected.has(d.id),
+            onchange: (ev) => { if (ev.target.checked) state.selected.add(d.id); else state.selected.delete(d.id); updateSelectBar(); } })) : null,
         el("div", { class: "dev-icon", title: vendorText(d.vendor) }, icon(d.icon || "desktop")),
         el("div", { class: "card-title" },
           el("h3", { id: nameID, text: d.name, title: d.name }),
           simple ? null : el("div", { class: "card-meta" },
             ip ? el("span", { class: "mono", text: ip, title: d.ip ? t("ui.ip_address") : t("ui.ip_from_scan") }) : null,
             el("span", { class: "mono", text: d.mac, title: vendorText(d.vendor) || t("ui.mac_address") }),
-            d.next_wake ? el("span", { class: "sched", title: t("ui.schedule_title", (d.schedule || []).map(scheduleText).join("; ")) }, icon("clock"), nextWakeText(d.next_wake)) : null)),
+            d.next_wake ? el("span", { class: "sched", title: t("ui.schedule_title", (d.schedule || []).map(scheduleText).join("; ")) }, icon("clock"), nextWakeText(d.next_wake)) : null,
+            d.schedule_paused ? el("span", { class: "sched paused", title: t("ui.schedule_title", (d.schedule || []).map(scheduleText).join("; ")) }, icon("clock"), t("ui.sched.paused_short")) : null)),
         ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.edit"), "aria-label": t("ui.edit"), "aria-describedby": nameID, "data-focus": "edit", onclick: () => openDialog(d) }, icon("edit"))),
       d.note && !simple ? el("p", { class: "card-note", text: d.note }) : null,
       el("div", { class: "status-line" }, statusLine(d)),
+      state.fresh && state.fresh.id === d.id && !ro ? nextSteps(d) : null,
+      state.unconfirmed.has(d.id) && s !== "waking" ? unconfirmedNote(d) : null,
       el("div", { class: "card-actions" },
         el("button", { class: "btn btn-primary btn-wake", disabled: s === "waking", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wake(d) },
           icon("power"), el("span", { text: s === "waking" ? t("ui.being_started") : s === "online" ? t("ui.wake_again") : t("ui.wake") })),
@@ -271,7 +308,43 @@
     return card;
   }
 
+  // nextSteps: Hinweis auf einer eben angelegten Karte – Wecken steht direkt darunter.
+  function nextSteps(d) {
+    return el("div", { class: "card-next", role: "group", "aria-label": t("ui.next.title", d.name) },
+      el("p", {}, icon("check"), el("span", { text: state.fresh.adopted ? t("ui.next.adopted") : t("ui.next.added") })),
+      el("div", { class: "card-next-actions" },
+        el("button", { class: "btn btn-secondary btn-sm", "data-focus": "next-copy", onclick: () => copyLink(d) }, icon("link"), el("span", { text: t("ui.copy_link") })),
+        el("button", { class: "btn btn-secondary btn-sm", "data-focus": "next-phone", onclick: () => phoneSetup(d) }, icon("phone"), el("span", { text: t("page.phone.title") })),
+        state.fresh.adopted ? el("button", { class: "btn btn-secondary btn-sm", "data-focus": "details", onclick: () => openDialog(d) }, icon("edit"), el("span", { text: t("ui.next.details") })) : null,
+        el("span", { class: "spacer" }),
+        el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.next.dismiss"), "aria-label": t("ui.next.dismiss"), "data-focus": "dismiss",
+          onclick: () => { state.fresh = null; renderDevices(); focusCard(d.id); } }, icon("x"))));
+  }
+  // focusCard setzt den Fokus auf den Weckknopf einer Karte und lässt sie kurz aufleuchten.
+  function focusCard(id) {
+    const card = $('.card[data-id="' + CSS.escape(id) + '"]');
+    if (!card) return;
+    card.scrollIntoView({ block: "nearest" });
+    card.querySelector('[data-focus="wake"]').focus({ preventScroll: true });
+    card.classList.add("card-flash");
+    setTimeout(() => card.classList.remove("card-flash"), 1300);
+  }
+
   function copyLink(d) { return copyURL(wakeURL(d), t("ui.link_copied"), t("ui.copy_link")); }
+
+  // phoneSetup erklärt in drei Schritten, wie der Wecklink als Symbol auf den Startbildschirm kommt.
+  const phoneDlg = $("#phone-dialog");
+  function phoneSetup(d) {
+    const url = wakeURL(d);
+    $("#phone-intro").textContent = t("ui.phone.intro", d.name);
+    $("#phone-link").textContent = decodeURI(url); // lesbar ("Büro-PC"); kopiert wird die echte Adresse
+    $("#phone-copy").onclick = () => copyURL(url, t("ui.link_copied"), t("ui.copy_link"));
+    const share = $("#phone-share");
+    share.hidden = !navigator.share; // Teilen schickt den Link z. B. per Messenger ans Handy
+    share.onclick = () => navigator.share({ title: d.name, url }).catch(() => { /* abgebrochen */ });
+    phoneDlg.showModal();
+  }
+  for (const b of phoneDlg.querySelectorAll("[data-close]")) b.addEventListener("click", () => phoneDlg.close());
   async function copyURL(url, done, ask) {
     try {
       await navigator.clipboard.writeText(url);
@@ -284,6 +357,7 @@
 
   async function wake(d) {
     if (state.waking.has(d.id)) return;
+    state.unconfirmed.delete(d.id);
     let res;
     try {
       res = await api("POST", "devices/" + encodeURIComponent(d.id) + "/wake");
@@ -292,11 +366,12 @@
       return;
     }
     if (!d.check_ip) {
-      toast("ok", t("ui.packet_sent"), t("ui.sent_no_ip", d.name, res.target));
+      toast("sent", t("ui.packet_sent"), t("ui.sent_no_ip", d.name, res.target)); // gesendet ≠ gestartet
       loadDevices();
       return;
     }
-    toast("ok", t("ui.packet_sent"), t("ui.is_starting", d.name));
+    if (res.already) toast("sent", t("ui.already_waking", d.name), t("ui.is_starting", d.name));
+    else toast("sent", t("ui.packet_sent"), t("ui.is_starting", d.name));
     track(d);
   }
 
@@ -342,8 +417,33 @@
       renderDevices();
     }
     state.waking.delete(d.id);
+    state.unconfirmed.add(d.id); // die Karte sagt es weiter, bis das Gerät antwortet
     renderDevices();
     toast("warn", t("ui.x_no_answer", d.name), t("ui.no_answer_after", fmtDuration(Date.now() - start)));
+  }
+
+  // unconfirmedNote: Start nicht bestätigt – bleibt auf der Karte, mit „Nochmals prüfen“.
+  function unconfirmedNote(d) {
+    return el("div", { class: "card-warn" },
+      el("p", {}, icon("alert"), el("span", { text: t("ui.unconfirmed", d.name) })),
+      el("div", { class: "card-next-actions" },
+        el("button", { class: "btn btn-secondary btn-sm", "data-focus": "recheck", "aria-describedby": "dn-" + d.id, onclick: () => recheck(d) }, icon("search"), el("span", { text: t("wake.btn.recheck") })),
+        el("span", { class: "spacer" }),
+        el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.next.dismiss"), "aria-label": t("ui.next.dismiss"), "data-focus": "dismiss-warn",
+          onclick: () => { state.unconfirmed.delete(d.id); renderDevices(); focusCard(d.id); } }, icon("x"))));
+  }
+  async function recheck(d) {
+    let st = null;
+    try { st = await api("GET", "devices/" + encodeURIComponent(d.id) + "/status"); } catch (e) { /* keine Antwort */ }
+    const cur = state.devices.find((x) => x.id === d.id);
+    if (cur && st) cur.status = st;
+    if (st && st.state === "online") {
+      state.unconfirmed.delete(d.id);
+      toast("ok", t("ui.x_is_online", d.name), t("wake.result.late_text", d.name));
+    } else {
+      toast("err", t("ui.still_no_answer", d.name), t("ui.unconfirmed_hint"));
+    }
+    renderDevices();
   }
 
   // Laufende Zeitanzeige beim Wecken
@@ -356,9 +456,213 @@
     }
   }, 500);
 
+  // ---------- Mehrfachauswahl: Geräte gemeinsam einer Gruppe zuordnen ----------
+  function fillGroupList() {
+    $("#group-list").replaceChildren(...state.groups.map((g) => el("option", { value: g.name })));
+  }
+  function setSelecting(on) {
+    state.selecting = on;
+    state.selected.clear();
+    $("#select-toggle").setAttribute("aria-pressed", String(on));
+    $("#select-bar").hidden = !on;
+    document.body.classList.toggle("selecting", on);
+    $("#sel-group").value = "";
+    if (on) fillGroupList();
+    renderDevices();
+    updateSelectBar();
+  }
+  function updateSelectBar() {
+    const n = state.selected.size;
+    const g = $("#sel-group").value.trim();
+    const grouped = state.devices.some((d) => state.selected.has(d.id) && d.group);
+    $("#sel-count").textContent = tn("ui.sel.count", n);
+    $("#sel-apply-text").textContent = g ? t("ui.sel.apply", g) : grouped ? t("ui.sel.ungroup") : t("ui.sel.pick");
+    $("#sel-apply").disabled = !n || (!g && !grouped);
+  }
+  async function applyGroup() {
+    const ids = [...state.selected];
+    try {
+      const res = await api("POST", "devices/group", { ids, group: $("#sel-group").value.trim() });
+      toast("ok", res.group ? tn("ui.sel.moved", ids.length, res.group) : tn("ui.sel.removed", ids.length));
+      setSelecting(false);
+      $("#select-toggle").focus();
+      await loadDevices();
+    } catch (e) {
+      toast("err", t("ui.not_possible"), e.message);
+    }
+  }
+  $("#select-toggle").addEventListener("click", () => setSelecting(!state.selecting));
+  $("#sel-done").addEventListener("click", () => { setSelecting(false); $("#select-toggle").focus(); });
+  $("#sel-group").addEventListener("input", updateSelectBar);
+  $("#sel-group").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && !$("#sel-apply").disabled) applyGroup(); });
+  $("#sel-apply").addEventListener("click", applyGroup);
+  $("#select-bar").addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { setSelecting(false); $("#select-toggle").focus(); }
+  });
+
   // ---------- Dialog Gerät ----------
   const dlg = $("#device-dialog");
   const form = $("#device-form");
+
+  // ---------- Zeitplan im Gerätedialog ----------
+  // Schalter, Wochentage und Uhrzeit sind die einfache Form; gespeichert wird das Textfeld unter
+  // „Weitere Möglichkeiten“. Die Schalter schreiben hinein, und was dort getippt wird, zeigen sie an –
+  // solange es genau eine Weckzeit ist. Prüfen, vereinheitlichen und die nächste Weckzeit berechnen
+  // tut der Server (Ortszeit des Servers, nicht des Browsers).
+  const SCHED_DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]; // Schreibweise des Servers, Montag zuerst
+  const sched = {
+    on: $("#sched-on"), body: $("#sched-body"), days: $("#sched-days"), time: $("#sched-time"),
+    simple: $("#sched-simple"), multi: $("#sched-multi"), summary: $("#sched-summary"), more: $("#sched-more"),
+    timer: 0, seq: 0,
+  };
+  const dayName = (i, weekday) => new Date(2024, 0, 1 + i).toLocaleDateString(locale, { weekday }); // 1.1.2024: Montag
+  function buildDayPicker() {
+    SCHED_DAYS.forEach((d, i) => sched.days.append(el("label", {},
+      el("input", { type: "checkbox", value: d, "aria-label": dayName(i, "long") }),
+      el("span", { "aria-hidden": "true", text: dayName(i, "short") }))));
+  }
+  // runs fasst aufeinanderfolgende Tage zusammen: [[0, 4], [5, 5], [6, 6]] für Mo-Fr, Sa, So.
+  function runs(days) {
+    const out = [];
+    for (let i = 0; i < 7; i++) {
+      if (!days[i]) continue;
+      let j = i;
+      while (j + 1 < 7 && days[j + 1]) j++;
+      if (j - i >= 2) out.push([i, j]);
+      else for (let k = i; k <= j; k++) out.push([k, k]);
+      i = j;
+    }
+    return out;
+  }
+  // Einheitliche Schreibweise des Servers ("Mo-Fr 07:30", "täglich 22:00") ↔ Tage und Uhrzeit.
+  function entryText(days, time) {
+    if (days.every(Boolean)) return "täglich " + time;
+    return runs(days).map(([a, b]) => a === b ? SCHED_DAYS[a] : SCHED_DAYS[a] + "-" + SCHED_DAYS[b]).join(",") + " " + time;
+  }
+  function parseEntry(s) {
+    const m = /^(\S+) (\d\d:\d\d)$/.exec(s || "");
+    if (!m) return null;
+    const days = Array(7).fill(m[1] === "täglich");
+    if (m[1] !== "täglich") {
+      for (const part of m[1].split(",")) {
+        const [a, b] = part.split("-").map((x) => SCHED_DAYS.indexOf(x));
+        if (a < 0 || b < 0) return null;
+        for (let i = a; ; i = (i + 1) % 7) { days[i] = true; if (b === undefined || i === b) break; }
+      }
+    }
+    return { days, time: m[2] };
+  }
+  // describeEntry: „Montag bis Freitag um 07:30 Uhr“, „Täglich um 22:00 Uhr“.
+  function describeEntry(e) {
+    if (e.days.every(Boolean)) return t("ui.sched.daily", e.time);
+    const parts = runs(e.days).map(([a, b]) => a === b ? dayName(a, "long") : t("ui.sched.range", dayName(a, "long"), dayName(b, "long")));
+    return t("ui.sched.days", new Intl.ListFormat(locale, { type: "conjunction" }).format(parts), e.time);
+  }
+  const schedDays = () => [...sched.days.querySelectorAll("input")].map((i) => i.checked);
+  const schedList = () => form.schedule.value.split(";").map((x) => x.trim()).filter(Boolean);
+
+  // showEntries zeigt Weckzeiten (einheitliche Schreibweise) in den Schaltern an.
+  function showEntries(list) {
+    const one = list.length === 1 ? parseEntry(list[0]) : null;
+    sched.simple.hidden = list.length > 1;
+    sched.multi.hidden = list.length <= 1;
+    if (one) {
+      sched.days.querySelectorAll("input").forEach((i, k) => { i.checked = one.days[k]; });
+      sched.time.value = one.time;
+    }
+  }
+  function setSchedule(list, paused) {
+    sched.on.checked = list.length > 0;
+    sched.body.hidden = !sched.on.checked;
+    form.schedule.value = list.map(scheduleText).join("; ");
+    form.schedule_paused.checked = !!paused;
+    sched.more.open = false;
+    sched.days.querySelectorAll("input").forEach((i, k) => { i.checked = k < 5; }); // Vorschlag: werktags
+    sched.time.value = "07:30";
+    showEntries(list);
+    previewSchedule(0);
+  }
+  function simpleChanged() {
+    const days = schedDays();
+    form.schedule.value = days.some(Boolean) ? scheduleText(entryText(days, sched.time.value || "07:30")) : "";
+    previewSchedule(0);
+  }
+  function previewSchedule(delay) {
+    clearTimeout(sched.timer);
+    sched.timer = setTimeout(runPreview, delay);
+  }
+  async function runPreview() {
+    const seq = ++sched.seq;
+    const list = schedList();
+    if (!sched.on.checked) return sched.summary.replaceChildren();
+    if (!list.length) return renderSummary({ error: t("ui.sched.no_days") });
+    let res;
+    try {
+      res = await api("GET", "schedule/preview?" + new URLSearchParams(list.map((x) => ["s", x])));
+    } catch (e) {
+      if (seq === sched.seq) renderSummary({ error: e.message });
+      return;
+    }
+    if (seq !== sched.seq) return; // inzwischen geändert
+    if (document.activeElement !== form.schedule) showEntries(res.schedule);
+    renderSummary(res);
+  }
+  // renderSummary: was eingestellt ist, wann als Nächstes geweckt wird und in welcher Zeitzone.
+  function renderSummary(res) {
+    if (res.error) {
+      sched.summary.replaceChildren(el("p", { class: "sched-error", text: res.error }));
+      return;
+    }
+    const lines = res.schedule.map((x) => parseEntry(x)).filter(Boolean).map((e) => el("strong", { text: describeEntry(e) }));
+    if (form.schedule_paused.checked) {
+      lines.push(el("p", { class: "sched-paused", text: t("ui.sched.paused") }));
+    } else if (res.next) {
+      // Die Weckzeit gilt auf der Uhr des Servers: dessen Datum und Uhrzeit anzeigen, nicht die des Browsers.
+      const m = /^(\d+)-(\d+)-(\d+)T(\d+):(\d+)/.exec(res.next);
+      const wall = new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]);
+      const fmt = { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" };
+      lines.push(el("p", { text: t("ui.sched.next", wall.toLocaleString(locale, fmt)) }));
+      const off = /([+-])(\d\d):(\d\d)$/.exec(res.next);
+      const serverOffset = off ? (off[1] === "-" ? -1 : 1) * (off[2] * 60 + +off[3]) : 0; // "Z" = UTC
+      const at = new Date(res.next);
+      if (serverOffset === -at.getTimezoneOffset()) lines.push(el("p", { class: "muted small", text: t("ui.sched.zone", res.zone) }));
+      else lines.push(el("p", { class: "sched-paused small", text: t("ui.sched.zone_differs", res.zone, at.toLocaleString(locale, fmt)) }),
+        el("p", { class: "muted small", text: t("ui.sched.zone_hint") }));
+    }
+    sched.summary.replaceChildren(...lines);
+  }
+  sched.on.addEventListener("change", () => {
+    sched.body.hidden = !sched.on.checked;
+    if (sched.on.checked && !schedList().length) simpleChanged(); // gleich mit dem Vorschlag
+    else previewSchedule(0);
+  });
+  sched.days.addEventListener("change", simpleChanged);
+  sched.time.addEventListener("change", simpleChanged);
+  form.schedule_paused.addEventListener("change", () => previewSchedule(0));
+  form.schedule.addEventListener("input", () => previewSchedule(400));
+  form.schedule.addEventListener("change", () => previewSchedule(0)); // nach dem Tippen die Schalter angleichen
+
+  // Vorhandene Gruppen zum Antippen unter dem Gruppenfeld (eine Datenliste ist auf dem Handy umständlich).
+  function renderGroupChips() {
+    const box = $("#group-chips");
+    const cur = form.group.value.trim().toLowerCase();
+    box.replaceChildren(...state.groups.map((g) => el("button", {
+      type: "button", class: "btn btn-secondary btn-sm chip", "aria-pressed": String(cur === g.name.toLowerCase()),
+      onclick: () => { form.group.value = cur === g.name.toLowerCase() ? "" : g.name; renderGroupChips(); },
+    }, g.name)));
+    box.hidden = !state.groups.length;
+  }
+  form.group.addEventListener("input", renderGroupChips);
+
+  // Umbenennen: neuen Wecklink zeigen – der alte leitet weiter (der Server merkt sich frühere Namen).
+  function renderNameHint() {
+    const d = state.editing, name = form.name.value.trim();
+    const renamed = d && name && name.toLowerCase() !== d.name.toLowerCase();
+    $("#name-hint").textContent = renamed
+      ? t("ui.rename_hint", wakeURL(Object.assign({}, d, { wake_path: "wake/" + encodeURIComponent(name) })))
+      : t("page.f.name_hint");
+  }
+  form.name.addEventListener("input", renderNameHint);
 
   function buildIconPicker() {
     const box = $("#icon-picker");
@@ -372,9 +676,9 @@
 
   function openDialog(d, prefill) {
     state.editing = d || null;
+    state.prefilled = !d && !!prefill;
     form.reset();
-    $("#form-error").hidden = true;
-    for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
+    clearFieldErrors();
     const v = d || prefill || {};
     $("#device-dialog-title").textContent = d ? t("ui.dialog.edit") : prefill ? t("ui.dialog.adopt") : t("ui.dialog.add");
     form.name.value = v.name || "";
@@ -386,12 +690,15 @@
     form.ports.value = (v.ports || []).join(", ");
     form.secureon.value = v.secureon || "";
     form.group.value = v.group || "";
-    form.schedule.value = (v.schedule || []).map(scheduleText).join("; ");
-    $("#group-list").replaceChildren(...[...new Set(state.devices.map((x) => x.group).filter(Boolean))].map((g) => el("option", { value: g })));
+    setSchedule(v.schedule || [], v.schedule_paused);
+    renderNameHint();
+    fillGroupList();
+    renderGroupChips();
     form.ports.placeholder = state.info.ports && state.info.ports.length ? t("ui.default_ports", state.info.ports.slice(0, 5).join(", ") + (state.info.ports.length > 5 ? " …" : "")) : t("ui.default");
     const ic = form.querySelector('input[name="icon"][value="' + (v.icon || "desktop") + '"]');
     if (ic) ic.checked = true;
     $("#vendor-hint").textContent = v.vendor ? t("ui.vendor", vendorText(v.vendor)) : "";
+    $("#mac-hint").hidden = !!(d || prefill); // von Hand: sagen, wo es die MAC gibt – und dass die Suche leichter ist
     form.broadcast.placeholder = state.info.default_broadcast ? t("ui.automatic_x", state.info.default_broadcast) : t("ui.automatic");
     $(".advanced").open = !!(v.broadcast || v.interface || v.note || v.secureon || (v.ports && v.ports.length));
     $("#delete-device").hidden = !d;
@@ -399,6 +706,48 @@
     dlg.showModal();
     (v.name ? form.mac : form.name).focus();
     if (prefill && !prefill.name) form.name.focus();
+  }
+
+  // fieldError zeigt eine Meldung direkt am Feld, verknüpft sie per aria-describedby (der Screenreader
+  // liest sie beim Feld vor) und setzt den Fokus dorthin; aufklappbare Bereiche gehen dafür auf.
+  function fieldError(input, msg) {
+    const box = input.closest(".field") || input.parentElement;
+    let note = box.querySelector(".field-error");
+    if (!note) {
+      note = el("small", { class: "field-error", id: "err-" + (input.name || input.id) });
+      box.append(note);
+    }
+    note.textContent = msg;
+    note.hidden = false;
+    input.setAttribute("aria-invalid", "true");
+    const ids = (input.getAttribute("aria-describedby") || "").split(" ").filter(Boolean);
+    if (!ids.includes(note.id)) input.setAttribute("aria-describedby", [note.id, ...ids].join(" "));
+    for (let d = input.closest("details"); d; d = d.parentElement.closest("details")) d.open = true;
+    input.focus();
+  }
+  function clearFieldErrors() {
+    $("#form-error").hidden = true;
+    for (const note of form.querySelectorAll(".field-error")) {
+      note.hidden = true;
+      for (const i of form.querySelectorAll('[aria-describedby~="' + note.id + '"]')) {
+        const rest = i.getAttribute("aria-describedby").split(" ").filter((x) => x && x !== note.id);
+        if (rest.length) i.setAttribute("aria-describedby", rest.join(" "));
+        else i.removeAttribute("aria-describedby");
+      }
+    }
+    for (const i of form.querySelectorAll("[aria-invalid]")) i.removeAttribute("aria-invalid");
+  }
+  // formError zeigt einen Fehler des Servers: am betroffenen Feld, wenn er es nennt ("field"), sonst
+  // über dem Formular (role=alert).
+  function formError(e) {
+    const field = e.data && e.data.field && form.elements[e.data.field];
+    if (field && field.type !== "hidden") {
+      fieldError(field, e.message);
+      return;
+    }
+    const err = $("#form-error");
+    err.textContent = e.message;
+    err.hidden = false;
   }
 
   form.addEventListener("submit", async (ev) => {
@@ -410,20 +759,13 @@
       ports: form.ports.value.split(/[\s,;]+/).filter(Boolean).map(Number),
       secureon: form.secureon.value,
       group: form.group.value,
-      schedule: form.schedule.value.split(";").map((x) => x.trim()).filter(Boolean),
+      schedule: sched.on.checked ? schedList() : [], // ausgeschaltet: Zeitplan entfernen
+      schedule_paused: sched.on.checked && form.schedule_paused.checked,
     };
-    const err = $("#form-error");
-    for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
-    if (body.ports.some((p) => !Number.isInteger(p))) {
-      err.textContent = t("ui.ports_numbers");
-      err.hidden = false;
-      $(".advanced").open = true;
-      form.ports.setAttribute("aria-invalid", "true");
-      form.ports.focus();
-      return;
-    }
-    if (!body.name.trim()) { form.name.setAttribute("aria-invalid", "true"); form.name.focus(); return; }
-    if (!body.mac.trim()) { form.mac.setAttribute("aria-invalid", "true"); form.mac.focus(); return; }
+    clearFieldErrors();
+    if (!body.name.trim()) return fieldError(form.name, t("ui.err.name_missing"));
+    if (!body.mac.trim()) return fieldError(form.mac, t("ui.err.mac_missing"));
+    if (body.ports.some((p) => !Number.isInteger(p))) return fieldError(form.ports, t("ui.ports_numbers"));
     const btn = $("#save-device");
     btn.disabled = true;
     try {
@@ -435,17 +777,16 @@
       }
       dlg.close();
       toast("ok", state.editing ? t("ui.saved") : t("ui.device_added"), saved.name + " · " + saved.mac);
+      const created = !state.editing;
+      if (created) {
+        state.fresh = { id: saved.id, adopted: state.prefilled };
+        if (state.prefilled) { state.naming = null; closeDrawer(); } // aus der Suche übernommen: Leiste zu
+      }
       await loadDevices();
+      if (created) focusCard(saved.id);
       if (drawerOpen()) loadDiscovery();
     } catch (e) {
-      err.textContent = e.message;
-      err.hidden = false;
-      // Der Server nennt das betroffene Feld; Felder unter "Erweitert" dafür aufklappen.
-      const field = e.data && e.data.field && form.elements[e.data.field];
-      if (field) {
-        field.setAttribute("aria-invalid", "true");
-        if (field.closest(".advanced")) $(".advanced").open = true;
-      }
+      formError(e);
     } finally {
       btn.disabled = false;
     }
@@ -529,6 +870,19 @@
   for (const b of drawer.querySelectorAll("[data-close]")) b.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawerOpen() && !dlg.open) closeDrawer(); });
 
+  async function chooseNetwork(cidr) {
+    try {
+      await api("POST", "discovery/network", { cidr });
+    } catch (e) {
+      toast("err", t("ui.scan.impossible"), e.message);
+      return;
+    }
+    await reloadInfo();
+    $("#scan-btn").focus();
+    try { await api("POST", "discovery/scan"); } catch (e) { /* Anzeige folgt über loadDiscovery */ }
+    loadDiscovery();
+  }
+
   function classify(f) {
     if (f.device_id) return "known";
     if (f.ignored) return "ignored";
@@ -557,16 +911,29 @@
     const badge = $("#new-badge");
     badge.textContent = counts.new;
     badge.hidden = counts.new === 0;
+    const opener = $("#open-discovery"); // der Name nennt die Zahl mit, die Plakette allein hört man nicht
+    opener.setAttribute("aria-label", counts.new ? t("ui.find_devices_new", counts.new) : opener.dataset.label);
 
     for (const b of $("#found-filter").children) {
       b.replaceChildren(b.dataset.label || (b.dataset.label = b.textContent), el("span", { class: "count", text: counts[b.dataset.filter] }));
     }
 
     const nets = state.info.networks || [];
-    $("#discovery-networks").textContent = nets.length ? t("ui.scan.segments", nets.join(", ")) : "";
+    const choices = state.info.network_choices || [];
+    $("#discovery-networks").textContent = !nets.length ? ""
+      : state.info.networks_auto ? t("ui.scan.segment_auto", nets[0]) : t("ui.scan.segments", nets.join(", "));
     const btn = $("#scan-btn");
     const prog = $("#scan-progress");
-    if (!nets.length) {
+    const pick = $("#net-choices");
+    pick.hidden = nets.length || !choices.length;
+    if (!nets.length && choices.length) {
+      // Mehrere mögliche Heimnetze: eins antippen, gespeichert wird es in den Einstellungen.
+      $("#scan-title").textContent = t("ui.scan.setup_title");
+      $("#scan-detail").textContent = t("ui.scan.setup_text");
+      btn.disabled = true;
+      pick.replaceChildren(...choices.map((c) => el("button", { type: "button", class: "btn btn-secondary", onclick: () => chooseNetwork(c.prefix) },
+        icon("radar"), el("span", { class: "mono", text: c.prefix }), el("span", { class: "muted", text: c.interface + " · " + c.addr }))));
+    } else if (!nets.length) {
       $("#scan-title").textContent = t("ui.scan.no_segment");
       $("#scan-detail").textContent = t("ui.scan.no_segment_hint");
       btn.disabled = true;
@@ -645,13 +1012,74 @@
           el("span", { class: "mono", text: f.mac }),
           f.hostname && f.vendor ? el("span", { text: vendorText(f.vendor) }) : null,
           el("span", { text: t("ui.found.seen", ago(f.last_seen)) }))),
-      el("div", { class: "found-actions" }, actions));
+      state.naming === f.mac && kind === "new" ? nameForm(f) : el("div", { class: "found-actions" }, actions));
   }
 
-  function adopt(f) {
+  // Name aus dem Hostnamen ableiten ("nas.fritz.box" → "nas"); ist er schon vergeben, mit der
+  // letzten Stelle der IP-Adresse.
+  function suggestName(f) {
     let name = (f.hostname || "").split(".")[0];
     if (name && state.devices.some((d) => d.name.toLowerCase() === name.toLowerCase())) name += "-" + f.ip.split(".").pop();
-    openDialog(null, { name, mac: f.mac, ip: f.ip, vendor: f.vendor, icon: guessIcon(f) });
+    return name;
+  }
+  // Vorschlag, wenn der Treffer keinen Hostnamen hat: Hersteller oder "Gerät" plus letzte Stelle der IP.
+  function fallbackName(f) {
+    const vendor = f.vendor && f.vendor !== "Private/zufällige MAC" ? f.vendor.split(/[\s,]+/)[0] : t("ui.found.device");
+    return vendor + "-" + f.ip.split(".").pop();
+  }
+
+  // adopt übernimmt einen Treffer direkt – ohne Dialog, wenn sich der Name ableiten lässt; sonst wird
+  // nur der Name gefragt. Danach schließt die Suchleiste und die neue Karte bekommt den Fokus.
+  async function adopt(f, name) {
+    name = name === undefined ? suggestName(f) : name;
+    if (!name) {
+      state.naming = f.mac;
+      state.namingValue = fallbackName(f);
+      renderDiscovery();
+      const input = $("#found-list [data-focus='name']");
+      if (input) { input.focus(); input.select(); }
+      return;
+    }
+    const body = { name, mac: f.mac, ip: f.ip, icon: guessIcon(f) };
+    let d;
+    try {
+      d = await api("POST", "devices", body);
+    } catch (e) {
+      // z. B. Name schon vergeben: im Dialog nachbessern, mit allen Angaben und der Meldung
+      openDialog(null, Object.assign(body, { vendor: f.vendor }));
+      formError(e);
+      return;
+    }
+    state.naming = null;
+    state.fresh = { id: d.id, adopted: true };
+    closeDrawer();
+    toast("ok", t("ui.adopted", d.name), d.ip + " · " + d.mac);
+    await loadDevices();
+    focusCard(d.id);
+    loadDiscovery();
+  }
+
+  // Nur der Name fehlt: kleines Formular direkt im Treffer.
+  function nameForm(f) {
+    const err = el("p", { class: "form-error small", id: "found-name-err", hidden: true });
+    const input = el("input", { maxlength: "64", autocomplete: "off", "data-focus": "name", value: state.namingValue,
+      "aria-describedby": "found-name-err", oninput: (ev) => { state.namingValue = ev.target.value; } });
+    return el("form", { class: "found-name", novalidate: true, onsubmit: (ev) => {
+      ev.preventDefault();
+      if (!input.value.trim()) {
+        err.textContent = t("ui.err.name_missing");
+        err.hidden = false;
+        input.setAttribute("aria-invalid", "true");
+        input.focus();
+        return;
+      }
+      adopt(f, input.value.trim());
+    } },
+      el("label", { class: "field" }, el("span", { text: t("ui.found.name_needed") }), input),
+      err,
+      el("div", { class: "found-actions" },
+        el("button", { type: "button", class: "btn btn-ghost btn-sm", "data-focus": "cancel-name", onclick: () => { state.naming = null; renderDiscovery(); } }, t("ui.cancel")),
+        el("button", { type: "submit", class: "btn btn-primary btn-sm", "data-focus": "save-name" }, icon("plus"), el("span", { text: t("ui.found.adopt") }))));
   }
 
   async function setIgnored(f, ignored) {
@@ -683,18 +1111,42 @@
     const s = t(key, ev.group || "");
     return s === key ? ev.source : s; // unbekannte Quelle: so anzeigen, wie sie gespeichert ist
   }
+  // outcome: ein Satz je Eintrag – ob der Weckruf rausging und ob der Start bestätigt ist.
+  function outcome(ev) {
+    if (!ev.success) return { kind: "err", icon: "x", text: t("ui.hist.failed") };
+    if (ev.started) return { kind: "ok", icon: "check", text: t("ui.hist.started", fmtDuration(new Date(ev.started) - new Date(ev.time))) };
+    if (ev.was_online) return { kind: "ok", icon: "check", text: t("ui.hist.running") };
+    if (!ev.checkable) return { kind: "sent", icon: SOURCE_ICON[ev.source] || "send", text: t("ui.hist.sent") };
+    // Die Wiederholung kommt wake_retry nach dem Weckruf, die Wartezeit läuft aber ab dem Weckruf.
+    const wait = (state.info.wake_timeout - (ev.retry ? state.info.wake_retry || 0 : 0)) * 1000;
+    if (Date.now() - new Date(ev.time) < wait) return { kind: "sent", icon: "send", text: t("ui.hist.waiting") };
+    return { kind: "warn", icon: "alert", text: t("ui.hist.unconfirmed") };
+  }
   async function openHistory() {
     const d = $("#history-dialog");
     let events = [];
     try { events = (await api("GET", "history?limit=200")).events || []; } catch (e) { toast("err", t("ui.history_unavailable"), e.message); return; }
     const fmt = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-    $("#history-list").replaceChildren(...events.map((ev) => el("li", { class: ev.success ? "ok" : "err" },
-      icon(ev.success ? (SOURCE_ICON[ev.source] || "check") : "x"),
-      el("div", { class: "h-main" },
-        el("strong", { text: ev.device }),
-        el("div", { class: "h-meta", text: [sourceText(ev), ev.retry && t("ui.retry_event"), ev.user, ev.client, ev.target && t("ui.to_target", ev.target)].filter(Boolean).join(" · ") }),
-        ev.error ? el("div", { class: "h-meta", text: ev.error }) : null),
-      el("time", { datetime: ev.time, title: new Date(ev.time).toLocaleString(locale), text: fmt.format(new Date(ev.time)) }))));
+    $("#history-list").replaceChildren(...events.map((ev) => {
+      const r = outcome(ev);
+      const details = [
+        t("ui.hist.source", sourceText(ev)),
+        ev.retry && t("ui.retry_event"),
+        ev.user && t("ui.hist.user", ev.user),
+        ev.client && t("ui.hist.client", ev.client),
+        ev.target && t("ui.hist.target", ev.target),
+        ev.success && !ev.checkable && t("ui.hist.no_ip"),
+        ev.error && t("ui.hist.error", ev.error),
+      ].filter(Boolean);
+      return el("li", { class: r.kind },
+        icon(r.icon),
+        el("div", { class: "h-main" },
+          el("strong", { text: ev.device }),
+          el("p", { class: "h-result", text: r.text + (ev.retry ? " " + t("ui.hist.retried") : "") }),
+          el("details", { class: "h-details" }, el("summary", { text: t("ui.hist.details") }),
+            el("ul", {}, details.map((x) => el("li", { text: x }))))),
+        el("time", { datetime: ev.time, title: new Date(ev.time).toLocaleString(locale), text: fmt.format(new Date(ev.time)) }));
+    }));
     $("#history-empty").hidden = events.length !== 0;
     d.showModal();
   }
@@ -708,16 +1160,35 @@
     if (!file) return;
     try {
       const res = await api("POST", "import", await file.text(), true);
-      const parts = [t("ui.import.added", res.added)];
-      if (res.skipped) parts.push(t("ui.import.skipped", res.skipped));
-      if (res.errors && res.errors.length) parts.push(t("ui.import.faulty", res.errors.length));
-      if (res.secret_restored) parts.push(t("ui.import.secret"));
-      toast(res.errors && res.errors.length ? "warn" : "ok", t("ui.import.done"), parts.join(", ") + (res.errors && res.errors.length ? ": " + res.errors.slice(0, 3).join("; ") : ""));
+      showImport(res);
       loadDevices();
     } catch (err) {
       toast("err", t("ui.import.failed"), err.message);
     }
   });
+
+  // showImport zeigt das Ergebnis dauerhaft (bis zum Schließen): eine Zusammenfassung und je Ergebnis
+  // die vollständige Liste der Einträge – nicht nur die ersten Fehler.
+  const importDlg = $("#import-dialog");
+  function showImport(res) {
+    const items = res.items || [];
+    const of = (r) => items.filter((it) => it.result === r);
+    const added = of("added"), skipped = of("skipped"), failed = of("error");
+    const sum = [tn("ui.import.sum_added", added.length)];
+    if (skipped.length) sum.push(tn("ui.import.sum_skipped", skipped.length));
+    if (failed.length) sum.push(tn("ui.import.sum_failed", failed.length));
+    $("#import-summary").textContent = sum.join(", ") + "." + (res.secret_restored ? " " + t("ui.import.secret") + "." : "");
+    const section = (list, kind, head, line) => list.length ? el("section", { class: "import-part " + kind },
+      el("h3", {}, icon(kind === "ok" ? "check" : kind === "warn" ? "x" : "alert"), el("span", { text: head })),
+      el("ul", {}, list.map((it) => el("li", { text: line(it) })))) : null;
+    $("#import-lists").replaceChildren(...[
+      section(added, "ok", t("ui.import.h_added"), (it) => it.new_name ? t("ui.import.renamed", it.name, it.new_name) : it.name),
+      section(skipped, "info", t("ui.import.h_skipped"), (it) => it.detail && it.detail !== it.name ? t("ui.import.same_mac", it.name, it.detail) : it.name),
+      section(failed, "warn", t("ui.import.h_failed"), (it) => it.name ? it.name + ": " + it.detail : it.detail),
+    ].filter(Boolean));
+    importDlg.showModal();
+  }
+  for (const b of importDlg.querySelectorAll("[data-close]")) b.addEventListener("click", () => importDlg.close());
 
   // ---------- Filter, Suche, Theme ----------
   function segmented(box, key, onChange) {
@@ -777,7 +1248,10 @@
   $("#lang-toggle").addEventListener("click", (e) => {
     const next = e.currentTarget.dataset.lang;
     document.cookie = "wolweb_lang=" + next + "; path=" + new URL(document.baseURI).pathname + "; max-age=31536000; SameSite=Lax";
-    location.reload();
+    // ?lang= in der Adresse ginge dem Cookie vor – beim bloßen Neuladen bliebe die alte Sprache.
+    const url = new URL(location.href);
+    url.searchParams.delete("lang");
+    location.replace(url.href);
   });
 
   $("#add-device").addEventListener("click", () => openDialog());
@@ -837,6 +1311,7 @@
   // ---------- Start ----------
   async function init() {
     buildIconPicker();
+    buildDayPicker();
     updateThemeIcon();
     try {
       state.info = await api("GET", "info");

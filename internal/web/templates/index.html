@@ -39,11 +39,12 @@
     <a class="btn btn-ghost icon-only not-simple" id="open-settings" href="settings" title="{{.T "page.settings"}}" aria-label="{{.T "page.settings"}}" hidden>
       <svg aria-hidden="true" class="ico"><use href="#i-settings"/></svg>
     </a>
-    <button class="btn btn-secondary not-simple" id="open-discovery">
-      <svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg><span>{{.T "page.network"}}</span><span class="badge" id="new-badge" hidden>0</span>
+    <!-- Immer mit Namen; schmal bleibt eine kurze Beschriftung sichtbar, die im Namen enthalten ist (WCAG 2.5.3). -->
+    <button class="btn btn-secondary not-simple main-action" id="open-discovery" aria-label="{{.T "page.find_devices"}}" data-label="{{.T "page.find_devices"}}">
+      <svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg><span class="lbl-long">{{.T "page.find_devices"}}</span><span class="lbl-short">{{.T "page.find_short"}}</span><span class="badge" id="new-badge" hidden>0</span>
     </button>
-    <button class="btn btn-primary not-simple" id="add-device">
-      <svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg><span>{{.T "page.device"}}</span>
+    <button class="btn btn-primary not-simple main-action" id="add-device" aria-label="{{.T "page.add_device"}}">
+      <svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg><span class="lbl-long">{{.T "page.add_device"}}</span><span class="lbl-short">{{.T "page.add_short"}}</span>
     </button>
   </div>
 </header>
@@ -59,9 +60,23 @@
       <button type="button" data-filter="online" aria-pressed="false">{{.T "ui.online"}}</button>
       <button type="button" data-filter="offline" aria-pressed="false">{{.T "ui.offline"}}</button>
     </div>
+    <button type="button" class="btn btn-ghost not-simple" id="select-toggle" aria-pressed="false" hidden>
+      <svg aria-hidden="true" class="ico"><use href="#i-check"/></svg><span>{{.T "page.sel.toggle"}}</span>
+    </button>
   </div>
 
   <section id="devices" aria-label="{{.T "page.devices"}}" tabindex="-1"></section>
+
+  <!-- Mehrfachauswahl: mehrere Geräte auf einmal einer Gruppe zuordnen -->
+  <div class="select-bar" id="select-bar" role="region" aria-label="{{.T "page.sel.title"}}" hidden>
+    <strong id="sel-count" aria-live="polite"></strong>
+    <label class="sel-group">
+      <span class="sr-only">{{.T "page.f.group"}}</span>
+      <input id="sel-group" list="group-list" placeholder="{{.T "page.sel.group_ph"}}" maxlength="32" autocomplete="off">
+    </label>
+    <button type="button" class="btn btn-primary" id="sel-apply" disabled><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg><span id="sel-apply-text"></span></button>
+    <button type="button" class="btn btn-ghost" id="sel-done">{{.T "page.sel.done"}}</button>
+  </div>
 
   <div class="empty" id="empty" hidden>
     <div class="empty-art"><svg aria-hidden="true" class="ico"><use href="#i-power"/></svg></div>
@@ -105,6 +120,7 @@
           <button class="btn btn-primary" id="scan-btn"><svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg><span>{{.T "ui.scan.start"}}</span></button>
         </div>
         <div class="progress" id="scan-progress" hidden><div class="progress-bar"></div></div>
+        <div class="net-choices" id="net-choices" role="group" aria-labelledby="scan-title" hidden></div>
       </div>
       <div class="list-head">
         <div class="segmented small" role="group" id="found-filter" aria-label="{{.T "page.found.label"}}">
@@ -133,13 +149,14 @@
       </fieldset>
       <label class="field">
         <span>{{.T "page.f.name"}}</span>
-        <input name="name" required maxlength="64" placeholder="{{.T "page.f.name_ph"}}" autocomplete="off">
-        <small class="muted">{{.T "page.f.name_hint"}}</small>
+        <input name="name" required maxlength="64" placeholder="{{.T "page.f.name_ph"}}" autocomplete="off" aria-describedby="name-hint">
+        <small class="muted" id="name-hint" aria-live="polite">{{.T "page.f.name_hint"}}</small>
       </label>
       <div class="field-row">
         <label class="field">
           <span>{{.T "ui.mac_address"}}</span>
-          <input name="mac" required placeholder="00:11:22:33:44:55" autocomplete="off" class="mono">
+          <input name="mac" required placeholder="00:11:22:33:44:55" autocomplete="off" class="mono" aria-describedby="mac-hint vendor-hint">
+          <small class="muted" id="mac-hint">{{.T "page.f.mac_hint"}}</small>
           <small class="muted" id="vendor-hint"></small>
         </label>
         <label class="field">
@@ -147,19 +164,46 @@
           <input name="ip" placeholder="192.168.1.20" autocomplete="off" class="mono">
         </label>
       </div>
-      <div class="field-row">
-        <label class="field">
-          <span>{{.T "page.f.group"}}</span>
-          <input name="group" list="group-list" placeholder="{{.T "page.f.group_ph"}}" autocomplete="off" maxlength="32">
-          <datalist id="group-list"></datalist>
-          <small class="muted">{{.T "page.f.group_hint"}}</small>
+      <label class="field">
+        <span>{{.T "page.f.group"}}</span>
+        <input name="group" list="group-list" placeholder="{{.T "page.f.group_ph"}}" autocomplete="off" maxlength="32" aria-describedby="group-hint">
+        <datalist id="group-list"></datalist>
+        <small class="muted" id="group-hint">{{.T "page.f.group_hint"}}</small>
+      </label>
+      <div class="group-chips" id="group-chips" role="group" aria-label="{{.T "page.f.group_existing"}}" hidden></div>
+      <!-- Zeitplan: Schalter, Wochentage und Uhrzeit; die Textform steht unter „Weitere Möglichkeiten“ -->
+      <fieldset class="sched-box">
+        <legend>{{.T "page.f.schedule"}}</legend>
+        <label class="check">
+          <input type="checkbox" role="switch" id="sched-on">
+          <span>{{.T "page.f.sched_on"}}<small class="muted">{{.T "page.f.sched_on_hint"}}</small></span>
         </label>
-        <label class="field">
-          <span>{{.T "page.f.schedule"}}</span>
-          <input name="schedule" placeholder="{{.T "page.f.schedule_ph"}}" autocomplete="off">
-          <small class="muted">{{.T "page.f.schedule_hint"}}</small>
-        </label>
-      </div>
+        <div class="sched-body" id="sched-body" hidden>
+          <div class="sched-simple" id="sched-simple">
+            <fieldset class="day-picker" id="sched-days">
+              <legend>{{.T "page.f.sched_days"}}</legend>
+            </fieldset>
+            <label class="field sched-time">
+              <span>{{.T "page.f.sched_time"}}</span>
+              <input type="time" id="sched-time" value="07:30" required>
+            </label>
+          </div>
+          <p class="muted small" id="sched-multi" hidden>{{.T "page.f.sched_multi"}}</p>
+          <div class="sched-summary" id="sched-summary" aria-live="polite"></div>
+          <label class="check">
+            <input type="checkbox" role="switch" name="schedule_paused">
+            <span>{{.T "page.f.sched_pause"}}<small class="muted">{{.T "page.f.sched_pause_hint"}}</small></span>
+          </label>
+          <details class="more" id="sched-more">
+            <summary>{{.T "page.f.sched_more"}}</summary>
+            <label class="field">
+              <span>{{.T "page.f.sched_text"}}</span>
+              <input name="schedule" placeholder="{{.T "page.f.schedule_ph"}}" autocomplete="off" aria-describedby="sched-text-hint">
+              <small class="muted" id="sched-text-hint">{{.T "page.f.schedule_hint"}}</small>
+            </label>
+          </details>
+        </div>
+      </fieldset>
       <details class="advanced">
         <summary>{{.T "page.f.advanced"}}</summary>
         <div class="field-row">
@@ -191,7 +235,7 @@
           <textarea name="note" rows="2" maxlength="500"></textarea>
         </label>
       </details>
-      <p class="form-error" id="form-error" hidden></p>
+      <p class="form-error" id="form-error" role="alert" hidden></p>
     </div>
     <footer class="modal-foot">
       <button type="button" class="btn btn-danger-ghost" id="delete-device" hidden><svg aria-hidden="true" class="ico"><use href="#i-trash"/></svg>{{.T "ui.delete"}}</button>
@@ -213,6 +257,55 @@
     <ul class="history" id="history-list" tabindex="0" aria-labelledby="history-title"></ul>
     <p class="muted small center" id="history-empty" hidden>{{.T "page.history_empty"}}</p>
   </div>
+</dialog>
+
+<!-- Importergebnis: bleibt, bis es geschlossen wird, mit allen Einträgen -->
+<dialog class="modal" id="import-dialog" aria-labelledby="import-title" aria-describedby="import-summary">
+  <header class="modal-head">
+    <h2 id="import-title">{{.T "ui.import.done"}}</h2>
+    <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
+  </header>
+  <div class="modal-body">
+    <p id="import-summary"></p>
+    <div id="import-lists"></div>
+  </div>
+  <footer class="modal-foot">
+    <span class="spacer"></span>
+    <button type="button" class="btn btn-primary" data-close>{{.T "page.sel.done"}}</button>
+  </footer>
+</dialog>
+
+<!-- Wecklink auf dem Handy einrichten -->
+<dialog class="modal modal-small" id="phone-dialog" aria-labelledby="phone-title" aria-describedby="phone-intro">
+  <header class="modal-head">
+    <h2 id="phone-title">{{.T "page.phone.title"}}</h2>
+    <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
+  </header>
+  <div class="modal-body">
+    <p id="phone-intro"></p>
+    <ol class="phone-steps">
+      <li>
+        <span>{{.T "page.phone.step1"}}</span>
+        <code class="mono phone-link" id="phone-link"></code>
+        <span class="row gap-start">
+          <button type="button" class="btn btn-secondary btn-sm" id="phone-copy"><svg aria-hidden="true" class="ico"><use href="#i-link"/></svg>{{.T "ui.copy_link"}}</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="phone-share" hidden><svg aria-hidden="true" class="ico"><use href="#i-send"/></svg>{{.T "page.phone.share"}}</button>
+        </span>
+      </li>
+      <li>
+        <span>{{.T "page.phone.step2"}}</span>
+        <ul>
+          <li>{{.T "page.phone.ios"}}</li>
+          <li>{{.T "page.phone.android"}}</li>
+        </ul>
+      </li>
+      <li>{{.T "page.phone.step3"}}</li>
+    </ol>
+  </div>
+  <footer class="modal-foot">
+    <span class="spacer"></span>
+    <button type="button" class="btn btn-primary" data-close>{{.T "page.sel.done"}}</button>
+  </footer>
 </dialog>
 
 <!-- Bestätigen -->

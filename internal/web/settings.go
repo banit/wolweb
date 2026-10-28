@@ -69,6 +69,11 @@ type settingsView struct {
 	Networks     []networkView     `json:"networks"`
 	Interfaces   []interfaceView   `json:"interfaces"`
 	Events       []string          `json:"events"` // alle Ereignisarten
+	// RejectedHosts sind Namen, unter denen wolweb zuletzt aufgerufen und abgewiesen wurde (Schutz
+	// vor DNS-Rebinding) – meist der eigene Reverse-Proxy, der nur noch erlaubt werden muss.
+	RejectedHosts []string `json:"rejected_hosts"`
+	// AutoNetwork: Kein Netz eingetragen, wolweb nutzt das erkannte Heimnetz (sonst leer).
+	AutoNetwork string `json:"auto_network,omitempty"`
 }
 
 // networks beschreibt die eingestellten Netze: Schnittstelle des Rechners darin (ohne die kann
@@ -121,7 +126,16 @@ func (s *Server) settingsState() settingsView {
 		Settings: cfg.Editable(), Locked: s.settings.Locked(), Stored: s.settings.Stored(),
 		File: s.settings.Path(), FileFound: s.settings.FileFound(), SettingsFile: s.settings.SettingsPath(),
 		ReadOnly: cfg.ReadOnly, Auth: cfg.AuthEnabled(), Networks: nets, Interfaces: ifs, Events: notify.Kinds,
+		RejectedHosts: s.rejected.list(selfHost(), cfg.AllowedHosts),
+		AutoNetwork:   autoNetwork(s),
 	}
+}
+
+func autoNetwork(s *Server) string {
+	if nets := s.scanner.Networks(); s.scanner.Auto() && len(nets) == 1 {
+		return nets[0]
+	}
+	return ""
 }
 
 // withSettings antwortet 404, wenn die Einstellungsseite nicht freigeschaltet ist.
@@ -208,6 +222,39 @@ func (s *Server) testNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": i18n.T(l, "msg.notify_sent")})
+}
+
+// networkChoices: Ist kein Netz eingestellt und gibt es nicht genau ein Heimnetz, stehen die
+// Heimnetze zur Wahl ("Wähle das Netzwerk, in dem dein Rechner steht").
+func (s *Server) networkChoices() []discovery.LocalNet {
+	if s.scanner.Configured() || s.scanner.Auto() {
+		return []discovery.LocalNet{}
+	}
+	return append([]discovery.LocalNet{}, discovery.HomeNets(s.conf().Discovery.MaxHosts)...)
+}
+
+// chooseNetwork speichert das in der Suche gewählte Heimnetz (wie in den Einstellungen).
+func (s *Server) chooseNetwork(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		CIDR string `json:"cidr"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	if _, env := s.settings.Locked()["discovery.networks"]; env {
+		s.fail(w, r, http.StatusConflict, "err.networks_locked")
+		return
+	}
+	e := s.settings.Config().Editable()
+	e.Discovery.Networks = []config.Network{{CIDR: in.CIDR, Scan: true}}
+	cfg, err := s.settings.Save(e)
+	if err != nil {
+		s.settingsError(w, r, err)
+		return
+	}
+	s.Apply(cfg)
+	writeJSON(w, http.StatusOK, map[string]any{"networks": s.scanner.Networks()})
 }
 
 // segments sind die eingestellten Netze für die Oberfläche (Broadcast-Vorschläge im Gerätedialog).

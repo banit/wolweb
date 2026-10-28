@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,7 +68,15 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 	ok := 0
 	var attempts []wakeAttempt
 	for _, d := range members {
+		if wr, busy := s.alreadyWaking(r, d); busy { // eben erst geweckt (einzeln oder als Gruppe)
+			res.Results = append(res.Results, wr)
+			ok++
+			continue
+		}
 		wr, _, a := s.sendWake(r, d, source, name)
+		if !wr.Success {
+			s.limiter.release(d.ID)
+		}
 		attempts = append(attempts, a)
 		res.Results = append(res.Results, wr)
 		if wr.Success {
@@ -142,9 +151,6 @@ func (s *Server) groupLinkPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name string, members []store.Device, source string) {
-	if s.limitPublic(w, r, "gruppe:"+strings.ToLower(name), "err.group_rate_limited", name) {
-		return
-	}
 	res, code := s.wakeGroup(r, name, members, source)
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); wait > 0 && code == http.StatusOK {
 		// Alle Geräte mit IP gleichzeitig abwarten.
@@ -217,15 +223,21 @@ func scheduleMinuteDue(next, now, last time.Time) bool {
 	return now.Truncate(time.Minute).Equal(next) && next.After(last)
 }
 
-// wakeDue weckt alle Geräte, die zur Minute t eine Weckzeit haben, und liefert ihre Namen.
+// wakeDue weckt alle Geräte, die zur Minute t eine Weckzeit haben, und liefert ihre Namen. Je
+// Gerät, Planeintrag und Kalendertag höchstens einmal – auch wenn dieselbe Minute (Uhr zurückgestellt)
+// noch einmal vorbeikommt.
 func (s *Server) wakeDue(t time.Time) []string {
 	var woken []string
 	var attempts []wakeAttempt
 	devices, _ := s.store.Devices()
+	day := t.Format("2006-01-02")
 	for _, d := range devices {
+		if d.SchedulePaused {
+			continue
+		}
 		entries, _ := schedule.ParseList(d.Schedule)
 		for _, e := range entries {
-			if e.Due(t) {
+			if e.Due(t) && s.schedRan.first(d.ID+"|"+e.String()+"|"+day, t) {
 				log.Printf("Zeitplan: wecke %s (%s)", d.Name, e)
 				_, _, a := s.sendWake(nil, d, srcSchedule, "")
 				attempts = append(attempts, a)
@@ -238,11 +250,79 @@ func (s *Server) wakeDue(t time.Time) []string {
 	return woken
 }
 
-// nextWake liefert die nächste geplante Weckzeit eines Geräts (nil, wenn keine).
+// ranSchedules merkt sich, welche Weckzeiten (Gerät|Eintrag|Tag) schon ausgeführt wurden.
+type ranSchedules struct {
+	mu   sync.Mutex
+	seen map[string]time.Time
+}
+
+// first sagt, ob key zum ersten Mal vorkommt, und merkt ihn sich; Einträge älter als zwei Tage fallen weg.
+func (r *ranSchedules) first(key string, t time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.seen == nil {
+		r.seen = map[string]time.Time{}
+	}
+	if _, ok := r.seen[key]; ok {
+		return false
+	}
+	r.seen[key] = t
+	for k, at := range r.seen {
+		if t.Sub(at) > 48*time.Hour {
+			delete(r.seen, k)
+		}
+	}
+	return true
+}
+
+// nextWake liefert die nächste geplante Weckzeit eines Geräts (nil, wenn keine oder pausiert).
 func nextWake(d store.Device) *time.Time {
+	if d.SchedulePaused {
+		return nil
+	}
 	entries, _ := schedule.ParseList(d.Schedule)
 	if t := schedule.NextOf(entries, time.Now()); !t.IsZero() {
 		return &t
 	}
 	return nil
+}
+
+// schedulePreview prüft einen Zeitplan, ohne etwas zu speichern, und liefert die einheitliche
+// Schreibweise, die nächste Weckzeit und die Zeitzone des Servers – für die Zusammenfassung im
+// Gerätedialog. Die Zeiten gelten in der Ortszeit des Servers, nicht des Browsers.
+func (s *Server) schedulePreview(w http.ResponseWriter, r *http.Request) {
+	entries, err := schedule.ParseList(r.URL.Query()["s"])
+	if err != nil {
+		s.storeError(w, r, store.ValidationError{Msg: i18n.M("val.schedule", err), Field: "schedule"})
+		return
+	}
+	texts := make([]string, 0, len(entries))
+	for _, e := range entries {
+		texts = append(texts, e.String())
+	}
+	out := map[string]any{"schedule": texts, "zone": localZone()}
+	if t := schedule.NextOf(entries, time.Now()); !t.IsZero() {
+		out["next"] = t
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// localZone nennt die Zeitzone, in der Zeitpläne laufen: den Namen (TZ, /etc/localtime), wenn er
+// sich ermitteln lässt, sonst das Kürzel (z. B. "UTC" in einem Container ohne Zeitzonendaten).
+func localZone() string {
+	if tz := strings.TrimPrefix(os.Getenv("TZ"), ":"); tz != "" {
+		if _, name, ok := strings.Cut(tz, "zoneinfo/"); ok {
+			return name
+		}
+		if !strings.HasPrefix(tz, "/") {
+			return tz
+		}
+	}
+	if p, err := os.Readlink("/etc/localtime"); err == nil {
+		if _, name, ok := strings.Cut(p, "zoneinfo/"); ok {
+			return name
+		}
+	}
+	name, _ := time.Now().Zone()
+	return name
 }

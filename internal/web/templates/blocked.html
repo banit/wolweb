@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>{{.T "blocked.title"}} · Wake on LAN</title>
+<base href="{{.Base}}">
+<link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="static/app.css?v={{.Version}}">
+<script src="static/theme.js?v={{.Version}}"></script>
+</head>
+<body class="wake-page">
+{{template "icons"}}
+<main class="wake-card blocked" id="blocked">
+  <div class="wake-visual static">
+    <div class="wake-icon warn"><svg aria-hidden="true" class="ico"><use href="#i-alert"/></svg></div>
+  </div>
+  <h1>{{.T "blocked.title"}}</h1>
+  <p>{{.T "blocked.text" .Host}}</p>
+  <div class="blocked-ways">
+    <h2>{{.T "blocked.how"}}</h2>
+    <ol>
+      <li>{{.T "blocked.way_settings" .Host}}</li>
+      <li>{{.T "blocked.way_config"}}<pre tabindex="0"><code>"allowed_hosts": ["{{.Host}}"]</code></pre></li>
+      <li>{{.T "blocked.way_env"}}<pre tabindex="0"><code>WOLWEB_ALLOWED_HOSTS={{.Host}}</code></pre></li>
+    </ol>
+    <p class="muted small">{{.T "blocked.auth"}}</p>
+  </div>
+</main>
+</body>
+</html>

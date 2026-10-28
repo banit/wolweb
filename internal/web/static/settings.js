@@ -87,6 +87,7 @@
     setField("allowed_hosts", (s.allowed_hosts || []).join("\n"));
     setField("language", s.language);
     renderEvents(s.notify.events || []);
+    renderRejected(v.rejected_hosts || []);
     nets = (v.networks || []).map((n) => ({ cidr: n.cidr, name: n.name || "", vlan: n.vlan || "", scan: n.scan, orig: n }));
     renderNets();
     renderInterfaces();
@@ -117,6 +118,24 @@
     $("#net-add").disabled = !!locked("discovery.networks") || v.read_only;
     $("#notify-test").disabled = v.read_only;
     setDirty(false);
+  }
+
+  // Zuletzt abgewiesene Hostnamen (meist der eigene Reverse-Proxy): ein Klick erlaubt und speichert.
+  function renderRejected(hosts) {
+    const off = !!locked("allowed_hosts") || !editable();
+    $("#rejected-hosts").hidden = !hosts.length || off;
+    $("#rejected-list").replaceChildren(...hosts.map((h) => el("li", {},
+      el("span", { class: "mono", text: h }),
+      el("button", { type: "button", class: "btn btn-secondary btn-sm", "aria-label": t("set.sec.allow_x", h), onclick: () => allowHost(h) },
+        icon("check"), el("span", { text: t("set.sec.allow") })))));
+  }
+  function allowHost(h) {
+    const f = form.elements.allowed_hosts;
+    const list = splitList(f.value);
+    if (!list.includes(h)) list.push(h);
+    f.value = list.join("\n");
+    setDirty(true);
+    form.requestSubmit();
   }
 
   function renderEvents(selected) {
@@ -161,7 +180,7 @@
             el("label", { class: "field" }, el("span", { text: t("set.net.name") }),
               el("input", { name: "net-name", value: n.name, maxlength: "40", autocomplete: "off", placeholder: t("set.net.name_ph"), disabled: off, oninput: upd("name") })),
             el("label", { class: "field" }, el("span", { text: t("set.net.cidr") }),
-              el("input", { name: "net-cidr", value: n.cidr, class: "mono", autocomplete: "off", placeholder: "192.168.20.0/24", required: true, disabled: off, oninput: upd("cidr") })),
+              el("input", { name: "net-cidr", value: n.cidr, class: "mono", autocomplete: "off", placeholder: "10.0.0.0/24", required: true, disabled: off, oninput: upd("cidr") })),
             el("label", { class: "field net-vlan" }, el("span", { text: t("set.net.vlan") }),
               el("input", { name: "net-vlan", value: n.vlan, inputmode: "numeric", autocomplete: "off", placeholder: "–", disabled: off, oninput: upd("vlan") }))),
           netStatus(n),
@@ -175,6 +194,8 @@
       return row;
     }));
     $("#net-empty").hidden = nets.length !== 0;
+    // Ohne eingetragenes Netz nutzt wolweb das erkannte Heimnetz – sagen, welches.
+    $("#net-empty").textContent = view.auto_network ? t("set.net.auto", view.auto_network) : t("set.net.empty");
   }
 
   function renderInterfaces() {
@@ -225,7 +246,12 @@
 
   function clearErrors() {
     $("#set-error").hidden = true;
-    for (const i of form.querySelectorAll("[aria-invalid]")) i.removeAttribute("aria-invalid");
+    for (const i of form.querySelectorAll("[aria-invalid]")) {
+      i.removeAttribute("aria-invalid");
+      const rest = (i.getAttribute("aria-describedby") || "").split(" ").filter((x) => x && x !== "set-error");
+      if (rest.length) i.setAttribute("aria-describedby", rest.join(" "));
+      else i.removeAttribute("aria-describedby");
+    }
   }
   // showError markiert das Feld (Schlüssel wie "status.interval") und springt hin.
   function showError(key, message) {
@@ -234,7 +260,11 @@
     box.hidden = false;
     const target = form.querySelector('[data-key="' + key + '"]');
     const inputs = target ? [...target.querySelectorAll("input, textarea, select")].filter((i) => !i.disabled) : [];
-    for (const i of inputs) i.setAttribute("aria-invalid", "true");
+    for (const i of inputs) { // die Meldung gehört zum Feld: der Screenreader liest sie dort vor
+      i.setAttribute("aria-invalid", "true");
+      const ids = (i.getAttribute("aria-describedby") || "").split(" ").filter(Boolean);
+      if (!ids.includes("set-error")) i.setAttribute("aria-describedby", ["set-error", ...ids].join(" "));
+    }
     (inputs[0] || box).focus();
     if (!inputs.length) box.scrollIntoView({ block: "center" });
   }

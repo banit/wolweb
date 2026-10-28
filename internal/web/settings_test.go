@@ -24,7 +24,8 @@ func settingsServer(t *testing.T, cfgJSON string) (*Server, http.Handler, *confi
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
-	cfgJSON = strings.Replace(cfgJSON, "{", `{"data_dir": "`+filepath.Join(dir, "data")+`", `, 1)
+	dataDir, _ := json.Marshal(filepath.Join(dir, "data")) // als JSON-Text: Windows-Pfade haben Backslashes
+	cfgJSON = strings.Replace(cfgJSON, "{", `{"data_dir": `+string(dataDir)+`, `, 1)
 	os.WriteFile(path, []byte(cfgJSON), 0o644)
 	m, err := config.Open(path)
 	if err != nil {
@@ -41,7 +42,9 @@ func settingsServer(t *testing.T, cfgJSON string) (*Server, http.Handler, *confi
 	s.SetSettings(m)
 	h := s.Handler()
 	return s, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Host = "192.168.1.10:8089"
+		if r.Host == "example.com" { // Vorgabe von httptest – der Schutz vor DNS-Rebinding lehnte sie ab
+			r.Host = "192.168.1.10:8089"
+		}
 		h.ServeHTTP(w, r)
 	}), m
 }
@@ -69,7 +72,7 @@ func TestSettingsAPI(t *testing.T) {
 	// Ändern: gilt sofort, ohne Neustart
 	e := v.Settings
 	e.Status.WakeRetry = "10s"
-	e.Discovery.Networks = append(e.Discovery.Networks, config.Network{CIDR: "10.9.20.0/24", Name: "IoT", VLAN: 20, Scan: true})
+	e.Discovery.Networks = append(e.Discovery.Networks, config.Network{CIDR: "10.0.0.0/24", Name: "IoT", VLAN: 20, Scan: true})
 	e.Language = "en"
 	b, _ := json.Marshal(e)
 	rec = call(h, "PUT", "/api/v1/settings", string(b))
@@ -84,7 +87,7 @@ func TestSettingsAPI(t *testing.T) {
 		t.Errorf("Antwort: %v %+v", v.Stored, v.Networks)
 	}
 	// Ein Gerät im IoT-Netz ohne eigene Schnittstelle bekommt den gerichteten Broadcast.
-	if got := s.wakeTarget(store.Device{MAC: "00:11:22:33:44:55", IP: "10.9.20.7"}); got != "10.9.20.255:9" {
+	if got := s.wakeTarget(store.Device{MAC: "00:11:22:33:44:55", IP: "10.0.0.7"}); got != "10.0.0.255:9" {
 		t.Errorf("Ziel im fremden VLAN: %s", got)
 	}
 	var info map[string]any
@@ -163,5 +166,23 @@ func TestSettingsTestNotify(t *testing.T) {
 	}
 	if rec := call(h, "POST", "/api/v1/settings/test-notify", `{"webhook":"ftp://x","ntfy":""}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), "notify.webhook") {
 		t.Errorf("ungültige Adresse: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// Ohne eingetragenes Netz: Die Wahl in der Suche landet in den Einstellungen und gilt sofort.
+func TestChooseNetwork(t *testing.T) {
+	s, h, m := settingsServer(t, `{"language": "de"}`)
+	if s.scanner.Configured() {
+		t.Fatal("es sollte kein Netz eingetragen sein")
+	}
+	rec := call(h, "POST", "/api/v1/discovery/network", `{"cidr":"10.0.0.7/24"}`)
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if !s.scanner.Configured() || s.scanner.Networks()[0] != "10.0.0.0/24" || m.Stored()[0] != "discovery.networks" {
+		t.Errorf("nicht übernommen: %v %v", s.scanner.Networks(), m.Stored())
+	}
+	if rec := call(h, "POST", "/api/v1/discovery/network", `{"cidr":"kein-netz"}`); rec.Code != 400 {
+		t.Errorf("ungültiges Netz: %d", rec.Code)
 	}
 }

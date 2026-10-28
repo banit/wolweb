@@ -22,8 +22,9 @@ async function addDevice(request, data) {
 
 // Antwortet: wolweb selbst lauscht auf 127.0.0.1:PORT.
 const onlineDevice = (request, name, extra) => addDevice(request, { name, ip: "127.0.0.1", ports: [PORT], ...extra });
-// Antwortet nie: 192.0.2.0/24 ist ein Dokumentationsnetz (TEST-NET-1).
-const offlineDevice = (request, name, extra) => addDevice(request, { name, ip: "192.0.2.1", ports: [9], ...extra });
+// Antwortet nie: 198.51.100.0/24 ist ein Dokumentationsnetz (TEST-NET-2). Nicht 192.0.2.1 – das ist in
+// manchen Containern das Gateway und lehnt sofort ab, dann liefe die Prüfung anders als in der CI.
+const offlineDevice = (request, name, extra) => addDevice(request, { name, ip: "198.51.100.1", ports: [9], ...extra });
 
 // settled wartet, bis Einblend-Animationen (Dialog, Leiste) durch sind – sonst misst man sie mitten
 // im Skalieren. Endlose Animationen zählen nicht.
@@ -40,7 +41,7 @@ async function smallTargets(page) {
     const out = [];
     for (let n of document.querySelectorAll("button, a[href], input, textarea, select, summary, .icon-picker span")) {
       if (n.matches(".icon-picker input")) continue; // unsichtbar, das Symbol daneben ist das Ziel
-      if (n.matches(".check input")) n = n.closest(".check"); // die ganze Zeile ist anklickbar
+      if (n.matches(".check input, .select-box input")) n = n.closest(".check, .select-box"); // die ganze Zeile/Fläche ist anklickbar
       const r = n.getBoundingClientRect();
       if (!r.width || !r.height || getComputedStyle(n).visibility === "hidden") continue;
       if (r.width < 44 || r.height < 44) {
@@ -51,4 +52,19 @@ async function smallTargets(page) {
   });
 }
 
-module.exports = { HEADERS, PORT, reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets };
+// Kontrast von Schrift- zu Hintergrundfarbe eines Elements mit eigener, deckender Füllfarbe (WCAG-Formel).
+// Für gefüllte Flächen wie Plaketten, die axe mangels eindeutigem Hintergrund nur als „unvollständig“ meldet.
+function contrast(page, selector) {
+  return page.locator(selector).evaluate((n) => {
+    const rgb = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+    const lum = (c) => {
+      const [r, g, b] = rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const cs = getComputedStyle(n);
+    const [a, b] = [lum(cs.color), lum(cs.backgroundColor)].sort((x, y) => y - x);
+    return Math.round(((a + 0.05) / (b + 0.05)) * 100) / 100;
+  });
+}
+
+module.exports = { HEADERS, PORT, reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets, contrast };

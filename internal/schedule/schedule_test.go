@@ -3,6 +3,7 @@ package schedule
 import (
 	"testing"
 	"time"
+	_ "time/tzdata" // Zeitzonen auch ohne Systemdaten (Windows, schlanke Container)
 )
 
 func TestParseAndString(t *testing.T) {
@@ -54,5 +55,75 @@ func TestDueAndNext(t *testing.T) {
 	}
 	if n := NextOf(list, fri); !n.Equal(time.Date(2026, 10, 31, 9, 0, 0, 0, loc)) { // Samstag
 		t.Errorf("NextOf: %v", n)
+	}
+}
+
+// minutes liefert alle Minuten zwischen from und to (als echte Zeitpunkte, also auch die doppelte
+// Stunde der Rückstellung zweimal).
+func minutes(from, to time.Time) []time.Time {
+	var out []time.Time
+	for t := from; t.Before(to); t = t.Add(time.Minute) {
+		out = append(out, t)
+	}
+	return out
+}
+
+func berlin(t *testing.T) *time.Location {
+	loc, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Skip("keine Zeitzonendaten:", err)
+	}
+	return loc
+}
+
+// Rückstellung (25.10.2026): 02:30 gibt es zweimal – geweckt wird einmal, beim ersten Mal.
+func TestFallBackOnce(t *testing.T) {
+	loc := berlin(t)
+	e, _ := Parse("täglich 02:30")
+	var due []time.Time
+	for _, m := range minutes(time.Date(2026, 10, 24, 22, 0, 0, 0, time.UTC), time.Date(2026, 10, 25, 4, 0, 0, 0, time.UTC)) {
+		if e.Due(m.In(loc)) {
+			due = append(due, m)
+		}
+	}
+	if len(due) != 1 || !due[0].Equal(time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC)) {
+		t.Fatalf("geweckt: %v", due)
+	}
+	if n := e.Next(time.Date(2026, 10, 24, 12, 0, 0, 0, loc)); !n.Equal(due[0]) {
+		t.Errorf("Next zeigt %v statt %v", n, due[0])
+	}
+	if n := e.Next(due[0].In(loc)); !n.Equal(time.Date(2026, 10, 26, 2, 30, 0, 0, loc)) || n.Hour() != 2 {
+		t.Errorf("danach: %v", n)
+	}
+}
+
+// Umstellung auf Sommerzeit (29.03.2026): 02:30 gibt es nicht – geweckt wird einmal um 03:00, am
+// nächsten Tag wieder um 02:30 (nicht 03:30).
+func TestSpringForwardNextValidMinute(t *testing.T) {
+	loc := berlin(t)
+	e, _ := Parse("täglich 02:30")
+	var due []time.Time
+	for _, m := range minutes(time.Date(2026, 3, 28, 23, 0, 0, 0, time.UTC), time.Date(2026, 3, 29, 3, 0, 0, 0, time.UTC)) {
+		if e.Due(m.In(loc)) {
+			due = append(due, m.In(loc))
+		}
+	}
+	if len(due) != 1 || due[0].Hour() != 3 || due[0].Minute() != 0 {
+		t.Fatalf("geweckt: %v", due)
+	}
+	next := e.Next(time.Date(2026, 3, 28, 12, 0, 0, 0, loc))
+	if !next.Equal(due[0]) {
+		t.Errorf("Next zeigt %v statt %v", next, due[0])
+	}
+	for i, want := range []int{30, 31, 1} { // die folgenden Tage
+		next = e.Next(next)
+		if next.Hour() != 2 || next.Minute() != 30 || next.Day() != want {
+			t.Errorf("Tag %d danach: %v", i+1, next)
+		}
+	}
+	// Ein Eintrag nur werktags trifft den Sonntag der Umstellung gar nicht.
+	w, _ := Parse("Mo-Fr 02:30")
+	if n := w.Next(time.Date(2026, 3, 28, 12, 0, 0, 0, loc)); n.Day() != 30 || n.Hour() != 2 || n.Minute() != 30 {
+		t.Errorf("werktags: %v", n)
 	}
 }

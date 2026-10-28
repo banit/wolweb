@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"wolweb/internal/i18n"
 )
 
 // Laufzeitdaten – was wolweb selbst beobachtet (zuletzt geweckt, zuletzt gesehen, Verlauf) –
@@ -29,8 +31,41 @@ type Event struct {
 	User    string    `json:"user,omitempty"`
 	Target  string    `json:"target,omitempty"`
 	Success bool      `json:"success"`
-	Error   string    `json:"error,omitempty"`
-	Retry   bool      `json:"retry,omitempty"` // automatische Wiederholung, weil das Gerät nicht antwortete
+	Error   string    `json:"error,omitempty"` // Text in der Sprache beim Wecken (Rückfall für alte Einträge)
+	// ErrorKey und ErrorArgs halten übersetzbare Fehler fest, damit der Verlauf sie in der jeweils
+	// gewählten Sprache zeigt (siehe Localized).
+	ErrorKey  string   `json:"error_key,omitempty"`
+	ErrorArgs []string `json:"error_args,omitempty"`
+	Retry     bool     `json:"retry,omitempty"` // automatische Wiederholung, weil das Gerät nicht antwortete
+	// Ergebnis des Starts: Checkable – eine IP war bekannt, der Start ließ sich also prüfen;
+	// WasOnline – das Gerät lief schon; Started – wann es danach erreichbar war.
+	Checkable bool       `json:"checkable,omitempty"`
+	WasOnline bool       `json:"was_online,omitempty"`
+	Started   *time.Time `json:"started,omitempty"`
+}
+
+// SetError hält einen Fehler fest – als Schlüssel und Parameter, wenn er übersetzbar ist.
+func (ev *Event) SetError(l i18n.Lang, err error) {
+	ev.Error = i18n.Text(l, err)
+	var m i18n.Msg
+	if errors.As(err, &m) && m.Error() == err.Error() { // die Meldung selbst, nicht nur ein Teil davon
+		ev.ErrorKey, ev.ErrorArgs = m.Key, nil
+		for _, a := range m.Args {
+			ev.ErrorArgs = append(ev.ErrorArgs, i18n.Text(l, a))
+		}
+	}
+}
+
+// Localized liefert den Eintrag mit dem Fehler in Sprache l.
+func (ev Event) Localized(l i18n.Lang) Event {
+	if ev.ErrorKey != "" {
+		args := make([]any, len(ev.ErrorArgs))
+		for i, a := range ev.ErrorArgs {
+			args[i] = a
+		}
+		ev.Error = i18n.T(l, ev.ErrorKey, args...)
+	}
+	return ev
 }
 
 // HistoryMax begrenzt den Verlauf (älteste Einträge fallen heraus).
@@ -91,6 +126,9 @@ func (s *Store) RecordWake(evs ...Event) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Erst als ungespeichert markieren: Scheitert das Schreiben (Platte voll, Rechte), holt
+	// FlushState es nach, statt dass der Verlauf beim Beenden verloren geht.
+	s.stateDirty = true
 	for _, ev := range evs {
 		if ev.Time.IsZero() {
 			ev.Time = time.Now().UTC()
@@ -104,6 +142,31 @@ func (s *Store) RecordWake(evs ...Event) error {
 		s.state.History = slices.Clone(s.state.History[n-HistoryMax:])
 	}
 	return s.saveState()
+}
+
+// ConfirmStart vermerkt, dass ein Gerät erreichbar wurde: Erfolgreiche, prüfbare Weckrufe der
+// letzten window, deren Start noch offen ist, bekommen den Zeitpunkt (auch eine Wiederholung).
+// Gespeichert wird gesammelt (FlushState). Liefert, ob sich etwas änderte.
+func (s *Store) ConfirmStart(id string, at time.Time, window time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for i := len(s.state.History) - 1; i >= 0; i-- {
+		ev := &s.state.History[i]
+		if at.Sub(ev.Time) > window {
+			break
+		}
+		if ev.ID != id || !ev.Success || !ev.Checkable || ev.WasOnline || ev.Started != nil || ev.Time.After(at) {
+			continue
+		}
+		t := at.UTC()
+		ev.Started = &t
+		changed = true
+	}
+	if changed {
+		s.stateDirty = true
+	}
+	return changed
 }
 
 // LastWake liefert den Zeitpunkt des letzten erfolgreichen Weckens (Null, wenn nie).

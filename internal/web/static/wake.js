@@ -1,4 +1,5 @@
-// Weckseite: prüft das Gerät, sendet das Magic Packet und verfolgt den Start bis "online".
+// Weckseite: prüft das Gerät, sendet den Weckruf (Magic Packet) und verfolgt den Start bis "online".
+// Die Schritte sprechen Alltagssprache; IP, MAC, Ziel und Ping/Port/ms stehen unter „Technische Details“.
 (function () {
   "use strict";
   const { t } = window.wolwebI18n;
@@ -12,6 +13,8 @@
   const title = document.getElementById("wake-title");
   const result = document.getElementById("wake-result");
   const again = document.getElementById("wake-again");
+  const recheckBtn = document.getElementById("wake-check");
+  const note = document.getElementById("wake-note"); // wie lange geprüft wird
   const live = document.getElementById("wake-live"); // sagt Screenreadern die Phasen an
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -25,17 +28,25 @@
     const s = Math.floor(ms / 1000);
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   }
+  // duration: „3 Minuten“, „90 Sekunden“ – für die Ansage, wie lange geprüft wird.
+  function duration(sec) {
+    return sec >= 60 && sec % 60 === 0 ? window.wolwebI18n.tn("wake.minutes", sec / 60) : window.wolwebI18n.tn("wake.seconds", sec);
+  }
   function human(ms) {
     const s = Math.round(ms / 1000);
     if (s < 60) return window.wolwebI18n.tn("wake.seconds", s);
     const m = Math.floor(s / 60), r = s % 60;
     return m + " min" + (r ? " " + r + " s" : "");
   }
+  // tech trägt die technische Antwort (Ping/Port, Millisekunden) in „Technische Details“ ein.
+  function tech(st) {
+    document.getElementById("tech-answer").textContent = via(st) || "–";
+  }
   function via(st) {
     if (!st || !st.method) return "";
     const port = /^tcp\/(\d+)( \(abgelehnt\))?/.exec(st.method);
     const m = st.method === "icmp" ? "Ping" : port ? t(port[2] ? "wake.port_closed" : "ui.port", port[1]) : st.method;
-    return t("wake.answers_via", m) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "");
+    return m + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "");
   }
   function showResult(kind, head, text, tips) {
     result.className = "wake-result " + kind;
@@ -48,21 +59,31 @@
       p.textContent = text;
       result.append(p);
     }
-    if (tips) {
+    if (tips) { // technische Tipps aufklappbar unter „Hilfe“
+      const box = document.createElement("details");
+      box.className = "help";
+      const sum = document.createElement("summary");
+      sum.textContent = t("wake.help");
       const ul = document.createElement("ul");
-      for (const t of tips) {
+      for (const tip of tips) {
         const li = document.createElement("li");
-        li.textContent = t;
+        li.textContent = tip;
         ul.append(li);
       }
-      result.append(ul);
+      box.append(sum, ul);
+      result.append(box);
     }
     result.hidden = false;
   }
-  function setTitle(t, tab) {
-    title.textContent = t;
-    live.textContent = t;
-    document.title = (tab || t) + " · Wake on LAN";
+  // announce sagt einen Phasenwechsel einmal an – ohne Zeitangaben, die sich ständig ändern.
+  let lastLive = "";
+  function announce(text) {
+    if (text && text !== lastLive) live.textContent = lastLive = text;
+  }
+  function setTitle(text, tab) {
+    title.textContent = text;
+    announce(text);
+    document.title = (tab || text) + " · Wake on LAN";
   }
 
   async function call(method, url) {
@@ -90,6 +111,7 @@
     if (running) return;
     running = true;
     again.hidden = true;
+    recheckBtn.hidden = true;
     result.hidden = true;
     for (const id of ["check", "send", "wait", "online"]) step(id, "", "");
     setTitle(t("wake.title.starting", name), t("wake.tab.start", name));
@@ -103,10 +125,11 @@
       try { st = await status(); } catch (e) { /* weiter mit Senden */ }
       await sleep(Math.max(0, 500 - (Date.now() - t0)));
       if (st && st.state === "online") {
-        step("check", "done", t("wake.check.running", via(st)));
+        step("check", "done", t("wake.check.running"));
         step("send", "skip", t("wake.send.not_needed"));
         step("wait", "skip", "");
-        step("online", "done", via(st));
+        step("online", "done", t("wake.online.reachable"));
+        tech(st);
         setState("online");
         setTitle(t("wake.title.running", name), "✓ " + name);
         showResult("ok", t("wake.result.ready"), t("wake.result.ready_text", name));
@@ -121,9 +144,10 @@
       step("check", "skip", hasIP ? t("wake.check.skipped") : t("wake.check.no_ip"));
     }
 
-    // 2. Magic Packet senden
+    // 2. Weckruf senden
     setState("send");
-    step("send", "active", t("wake.send.active", card.dataset.target));
+    announce(t("wake.live.sending"));
+    step("send", "active", t("wake.send.active"));
     let sent;
     try {
       sent = await call("POST", path + query);
@@ -139,14 +163,16 @@
       running = false;
       return;
     }
-    step("send", "done", t("wake.send.done", sent.target || card.dataset.target));
+    // Eben erst geweckt (zweimal getippt, Seite neu geladen): kein neuer Weckruf, der Start läuft weiter.
+    step("send", "done", sent.already ? t("wake.send.already") : t("wake.send.done"));
+    if (sent.target) document.getElementById("tech-target").textContent = sent.target;
 
     if (!hasIP) {
       step("wait", "skip", t("wake.wait.no_ip"));
       step("online", "skip", "");
-      setState("sent");
-      setTitle(t("ui.packet_sent"), "✓ " + name);
-      showResult("ok", t("wake.result.sent"), t("wake.result.sent_text", name));
+      setState("sent"); // gesendet, aber nicht bestätigt – kein grüner Haken
+      setTitle(t("wake.title.sent"), "→ " + name);
+      showResult("sent", t("wake.result.sent"), t("wake.result.sent_text", name));
       again.querySelector("span").textContent = t("wake.btn.again");
       again.hidden = false;
       running = false;
@@ -155,11 +181,15 @@
 
     // 3. Warten, bis das Gerät antwortet
     setState("wait");
+    announce(sent.already ? t("wake.send.already") : t("wake.live.waiting"));
+    note.textContent = t(retry ? "wake.wait.note_retry" : "wake.wait.note", duration(timeout / 1000));
+    note.hidden = false;
     const start = Date.now();
     step("wait", "active", t("wake.wait.active", "0:00"));
     const tick = setInterval(() => {
       const ms = Date.now() - start;
       step("wait", "active", t(retry && ms >= retry ? "wake.wait.resent" : "wake.wait.active", fmt(ms)));
+      if (retry && ms >= retry) announce(t("wake.live.resent")); // einmal: die Wiederholung, nicht die Uhr
     }, 500);
     let online = null;
     while (Date.now() - start < timeout) {
@@ -170,26 +200,62 @@
       } catch (e) { /* kurz nicht erreichbar – weiter versuchen */ }
     }
     clearInterval(tick);
+    note.hidden = true;
     const took = Date.now() - start;
 
     if (online) {
       step("wait", "done", t("ui.started_after", fmt(took)));
-      step("online", "done", via(online));
+      step("online", "done", t("wake.online.reachable"));
+      tech(online);
       setState("online");
-      setTitle(t("ui.x_is_online", name), "✓ " + name);
+      setTitle(t("wake.title.confirmed", name), "✓ " + name);
       showResult("ok", t("wake.result.started"), t("wake.result.started_text", name, human(took)));
     } else {
       step("wait", "warn", t("wake.wait.no_answer", fmt(took)));
       step("online", "", "");
       setState("timeout");
       setTitle(t("wake.title.no_answer"), "! " + name);
-      showResult("warn", t("wake.result.timeout", name), t("wake.result.timeout_text"), [t("wake.tip.bios"), t("wake.tip.power"), t("wake.tip.firewall")]);
-      again.querySelector("span").textContent = t("wake.btn.again");
+      // Bleibt stehen, bis der Nutzer etwas tut: erst das Naheliegende, Technisches unter „Hilfe“.
+      showResult("warn", t("wake.result.timeout"), t("wake.result.timeout_text"), [t("wake.tip.bios"), t("wake.tip.windows"), t("wake.tip.power"), t("wake.tip.firewall")]);
+      again.querySelector("span").textContent = t("wake.btn.wake_again");
       again.hidden = false;
+      recheckBtn.hidden = false;
     }
     running = false;
   }
 
+  // recheck prüft nach Ablauf noch einmal, ohne zu wecken – der Start kann länger gedauert haben.
+  async function recheck() {
+    if (running) return;
+    running = true;
+    recheckBtn.disabled = true;
+    let st = null;
+    try { st = await status(); } catch (e) { /* zählt als keine Antwort */ }
+    recheckBtn.disabled = false;
+    running = false;
+    if (st && st.state === "online") {
+      step("wait", "done", "");
+      step("online", "done", t("wake.online.reachable"));
+      tech(st);
+      setState("online");
+      setTitle(t("wake.title.confirmed", name), "✓ " + name);
+      showResult("ok", t("wake.result.started"), t("wake.result.late_text", name));
+      recheckBtn.hidden = true;
+      again.querySelector("span").textContent = t("wake.btn.send_anyway");
+      return;
+    }
+    const clock = new Date().toLocaleTimeString(window.wolwebI18n.locale, { hour: "2-digit", minute: "2-digit" });
+    let p = result.querySelector("[data-still]");
+    if (!p) {
+      p = document.createElement("p");
+      p.dataset.still = "";
+      result.querySelector("strong").after(p);
+    }
+    p.textContent = t("wake.result.still_no_answer", clock);
+    live.textContent = lastLive = p.textContent; // auch beim zweiten Mal ansagen
+  }
+
   again.addEventListener("click", () => run(true));
+  recheckBtn.addEventListener("click", recheck);
   run(false);
 })();

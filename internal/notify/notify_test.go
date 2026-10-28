@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,5 +54,31 @@ func TestWebhookAndNtfy(t *testing.T) {
 	none.Send(Event{Event: Online}) // nil darf nicht abstürzen
 	if New("", "", nil, "x", i18n.DE) != nil {
 		t.Error("ohne Ziel sollte New nil liefern")
+	}
+}
+
+// Eine Weiterleitung (307/308 behalten POST und Inhalt) wird nicht befolgt – sonst ginge die
+// Nachricht an ein Ziel, das niemand eingetragen hat, etwa im internen Netz.
+func TestRedirectNotFollowed(t *testing.T) {
+	hit := make(chan string, 2)
+	inner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hit <- r.URL.Path }))
+	defer inner.Close()
+	for _, code := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		outer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, inner.URL+"/intern/geheim", code)
+		}))
+		for _, n := range []*Notifier{New(outer.URL+"/hook", "", nil, "test", i18n.DE), New("", outer.URL+"/thema", nil, "test", i18n.DE)} {
+			err := n.Test(Event{Event: Test, Device: "wolweb", Message: "Test"})
+			if err == nil || !strings.Contains(err.Error(), "Weiterleitung") || strings.Contains(err.Error(), "geheim") {
+				t.Errorf("HTTP %d: %v", code, err)
+			}
+			n.Close()
+		}
+		outer.Close()
+	}
+	select {
+	case p := <-hit:
+		t.Errorf("Weiterleitung befolgt: %s", p)
+	default:
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -97,6 +98,42 @@ func broadcastOf(p netip.Prefix) string {
 func OnLink(ip netip.Addr) bool {
 	for _, ln := range LocalNets() {
 		if ln.Prefix.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// HomeNets liefert die direkt angeschlossenen Netze, die als Heimnetz in Frage kommen: ohne
+// Container-Brücken (docker0, br-<id>, cni, podman …), virtuelle Netze (virbr, vboxnet, Hyper-V) und
+// VPNs (tailscale, wg, zt, tun), ohne Link-Local (169.254/16) und nur so groß, dass sich das Netz
+// durchsuchen lässt (maxHosts).
+func HomeNets(maxHosts int) []LocalNet {
+	var out []LocalNet
+	for _, ln := range LocalNets() {
+		if virtualIface(ln.Interface) || ln.Prefix.Addr().IsLinkLocalUnicast() || ln.Prefix.Bits() > 30 {
+			continue
+		}
+		if size := 1 << (32 - ln.Prefix.Bits()); size-2 > maxHosts {
+			continue
+		}
+		out = append(out, ln)
+	}
+	return out
+}
+
+var dockerBridge = regexp.MustCompile(`^br-[0-9a-f]{12}$`)
+
+// virtualIface erkennt Schnittstellen von Containern, VMs und VPNs am Namen. vmbr0 (Proxmox) und
+// eth0.20 (VLAN) sind echte Netze und bleiben.
+func virtualIface(name string) bool {
+	n := strings.ToLower(name)
+	if dockerBridge.MatchString(n) {
+		return true
+	}
+	for _, p := range []string{"docker", "veth", "virbr", "lxcbr", "lxdbr", "cni", "flannel", "cali", "vxlan", "podman",
+		"tailscale", "wg", "zt", "tun", "tap", "utun", "vboxnet", "vmnet", "ham", "vethernet", "virtualbox", "zerotier"} {
+		if strings.HasPrefix(n, p) {
 			return true
 		}
 	}
@@ -225,6 +262,7 @@ func (s *Scanner) SetNetworks(networks []string) error {
 	return nil
 }
 
+// Networks liefert die Netze, die durchsucht werden – eingestellt oder automatisch erkannt.
 func (s *Scanner) Networks() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -232,22 +270,51 @@ func (s *Scanner) Networks() []string {
 }
 
 func (s *Scanner) networksLocked() []string {
-	out := make([]string, len(s.networks))
-	for i, n := range s.networks {
+	nets := s.effectiveLocked()
+	out := make([]string, len(nets))
+	for i, n := range nets {
 		out[i] = n.String()
 	}
 	return out
 }
 
-// Broadcast liefert die Broadcast-Adresse (mit Port 9) des Suchsegments, wenn genau eins
-// eingestellt ist – sonst "".
+// effectiveLocked: die eingestellten Netze; ist keins eingestellt, das eine Heimnetz, falls es
+// genau eins gibt. Bei mehreren wählt man es in der Oberfläche (gespeichert in den Einstellungen).
+// Ausgewertet bei jedem Aufruf – nach dem Start kann DHCP die Adresse erst später liefern.
+func (s *Scanner) effectiveLocked() []netip.Prefix {
+	if len(s.networks) > 0 {
+		return s.networks
+	}
+	if home := HomeNets(s.maxHosts); len(home) == 1 {
+		return []netip.Prefix{home[0].Prefix}
+	}
+	return nil
+}
+
+// Auto sagt, ob das Netz automatisch erkannt wurde (keins eingestellt, genau ein Heimnetz).
+func (s *Scanner) Auto() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.networks) == 0 && len(s.effectiveLocked()) == 1
+}
+
+// Configured sagt, ob Netze eingestellt sind (sonst gilt die Erkennung).
+func (s *Scanner) Configured() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.networks) > 0
+}
+
+// Broadcast liefert die Broadcast-Adresse (mit Port 9) des Suchsegments, wenn es genau eins
+// gibt (eingestellt oder erkannt) – sonst "".
 func (s *Scanner) Broadcast() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.networks) != 1 || s.networks[0].Bits() > 30 {
+	nets := s.effectiveLocked()
+	if len(nets) != 1 || nets[0].Bits() > 30 {
 		return ""
 	}
-	return broadcastOf(s.networks[0]) + ":9"
+	return broadcastOf(nets[0]) + ":9"
 }
 
 // SetInterval ändert den Abstand der automatischen Suche; 0 schaltet sie ab.
@@ -344,7 +411,8 @@ const maxScanTime = 5 * time.Minute
 // Start beginnt einen Scan im Hintergrund.
 func (s *Scanner) Start(auto bool) error {
 	s.mu.Lock()
-	if len(s.networks) == 0 {
+	nets := slices.Clone(s.effectiveLocked())
+	if len(nets) == 0 {
 		s.mu.Unlock()
 		return ErrNoNetworks
 	}
@@ -354,7 +422,6 @@ func (s *Scanner) Start(auto bool) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), maxScanTime)
 	s.cancel = cancel
-	nets := slices.Clone(s.networks)
 	s.job = Job{Running: true, Networks: s.networksLocked(), StartedAt: time.Now().UTC(), Auto: auto}
 	j := s.job
 	s.mu.Unlock()

@@ -1,21 +1,45 @@
-# Bei einem Tag v* (z. B. "git tag v1.1.0 && git push --tags"): Programme für alle Plattformen als
-# GitHub-Release und ein Multi-Arch-Image nach ghcr.io/<besitzer>/wolweb.
+# Bei einem Tag v* (z. B. "git tag v1.2.0 && git push --tags"): Programme für alle Plattformen als
+# GitHub-Release und ein Multi-Arch-Image nach ghcr.io/<besitzer>/wolweb – beides erst, wenn die
+# Prüfungen bestanden sind. Actions sind auf Commits gepinnt (Version dahinter), damit ein
+# verschobener Tag nichts anderes ausführt als geprüft.
 name: Release
 on:
   push:
     tags: ["v*"]
 permissions:
-  contents: write
-  packages: write
+  contents: read
 jobs:
-  binaries:
+  check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
+      - name: Formatierung
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Nicht mit gofmt formatiert:"; echo "$unformatted"; exit 1; fi
+      - run: go vet ./...
+      - run: GOOS=windows go vet ./...
       - run: go test ./...
+      - run: go test -race ./...
+  binaries:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Release anlegen und Dateien hochladen
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
       - name: Bauen
         run: |
           v=${GITHUB_REF_NAME#v}
@@ -27,29 +51,35 @@ jobs:
             GOOS=$os GOARCH=$arch GOARM=$arm CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$v" -o "$out" .
           done
           (cd dist && sha256sum * > SHA256SUMS)
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist/*
           generate_release_notes: true
   image:
+    needs: check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Image nach ghcr.io
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7

@@ -27,6 +27,7 @@
       <svg aria-hidden="true" class="ico dev-ico"><use href="#i-power"/></svg>
       <svg aria-hidden="true" class="ico done-ico" viewBox="0 0 24 24"><path class="check-path" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
       <svg aria-hidden="true" class="ico warn-ico"><use href="#i-alert"/></svg>
+      <svg aria-hidden="true" class="ico sent-ico"><use href="#i-send"/></svg>
     </div>
   </div>
   <h1 id="group-title">{{.T "group.title.starting" .Group.Name}}</h1>
@@ -42,11 +43,13 @@
     {{end}}
   </ul>
 
+  <p class="muted small wake-note" id="group-note" hidden></p>
   <p class="sr-only" id="group-live" role="status"></p>
   <div class="wake-result" id="group-result" hidden></div>
 
   <div class="wake-actions">
     <a class="btn btn-ghost" href="./"><svg aria-hidden="true" class="ico"><use href="#i-arrow-left"/></svg>{{.T "page.overview"}}</a>
+    <button class="btn btn-secondary" id="group-check" hidden><svg aria-hidden="true" class="ico"><use href="#i-search"/></svg><span>{{.T "wake.btn.recheck"}}</span></button>
     <button class="btn btn-secondary" id="group-again" hidden><svg aria-hidden="true" class="ico"><use href="#i-refresh"/></svg><span>{{.T "wake.btn.again"}}</span></button>
   </div>
 </main>

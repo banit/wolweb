@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"wolweb/internal/i18n"
 	"wolweb/internal/oui"
 	"wolweb/internal/store"
 )
@@ -114,5 +115,27 @@ func TestRunAutoFollowsInterval(t *testing.T) {
 	}
 	if err := sc.SetNetworks([]string{"198.51.100.7/24", "203.0.113.0/24"}); err != nil || len(sc.Networks()) != 2 || sc.Networks()[0] != "198.51.100.0/24" {
 		t.Errorf("Segmente: %v %v", sc.Networks(), err)
+	}
+}
+
+// Container-Brücken, VMs und VPNs sind kein Heimnetz; Proxmox-Bridge und VLAN-Interface schon.
+func TestVirtualIface(t *testing.T) {
+	for name, virtual := range map[string]bool{
+		"docker0": true, "br-0123456789ab": true, "veth12ab": true, "virbr0": true, "tailscale0": true, "wg0": true,
+		"cni0": true, "podman0": true, "vEthernet (WSL)": true, "tun0": true,
+		"eth0": false, "enp3s0": false, "wlan0": false, "vmbr0": false, "eth0.20": false, "br-lan": false, "Ethernet": false,
+	} {
+		if got := virtualIface(name); got != virtual {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+}
+
+// Suchfehler bleiben Schlüssel und Parameter, bis jemand sie ansieht – dann in dessen Sprache.
+func TestJobErrorsLocalized(t *testing.T) {
+	j := Job{errs: []error{i18n.M("scan.cancelled")}}
+	de, en := j.Localized(i18n.DE).Error, j.Localized(i18n.EN).Error
+	if de == "" || en == "" || de == en || de != i18n.T(i18n.DE, "scan.cancelled") || en != i18n.T(i18n.EN, "scan.cancelled") {
+		t.Errorf("de %q, en %q", de, en)
 	}
 }
