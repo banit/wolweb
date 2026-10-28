@@ -778,7 +778,10 @@
   $("#lang-toggle").addEventListener("click", (e) => {
     const next = e.currentTarget.dataset.lang;
     document.cookie = "wolweb_lang=" + next + "; path=" + new URL(document.baseURI).pathname + "; max-age=31536000; SameSite=Lax";
-    location.reload();
+    // ?lang= in der Adresse ginge dem Cookie vor – beim bloßen Neuladen bliebe die alte Sprache.
+    const url = new URL(location.href);
+    url.searchParams.delete("lang");
+    location.replace(url.href);
   });
 
   $("#add-device").addEventListener("click", () => openDialog());

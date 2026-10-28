@@ -85,3 +85,12 @@ test("einfache Ansicht", async ({ page, request }) => {
   await page.goto("./?view=simple"); // und wieder an
   await expect(card.locator('[data-focus="edit"]')).toHaveCount(0);
 });
+
+test("Sprachknopf wirkt auch, wenn ?lang= in der Adresse steht", async ({ page }) => {
+  await page.goto("./?lang=en&view=normal");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await page.click("#lang-toggle");
+  await expect(page.locator("html")).toHaveAttribute("lang", "de");
+  expect(new URL(page.url()).searchParams.get("lang")).toBeNull();
+  expect(new URL(page.url()).searchParams.get("view")).toBe("normal"); // andere Parameter bleiben
+});
