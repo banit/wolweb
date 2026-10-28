@@ -76,6 +76,18 @@
   }
   function wakeURL(d) { return new URL(d.wake_path, document.baseURI).href; }
 
+  // Neu zeichnen, ohne den Tastaturfokus zu verlieren: Karten und Listeneinträge werden komplett
+  // neu gebaut; der fokussierte Knopf wird über data-id (Eintrag) und data-focus (Knopf) wiedergefunden.
+  function keepFocus(box, draw) {
+    const a = document.activeElement;
+    const item = a && a !== document.body && box.contains(a) ? a.closest("[data-id]") : null;
+    const key = item && a.dataset.focus;
+    draw();
+    if (!key) return;
+    const n = box.querySelector('[data-id="' + CSS.escape(item.dataset.id) + '"] [data-focus="' + key + '"]');
+    if (n) n.focus({ preventScroll: true });
+  }
+
   function toast(kind, title, text) {
     const box = $("#toasts");
     const t = el("div", { class: "toast " + kind, role: "status" },
@@ -134,7 +146,7 @@
       }
       return card;
     });
-    grid.replaceChildren(...next);
+    keepFocus(grid, () => grid.replaceChildren(...next));
   }
 
   function statusLine(d) {
@@ -168,14 +180,14 @@
           el("div", { class: "card-meta" },
             ip ? el("span", { class: "mono", text: ip, title: d.ip ? "IP-Adresse" : "IP aus der Netzwerksuche" }) : null,
             el("span", { class: "mono", text: d.mac, title: d.vendor || "MAC-Adresse" }))),
-        ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: "Bearbeiten", "aria-label": "Bearbeiten", onclick: () => openDialog(d) }, icon("edit"))),
+        ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: "Bearbeiten", "aria-label": "Bearbeiten", "data-focus": "edit", onclick: () => openDialog(d) }, icon("edit"))),
       d.note ? el("p", { class: "card-note", text: d.note }) : null,
       el("div", { class: "status-line" }, statusLine(d)),
       el("div", { class: "card-actions" },
-        el("button", { class: "btn btn-primary btn-wake", disabled: s === "waking", onclick: () => wake(d) },
+        el("button", { class: "btn btn-primary btn-wake", disabled: s === "waking", "data-focus": "wake", onclick: () => wake(d) },
           icon("power"), el("span", { text: s === "waking" ? "Wird gestartet …" : s === "online" ? "Erneut wecken" : "Wecken" })),
-        el("button", { class: "btn btn-secondary icon-only", title: "Wecklink kopieren", "aria-label": "Wecklink kopieren", onclick: () => copyLink(d) }, icon("link")),
-        el("a", { class: "btn btn-secondary icon-only", href: d.wake_path, target: "_blank", rel: "noopener", title: "Weckseite öffnen", "aria-label": "Weckseite öffnen" }, icon("external"))));
+        el("button", { class: "btn btn-secondary icon-only", title: "Wecklink kopieren", "aria-label": "Wecklink kopieren", "data-focus": "copy", onclick: () => copyLink(d) }, icon("link")),
+        el("a", { class: "btn btn-secondary icon-only", href: d.wake_path, target: "_blank", rel: "noopener", title: "Weckseite öffnen", "aria-label": "Weckseite öffnen", "data-focus": "open" }, icon("external"))));
     if (s === "waking") {
       const w = state.waking.get(d.id);
       const pct = Math.min(100, ((Date.now() - w.start) / (state.info.wake_timeout * 1000)) * 100);
@@ -346,7 +358,12 @@
   }
 
   for (const b of document.querySelectorAll("#device-dialog [data-close]")) b.addEventListener("click", () => dlg.close());
-  dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+  // Nur schließen, wenn der Klick auf dem Hintergrund auch begann: Wer Text in einem Feld
+  // markiert und die Maus außerhalb loslässt, erzeugt sonst einen Klick auf den Dialog selbst –
+  // der Dialog ging zu und die Eingaben waren weg.
+  let downOnBackdrop = false;
+  dlg.addEventListener("pointerdown", (e) => { downOnBackdrop = e.target === dlg; });
+  dlg.addEventListener("click", (e) => { if (e.target === dlg && downOnBackdrop) dlg.close(); });
 
   // ---------- Netzwerksuche ----------
   const drawer = $("#discovery");
@@ -360,6 +377,8 @@
     setTimeout(() => $("#scan-btn").focus(), 50);
   }
   function closeDrawer() {
+    // Fokus zurück auf den Knopf, sonst landet er im unsichtbar werdenden Bereich.
+    if (drawer.contains(document.activeElement)) $("#open-discovery").focus();
     drawer.classList.remove("open");
     drawer.setAttribute("aria-hidden", "true");
   }
@@ -437,7 +456,7 @@
 
     const list = $("#found-list");
     const items = state.found.filter((f) => classify(f) === state.foundFilter);
-    list.replaceChildren(...items.map(buildFound));
+    keepFocus(list, () => list.replaceChildren(...items.map(buildFound)));
     const empty = $("#found-empty");
     empty.hidden = items.length !== 0;
     empty.textContent = state.foundFilter === "new"
@@ -466,14 +485,14 @@
     const title = f.hostname || f.vendor || "Unbekanntes Gerät";
     const actions = [];
     if (!ro && kind === "new") {
-      actions.push(el("button", { class: "btn btn-primary btn-sm", onclick: () => adopt(f) }, icon("plus"), el("span", { text: "Übernehmen" })));
-      actions.push(el("button", { class: "btn btn-ghost btn-sm icon-only", title: "Ignorieren", "aria-label": "Ignorieren", onclick: () => setIgnored(f, true) }, icon("eye-off")));
+      actions.push(el("button", { class: "btn btn-primary btn-sm", "data-focus": "adopt", onclick: () => adopt(f) }, icon("plus"), el("span", { text: "Übernehmen" })));
+      actions.push(el("button", { class: "btn btn-ghost btn-sm icon-only", title: "Ignorieren", "aria-label": "Ignorieren", "data-focus": "ignore", onclick: () => setIgnored(f, true) }, icon("eye-off")));
     } else if (!ro && kind === "ignored") {
-      actions.push(el("button", { class: "btn btn-secondary btn-sm", onclick: () => setIgnored(f, false) }, el("span", { text: "Wieder anzeigen" })));
+      actions.push(el("button", { class: "btn btn-secondary btn-sm", "data-focus": "unignore", onclick: () => setIgnored(f, false) }, el("span", { text: "Wieder anzeigen" })));
     } else if (kind === "known") {
       actions.push(el("span", { class: "tag", text: f.device_name }));
     }
-    return el("li", { class: "found" },
+    return el("li", { class: "found", "data-id": f.mac },
       el("div", { class: "dev-icon" }, icon(guessIcon(f))),
       el("div", { class: "found-main" },
         el("strong", { text: title, title }),

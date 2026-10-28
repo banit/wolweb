@@ -264,7 +264,8 @@ a { color: var(--accent); }
 @keyframes indet { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 
 /* --- Seitenleiste Netzwerksuche --- */
-.drawer { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+/* Geschlossen unsichtbar (nach der Schiebe-Animation), damit Tab nicht in die Leiste springt. */
+.drawer { position: fixed; inset: 0; z-index: 40; pointer-events: none; visibility: hidden; transition: visibility 0s .28s; }
 .drawer-backdrop { position: absolute; inset: 0; background: rgba(8, 10, 16, .45); opacity: 0; transition: opacity .25s; }
 .drawer-panel {
   position: absolute; top: 0; right: 0; bottom: 0; width: min(560px, 100vw);
@@ -272,7 +273,7 @@ a { color: var(--accent); }
   background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow-lg);
   transform: translateX(100%); transition: transform .28s cubic-bezier(.2, .8, .2, 1);
 }
-.drawer.open { pointer-events: auto; }
+.drawer.open { pointer-events: auto; visibility: visible; transition: visibility 0s; }
 .drawer.open .drawer-backdrop { opacity: 1; }
 .drawer.open .drawer-panel { transform: none; }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 1.1rem 1.2rem .8rem; border-bottom: 1px solid var(--border); }
