@@ -679,3 +679,40 @@ func TestWakeDedupEverywhere(t *testing.T) {
 		t.Errorf("nach dem Zeitplan: %v", m)
 	}
 }
+
+// Gruppen- und Einzellinks werden gleich behandelt: HEAD weckt nie, die Schlüsselpflicht greift bei
+// Seite, POST und Status, eine fremde Seite bekommt nur die Weckseite (die dann selbst weckt).
+func TestGroupAndDeviceLinksAlike(t *testing.T) {
+	h, st := newTestServer(t, func(c *config.Config) {
+		c.Auth.Username, c.Auth.Password, c.Auth.WakeKeys = "admin", "geheim", true
+	})
+	sink := udpSink(t)
+	d, _ := st.Create(store.Input{Name: "NAS", MAC: "02:00:00:00:00:01", Group: "Keller", Broadcast: sink})
+	s := New(config.Default(), st, status.New(st, probe.New(nil, time.Second), 0), discovery.New(st, nil, 16), false, "test")
+	groupKey := s.groupKey("Keller") // aus dem Geheimnis des Stores – derselbe wie im Testserver
+	do := func(method, path string, hdr map[string]string) int {
+		req := httptest.NewRequest(method, path, nil)
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, link := range []struct{ path, key string }{{"/wake/NAS", d.WakeKey}, {"/wake-group/Keller", groupKey}} {
+		for _, c := range []struct{ method, suffix string }{{"GET", ""}, {"POST", ""}, {"GET", "/status"}, {"HEAD", ""}} {
+			if code := do(c.method, link.path+c.suffix, map[string]string{"X-WolWeb": "1"}); code != http.StatusNotFound {
+				t.Errorf("%s %s%s ohne Schlüssel: %d", c.method, link.path, c.suffix, code)
+			}
+		}
+		if code := do("HEAD", link.path+"?key="+link.key, nil); code != http.StatusOK || !st.LastWake(d.ID).IsZero() {
+			t.Errorf("HEAD %s hat geweckt (%d)", link.path, code)
+		}
+		if code := do("GET", link.path+"?key="+link.key, map[string]string{"Sec-Fetch-Site": "cross-site"}); code != http.StatusOK || !st.LastWake(d.ID).IsZero() {
+			t.Errorf("fremde Seite bekam nicht nur die Weckseite: %s (%d)", link.path, code)
+		}
+	}
+	if code := do("POST", "/wake-group/Keller?key="+groupKey, map[string]string{"X-WolWeb": "1"}); code != http.StatusOK || st.LastWake(d.ID).IsZero() {
+		t.Errorf("Gruppe mit Schlüssel: %d", code)
+	}
+}

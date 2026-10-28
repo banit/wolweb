@@ -332,6 +332,13 @@ braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_
   Wecklink, Gruppenlink, Weckseite und API gemeinsam. Ein zweiter Aufruf in dieser Zeit (zweimal getippt, Seite neu
   geladen) ist kein Fehler: Er meldet „wird bereits geweckt“ (`"already": true`) und die Seite verfolgt den
   laufenden Start, ohne erneut zu senden. Zeitpläne und die automatische Wiederholung werden nie gebremst.
+- **Wecklinks von fremden Seiten**: Ein Wecklink weckt beim Öffnen – mit Absicht, auch wenn er auf einer anderen
+  Seite steht (Home-Assistant-Dashboard, Glance, Lesezeichenseite). Das heißt aber auch: Jede Webseite, die du
+  besuchst, kann deinen Browser zu `/wake/<Name>` oder `/wake-group/<Name>` schicken, und die ausgelieferte
+  Weckseite weckt dann. Mehr als Wecken ist so nicht möglich, und `HEAD` (Linkvorschauen in Messengern, Linkprüfer)
+  weckt nie. Wer auch das verhindern will, schaltet die Anmeldung samt `auth.wake_keys` ein: Dann braucht jeder
+  Link – Gerät wie Gruppe gleichermaßen – den Schlüssel, den „Wecklink kopieren“ anhängt, und Namen lassen sich
+  nicht erraten.
 - **DNS-Rebinding**: Ohne Anmeldung nimmt wolweb nur Aufrufe unter IP-Adressen, Namen ohne Punkt (`nas`), lokalen
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus
   `allowed_hosts` an (`"wol.example.com"`, `"*.example.com"`, `"*"` schaltet die Prüfung ab). Sonst könnte eine
@@ -450,7 +457,10 @@ in **English and German**; it follows the browser language and can be switched i
   a redirecting server cannot divert messages to a target nobody configured; **Prometheus metrics** at `/metrics`
 - **History** of every wake attempt (who, when, from where, result), **export/import** of devices as JSON
 - **Security**: optional login (HTTP Basic, API token), per-device keys for public wake links, no double waking (one
-  wake-up call per device every 10 s on all paths; a second call reports `"already": true`),
+  wake-up call per device every 10 s on all paths; a second call reports `"already": true`). A wake link wakes when
+  opened – on purpose, also from dashboards on other sites; any website you visit could therefore send your browser
+  to `/wake/<name>` or `/wake-group/<name>` (`HEAD` never wakes). To prevent that, enable the login together with
+  `auth.wake_keys`: every link, device or group alike, then needs its key,
   protection against DNS rebinding
 - Per-device ports for the online check, SecureOn passwords, sending via a specific network interface,
   home-screen icons (web app manifest)
