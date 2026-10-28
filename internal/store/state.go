@@ -91,6 +91,9 @@ func (s *Store) RecordWake(evs ...Event) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Erst als ungespeichert markieren: Scheitert das Schreiben (Platte voll, Rechte), holt
+	// FlushState es nach, statt dass der Verlauf beim Beenden verloren geht.
+	s.stateDirty = true
 	for _, ev := range evs {
 		if ev.Time.IsZero() {
 			ev.Time = time.Now().UTC()

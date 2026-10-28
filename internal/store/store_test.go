@@ -400,3 +400,27 @@ func TestLegacyProblemsReported(t *testing.T) {
 		t.Errorf("beim Start übernommen: %+v", devs)
 	}
 }
+
+// Scheitert das Speichern des Verlaufs, holt FlushState es später nach.
+func TestRecordWakeRetriedAfterSaveError(t *testing.T) {
+	dir := t.TempDir()
+	s, _, _ := Open(dir, "")
+	d, _ := s.Create(Input{Name: "PC", MAC: "02:00:00:00:00:01"})
+	path := filepath.Join(dir, "state.json")
+	os.Remove(path)
+	os.Mkdir(path, 0o755) // an der Stelle steht jetzt ein Ordner: Schreiben scheitert
+	if err := s.RecordWake(Event{ID: d.ID, Device: d.Name, Source: "api", Success: true}); err == nil {
+		t.Fatal("Speichern hätte scheitern müssen")
+	}
+	os.Remove(path)
+	if err := s.FlushState(); err != nil {
+		t.Fatal(err)
+	}
+	s2, _, err := Open(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := s2.History(0); len(h) != 1 || h[0].Device != "PC" || s2.LastWake(d.ID).IsZero() {
+		t.Errorf("Verlauf verloren: %+v", h)
+	}
+}
