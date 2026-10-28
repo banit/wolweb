@@ -95,9 +95,13 @@ SSH-Log). Pro Gerät lassen sich unter „Erweitert“ eigene Ports eintragen, z
 
 ## Netzwerksuche
 
-Die Netze stehen in den [Einstellungen](#einstellungen) unter „Netze und VLANs“ (oder in `discovery.networks` bzw.
-`WOLWEB_NETWORKS`), z. B. `192.168.1.0/24`. Gesucht wird nur in Netzen, an denen der Rechner direkt hängt – ARP und
-Wake on LAN gehen nicht über Router. Für weitere VLANs siehe [Mehrere Netze und VLANs](#mehrere-netze-und-vlans).
+Einrichten muss man dafür meist nichts: Hängt der Rechner an genau einem Heimnetz, sucht wolweb dort von selbst
+(Container-Brücken, VMs und VPNs zählen nicht). Hat er mehrere, fragt „Geräte suchen“ einmal: „Wähle das Netzwerk, in
+dem dein Rechner steht“ – die Wahl landet in den Einstellungen. Fest vorgeben lassen sich die Netze in den
+[Einstellungen](#einstellungen) unter „Netze und VLANs“ (oder in `discovery.networks` bzw. `WOLWEB_NETWORKS`, etwa
+`192.168.1.0/24`); eine solche Angabe geht der Erkennung immer vor. Gesucht wird nur in Netzen, an denen der Rechner
+direkt hängt – ARP und Wake on LAN gehen nicht über Router. Für weitere VLANs siehe
+[Mehrere Netze und VLANs](#mehrere-netze-und-vlans).
 
 - **Linux mit `CAP_NET_RAW`**: aktiver ARP-Scan – findet auch Geräte, die Ping und alle Ports blocken.
 - **Sonst**: jede Adresse bekommt ein UDP-Paket, danach wird die Nachbartabelle gelesen (etwas ungenauer).
@@ -269,7 +273,7 @@ können das nicht, und suchen lässt sich dort ohnehin nicht.
 | `read_only` | `WOLWEBREADONLY` | `false` | nur wecken, nichts ändern |
 | `language` | `WOLWEB_LANGUAGE` | `de` | `de` oder `en`: Sprache, wenn weder Umschalter noch Browser eine nennen (auch für Benachrichtigungen) |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`), Suchergebnisse (`discovered.json`) und Änderungen der Einstellungsseite (`settings.json`) |
-| `discovery.networks` | `WOLWEB_NETWORKS` | – | Netze (CIDR, Variable kommagetrennt), auch mit Namen: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
+| `discovery.networks` | `WOLWEB_NETWORKS` | automatisch | Netze (CIDR, Variable kommagetrennt); leer = das eine Heimnetz automatisch, bei mehreren Auswahl in der Oberfläche; auch mit Namen: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus (mindestens `1m`) |
 | `discovery.max_hosts` | – | `1024` | größtes erlaubtes Segment |
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | Online-Prüfung aller Geräte, `0` = aus (mindestens `5s`) |
@@ -537,7 +541,7 @@ important settings:
 |---|---|---|---|
 | `port` | `WOLWEB_PORT` | `8089` | port of the web interface |
 | `language` | `WOLWEB_LANGUAGE` | `de` | `en` or `de`: language when neither the switch nor the browser name one (also used for notifications) |
-| `discovery.networks` | `WOLWEB_NETWORKS` | – | networks, e.g. `192.168.1.0/24` (variable: comma separated), also with name: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20}` |
+| `discovery.networks` | `WOLWEB_NETWORKS` | automatic | networks, e.g. `192.168.1.0/24` (variable: comma separated); empty = the one home network automatically, with several a choice in the UI; also with name: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20}` |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off |
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | online check of all devices |
 | `bcastip` | `WOLWEBBCASTIP` | automatic | fallback target when neither device nor network provide one |

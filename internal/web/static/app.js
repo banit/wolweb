@@ -530,6 +530,19 @@
   for (const b of drawer.querySelectorAll("[data-close]")) b.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawerOpen() && !dlg.open) closeDrawer(); });
 
+  async function chooseNetwork(cidr) {
+    try {
+      await api("POST", "discovery/network", { cidr });
+    } catch (e) {
+      toast("err", t("ui.scan.impossible"), e.message);
+      return;
+    }
+    await reloadInfo();
+    $("#scan-btn").focus();
+    try { await api("POST", "discovery/scan"); } catch (e) { /* Anzeige folgt über loadDiscovery */ }
+    loadDiscovery();
+  }
+
   function classify(f) {
     if (f.device_id) return "known";
     if (f.ignored) return "ignored";
@@ -564,10 +577,21 @@
     }
 
     const nets = state.info.networks || [];
-    $("#discovery-networks").textContent = nets.length ? t("ui.scan.segments", nets.join(", ")) : "";
+    const choices = state.info.network_choices || [];
+    $("#discovery-networks").textContent = !nets.length ? ""
+      : state.info.networks_auto ? t("ui.scan.segment_auto", nets[0]) : t("ui.scan.segments", nets.join(", "));
     const btn = $("#scan-btn");
     const prog = $("#scan-progress");
-    if (!nets.length) {
+    const pick = $("#net-choices");
+    pick.hidden = nets.length || !choices.length;
+    if (!nets.length && choices.length) {
+      // Mehrere mögliche Heimnetze: eins antippen, gespeichert wird es in den Einstellungen.
+      $("#scan-title").textContent = t("ui.scan.setup_title");
+      $("#scan-detail").textContent = t("ui.scan.setup_text");
+      btn.disabled = true;
+      pick.replaceChildren(...choices.map((c) => el("button", { type: "button", class: "btn btn-secondary", onclick: () => chooseNetwork(c.prefix) },
+        icon("radar"), el("span", { class: "mono", text: c.prefix }), el("span", { class: "muted", text: c.interface + " · " + c.addr }))));
+    } else if (!nets.length) {
       $("#scan-title").textContent = t("ui.scan.no_segment");
       $("#scan-detail").textContent = t("ui.scan.no_segment_hint");
       btn.disabled = true;

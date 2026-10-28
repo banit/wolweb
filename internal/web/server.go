@@ -140,6 +140,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+api+"discovery/cancel", s.cancelScan)
 	mux.HandleFunc("POST "+api+"discovery/{mac}/ignore", s.writable(s.ignoreFound))
 	mux.HandleFunc("DELETE "+api+"discovery/{mac}", s.writable(s.forgetFound))
+	mux.HandleFunc("POST "+api+"discovery/network", s.withSettings(s.writable(s.chooseNetwork)))
 	mux.HandleFunc("GET "+base+"settings", s.withSettings(s.settingsPage))
 	mux.HandleFunc("GET "+api+"settings", s.withSettings(s.getSettings))
 	mux.HandleFunc("PUT "+api+"settings", s.withSettings(s.writable(s.putSettings)))
@@ -790,6 +791,8 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"version":           s.version,
 		"read_only":         s.conf().ReadOnly,
 		"networks":          s.scanner.Networks(),
+		"networks_auto":     s.scanner.Auto(),   // ohne Einstellung erkannt (genau ein Heimnetz)
+		"network_choices":   s.networkChoices(), // ohne Einstellung und ohne eindeutiges Heimnetz: zur Wahl
 		"segments":          s.segments(),
 		"settings":          s.settings != nil,
 		"local_networks":    discovery.LocalNets(),

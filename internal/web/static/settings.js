@@ -194,6 +194,8 @@
       return row;
     }));
     $("#net-empty").hidden = nets.length !== 0;
+    // Ohne eingetragenes Netz nutzt wolweb das erkannte Heimnetz – sagen, welches.
+    $("#net-empty").textContent = view.auto_network ? t("set.net.auto", view.auto_network) : t("set.net.empty");
   }
 
   function renderInterfaces() {

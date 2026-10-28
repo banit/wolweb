@@ -619,3 +619,8 @@ input:disabled, textarea:disabled, select:disabled { background: var(--surface-2
 .rejected-hosts ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .rejected-hosts li { display: flex; align-items: center; gap: .6rem; padding: .4rem .6rem; border: 1px dashed var(--border-strong); border-radius: 10px; }
 .rejected-hosts li .mono { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+/* --- Heimnetz wählen (Suche noch nicht eingerichtet) --- */
+.net-choices { display: grid; gap: 8px; }
+.net-choices .btn { justify-content: flex-start; height: auto; min-height: 44px; padding: .55rem .8rem; white-space: normal; text-align: left; flex-wrap: wrap; }
+.net-choices .btn .muted { font-weight: 400; font-size: .85rem; }

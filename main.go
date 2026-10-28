@@ -93,7 +93,16 @@ func main() {
 	go mon.Run(ctx)
 	go ws.RunSchedules(ctx)
 	go st.RunFlush(ctx)
-	if nets := cfg.Discovery.ScanCIDRs(); scanInterval > 0 && len(nets) > 0 {
+	switch home := discovery.HomeNets(cfg.Discovery.MaxHosts); {
+	case len(cfg.Discovery.Networks) > 0:
+	case len(home) == 1:
+		log.Printf("Netzwerksuche: Heimnetz %s (%s) automatisch erkannt", home[0].Prefix, home[0].Interface)
+	case len(home) > 1:
+		log.Printf("Netzwerksuche: %d mögliche Heimnetze – in der Oberfläche unter „Geräte suchen“ eins wählen", len(home))
+	default:
+		log.Print("Netzwerksuche: kein Heimnetz erkannt – in den Einstellungen ein Netz eintragen")
+	}
+	if nets := scanner.Networks(); scanInterval > 0 && len(nets) > 0 {
 		log.Printf("Automatische Suche alle %s in %v", scanInterval, nets)
 	}
 	go scanner.RunAuto(ctx) // ruht, solange kein Abstand eingestellt ist

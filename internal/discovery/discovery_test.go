@@ -116,3 +116,16 @@ func TestRunAutoFollowsInterval(t *testing.T) {
 		t.Errorf("Segmente: %v %v", sc.Networks(), err)
 	}
 }
+
+// Container-Brücken, VMs und VPNs sind kein Heimnetz; Proxmox-Bridge und VLAN-Interface schon.
+func TestVirtualIface(t *testing.T) {
+	for name, virtual := range map[string]bool{
+		"docker0": true, "br-0123456789ab": true, "veth12ab": true, "virbr0": true, "tailscale0": true, "wg0": true,
+		"cni0": true, "podman0": true, "vEthernet (WSL)": true, "tun0": true,
+		"eth0": false, "enp3s0": false, "wlan0": false, "vmbr0": false, "eth0.20": false, "br-lan": false, "Ethernet": false,
+	} {
+		if got := virtualIface(name); got != virtual {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+}

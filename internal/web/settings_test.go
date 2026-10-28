@@ -167,3 +167,21 @@ func TestSettingsTestNotify(t *testing.T) {
 		t.Errorf("ungültige Adresse: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// Ohne eingetragenes Netz: Die Wahl in der Suche landet in den Einstellungen und gilt sofort.
+func TestChooseNetwork(t *testing.T) {
+	s, h, m := settingsServer(t, `{"language": "de"}`)
+	if s.scanner.Configured() {
+		t.Fatal("es sollte kein Netz eingetragen sein")
+	}
+	rec := call(h, "POST", "/api/v1/discovery/network", `{"cidr":"10.0.0.7/24"}`)
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if !s.scanner.Configured() || s.scanner.Networks()[0] != "10.0.0.0/24" || m.Stored()[0] != "discovery.networks" {
+		t.Errorf("nicht übernommen: %v %v", s.scanner.Networks(), m.Stored())
+	}
+	if rec := call(h, "POST", "/api/v1/discovery/network", `{"cidr":"kein-netz"}`); rec.Code != 400 {
+		t.Errorf("ungültiges Netz: %d", rec.Code)
+	}
+}

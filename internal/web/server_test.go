@@ -122,15 +122,20 @@ func TestDefaultBroadcast(t *testing.T) {
 		t.Fatal(err)
 	}
 	mon := status.New(st, probe.New(nil, 100*time.Millisecond), 0)
+	// Ohne eingetragenes Netz gilt das erkannte Heimnetz – sofern dieser Rechner genau eins hat.
+	auto := "255.255.255.255:9"
+	if home := discovery.HomeNets(1024); len(home) == 1 {
+		auto = discovery.BroadcastOf(home[0].Prefix)
+	}
 	for _, tc := range []struct {
 		bcast string
 		nets  []string
 		want  string
 	}{
-		{"", nil, "255.255.255.255:9"},
-		{"", []string{"10.9.8.0/24"}, "10.9.8.255:9"},
-		{"", []string{"10.9.8.0/24", "10.9.9.0/24"}, "255.255.255.255:9"},
-		{"192.168.5.255", []string{"10.9.8.0/24"}, "192.168.5.255:9"},
+		{"", nil, auto},
+		{"", []string{"10.0.0.0/24"}, "10.0.0.255:9"},
+		{"", []string{"10.0.0.0/24", "10.0.1.0/24"}, "255.255.255.255:9"},
+		{"192.168.1.255", []string{"10.0.0.0/24"}, "192.168.1.255:9"},
 	} {
 		cfg := config.Default()
 		cfg.BcastIP = tc.bcast
