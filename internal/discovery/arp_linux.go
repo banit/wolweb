@@ -52,8 +52,10 @@ func arpScan(ctx context.Context, ln LocalNet, targets []netip.Addr, progress fu
 		for {
 			p, _, err := c.Read()
 			if err != nil {
+				// Nach dem Schließen (Abbruch) meldet der Socket EBADF bzw. "use of closed file" –
+				// beides ist nicht net.ErrClosed. Ohne den ctx-Test liefe die Schleife dann endlos.
 				var ne net.Error
-				if errors.As(err, &ne) && ne.Timeout() || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, net.ErrClosed) {
+				if ctx.Err() != nil || errors.As(err, &ne) && ne.Timeout() || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, net.ErrClosed) {
 					return
 				}
 				continue

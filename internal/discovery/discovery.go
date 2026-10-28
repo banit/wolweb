@@ -144,6 +144,9 @@ func (s *Scanner) Job() Job {
 var ErrBusy = errors.New("es läuft bereits eine Suche")
 var ErrNoNetworks = errors.New("keine Netzsegmente konfiguriert (discovery.networks)")
 
+// maxScanTime begrenzt eine Suche; danach wird sie wie ein Abbruch beendet.
+const maxScanTime = 5 * time.Minute
+
 // Start beginnt einen Scan im Hintergrund.
 func (s *Scanner) Start(auto bool) error {
 	if len(s.networks) == 0 {
@@ -154,7 +157,7 @@ func (s *Scanner) Start(auto bool) error {
 	if s.job.Running {
 		return ErrBusy
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), maxScanTime)
 	s.cancel = cancel
 	s.job = Job{Running: true, Networks: s.Networks(), StartedAt: time.Now().UTC(), Auto: auto}
 	go s.run(ctx, cancel)
@@ -185,7 +188,8 @@ func (s *Scanner) run(ctx context.Context, cancel context.CancelFunc) {
 			break
 		}
 		found, method, err := s.scanNetwork(ctx, p)
-		if err != nil {
+		// Abbruch und Zeitlimit werden unten einmal gemeldet, nicht je Segment.
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			errs = append(errs, fmt.Errorf("%s: %w", p, err))
 		}
 		if method != "" {
@@ -197,8 +201,11 @@ func (s *Scanner) run(ctx context.Context, cancel context.CancelFunc) {
 	if err != nil {
 		errs = append(errs, err)
 	}
-	if ctx.Err() == context.Canceled {
+	switch ctx.Err() {
+	case context.Canceled:
 		errs = append(errs, errors.New("abgebrochen"))
+	case context.DeadlineExceeded:
+		errs = append(errs, fmt.Errorf("nach %s abgebrochen (Zeitlimit)", maxScanTime))
 	}
 	var method string
 	for m := range methods {
@@ -234,7 +241,11 @@ func (s *Scanner) scanNetwork(ctx context.Context, p netip.Prefix) ([]store.Foun
 
 	hits, err := arpScan(ctx, ln, targets, progress)
 	method := "ARP-Scan"
-	if err != nil {
+	switch {
+	case err != nil && ctx.Err() != nil:
+		// Abgebrochen: Die bis dahin eingegangenen ARP-Antworten sind echt und werden übernommen.
+		// Die Nachbartabelle als Ersatz wäre hier falsch – ARP funktioniert ja.
+	case err != nil:
 		log.Printf("ARP-Scan auf %s nicht möglich (%v) – nutze Nachbartabelle", ln.Interface, err)
 		method = "Nachbartabelle"
 		hits, err = neighborScan(ctx, ln, targets, progress)
@@ -258,7 +269,10 @@ func (s *Scanner) scanNetwork(ctx context.Context, p netip.Prefix) ([]store.Foun
 		clean = append(clean, h)
 	}
 
-	names := resolveNames(ctx, clean)
+	var names map[netip.Addr]hostName
+	if ctx.Err() == nil { // nach einem Abbruch keine Namen mehr abfragen
+		names = resolveNames(ctx, clean)
+	}
 	now := time.Now().UTC()
 	out := make([]store.Found, 0, len(clean))
 	for _, h := range clean {
