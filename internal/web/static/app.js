@@ -296,7 +296,8 @@
       loadDevices();
       return;
     }
-    toast("ok", t("ui.packet_sent"), t("ui.is_starting", d.name));
+    if (res.already) toast("ok", t("ui.already_waking", d.name), t("ui.is_starting", d.name));
+    else toast("ok", t("ui.packet_sent"), t("ui.is_starting", d.name));
     track(d);
   }
 

@@ -321,8 +321,11 @@ braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_
   für Automationen.
 - **Öffentliche Wecklinks** (`auth.public_wake`): Mit Anmeldung bleiben `/wake/<Name>` und die Weckseite ohne Login
   erreichbar. Damit niemand Geräte über erratene Namen weckt, verlangt `auth.wake_keys` zusätzlich einen Schlüssel
-  je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern. Ohne
-  Anmeldung kann ein Gerät höchstens alle 10 s geweckt werden.
+  je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern.
+- **Kein doppeltes Wecken**: Jedes Gerät bekommt höchstens alle 10 s einen Weckruf – mit und ohne Anmeldung, über
+  Wecklink, Gruppenlink, Weckseite und API gemeinsam. Ein zweiter Aufruf in dieser Zeit (zweimal getippt, Seite neu
+  geladen) ist kein Fehler: Er meldet „wird bereits geweckt“ (`"already": true`) und die Seite verfolgt den
+  laufenden Start, ohne erneut zu senden. Zeitpläne und die automatische Wiederholung werden nie gebremst.
 - **DNS-Rebinding**: Ohne Anmeldung nimmt wolweb nur Aufrufe unter IP-Adressen, Namen ohne Punkt (`nas`), lokalen
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus
   `allowed_hosts` an (`"wol.example.com"`, `"*.example.com"`, `"*"` schaltet die Prüfung ab). Sonst könnte eine
@@ -439,7 +442,8 @@ in **English and German**; it follows the browser language and can be switched i
 - **Notifications** via webhook (JSON) or ntfy push when a device goes online/offline or is woken;
   **Prometheus metrics** at `/metrics`
 - **History** of every wake attempt (who, when, from where, result), **export/import** of devices as JSON
-- **Security**: optional login (HTTP Basic, API token), per-device keys for public wake links, rate limiting,
+- **Security**: optional login (HTTP Basic, API token), per-device keys for public wake links, no double waking (one
+  wake-up call per device every 10 s on all paths; a second call reports `"already": true`),
   protection against DNS rebinding
 - Per-device ports for the online check, SecureOn passwords, sending via a specific network interface,
   home-screen icons (web app manifest)

@@ -4,13 +4,11 @@ import (
 	"context"
 	"crypto/subtle"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"net/netip"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -175,48 +173,66 @@ func (s *Server) findForLink(r *http.Request) (store.Device, bool) {
 	return d, true
 }
 
-// publicWakeInterval: So oft darf ein Gerät über einen öffentlichen Wecklink geweckt werden.
-const publicWakeInterval = 10 * time.Second
+// --- Doppeltes Wecken ---
+//
+// Ein Gerät, das gerade erst geweckt wurde, bekommt innerhalb von wakeDedupWindow keinen weiteren
+// Weckruf – mit und ohne Anmeldung, über Wecklink, Gruppenlink, Weckseite und API, gemeinsam für
+// Einzel- und Gruppenaufrufe. Zweimal tippen oder die Seite neu laden endet freundlich mit "wird
+// bereits geweckt" (und die Seite verfolgt den laufenden Start), statt Pakete, Verlaufseinträge
+// und Wiederholungen aufzutürmen. Zeitpläne und die automatische Wiederholung zählen mit, werden
+// aber nie gebremst.
+const wakeDedupWindow = 10 * time.Second
 
 type wakeLimiter struct {
 	mu   sync.Mutex
-	last map[string]time.Time
+	last map[string]time.Time // Geräte-ID -> letzter Weckruf
 }
 
-func (l *wakeLimiter) allow(id string) (time.Duration, bool) {
+// claim reserviert den Weckruf für ein Gerät. false: Es wurde eben erst geweckt.
+func (l *wakeLimiter) claim(id string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if time.Since(l.last[id]) < wakeDedupWindow {
+		return false
+	}
+	l.markLocked(id)
+	return true
+}
+
+// release gibt eine Reservierung zurück – das Senden ist gescheitert, gleich nochmal ist richtig.
+func (l *wakeLimiter) release(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.last, id)
+}
+
+// mark merkt einen Weckruf, der nicht über claim kam (Zeitplan, Wiederholung).
+func (l *wakeLimiter) mark(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.markLocked(id)
+}
+
+func (l *wakeLimiter) markLocked(id string) {
 	if l.last == nil {
 		l.last = map[string]time.Time{}
-	}
-	if wait := publicWakeInterval - time.Since(l.last[id]); wait > 0 {
-		return wait, false
 	}
 	l.last[id] = time.Now()
 	if len(l.last) > 1000 {
 		for k, t := range l.last {
-			if time.Since(t) > publicWakeInterval {
+			if time.Since(t) > wakeDedupWindow {
 				delete(l.last, k)
 			}
 		}
 	}
-	return 0, true
 }
 
-// limitPublic beantwortet zu schnell wiederholte öffentliche Weckaufrufe mit 429 und meldet das
-// mit true. key trennt Geräte und Gruppen, msgKey/name ergeben die Meldung. Angemeldete Aufrufe
-// sind nicht begrenzt.
-func (s *Server) limitPublic(w http.ResponseWriter, r *http.Request, key, msgKey, name string) bool {
-	if !isPublic(r) {
-		return false
+// alreadyWaking reserviert den Weckruf für d. Wurde d eben erst geweckt, kommt stattdessen die
+// freundliche Antwort zurück (Erfolg, Already gesetzt) – die Seite zeigt dann den laufenden Start.
+func (s *Server) alreadyWaking(r *http.Request, d store.Device) (wakeResult, bool) {
+	if s.limiter.claim(d.ID) {
+		return wakeResult{}, false
 	}
-	wait, ok := s.limiter.allow(key)
-	if ok {
-		return false
-	}
-	secs := int(math.Ceil(wait.Seconds()))
-	w.Header().Set("Retry-After", strconv.Itoa(secs))
-	writeJSON(w, http.StatusTooManyRequests, wakeResult{Device: name, Error: "rate limited",
-		Message: i18n.T(s.lang(r), msgKey, name, secs)})
-	return true
+	return wakeResult{Success: true, Already: true, Device: d.Name, ID: d.ID, Target: s.wakeTarget(d),
+		Message: i18n.T(s.lang(r), "msg.already_waking", d.Name)}, true
 }

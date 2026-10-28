@@ -507,6 +507,7 @@ type wakeResult struct {
 	ID      string `json:"id,omitempty"`
 	Target  string `json:"target,omitempty"`
 	Online  *bool  `json:"online,omitempty"`
+	Already bool   `json:"already,omitempty"` // eben erst geweckt – kein neuer Weckruf, der Start läuft
 }
 
 // caller beschreibt den Aufrufer für den Verlauf: IP-Adresse (hinter einem Reverse-Proxy samt
@@ -553,8 +554,15 @@ const (
 
 // wake sendet das Magic Packet und trägt den Versuch in den Verlauf ein. r darf nil sein
 // (Zeitplan); source sagt, woher der Auftrag kam, group nennt bei Gruppen deren Namen.
+// Wurde d eben erst geweckt, geht kein weiterer Weckruf raus (siehe wakeDedupWindow).
 func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wakeResult, int) {
+	if res, busy := s.alreadyWaking(r, d); busy {
+		return res, http.StatusOK
+	}
 	res, code, a := s.sendWake(r, d, source, group)
+	if !res.Success {
+		s.limiter.release(d.ID)
+	}
 	s.recordWakes(a)
 	return res, code
 }
@@ -581,6 +589,9 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 	s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
 	for _, a := range as {
 		ev := a.ev
+		if ev.Success {
+			s.limiter.mark(ev.ID) // auch Zeitplan und Wiederholung: ein Tippen gleich danach weckt nicht nochmal
+		}
 		// Benachrichtigungen in der eingestellten Sprache – sie gehen an niemand Bestimmtes.
 		src := i18n.T(s.rt().lang, "ui.src."+ev.Source, ev.Group)
 		result, kind, msg := "ok", notify.Wake, i18n.T(s.rt().lang, "notify.wake", ev.Device, src)
@@ -678,9 +689,6 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, wakeResult{Message: i18n.T(s.lang(r), "err.device_not_found_name", name), Error: "not found"})
 		return
 	}
-	if s.limitPublic(w, r, "gerät:"+d.ID, "err.rate_limited", d.Name) {
-		return
-	}
 	res, code := s.wake(r, d, srcLink, "")
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); res.Success && wait > 0 {
 		if ip, _ := s.monitor.Target(d); !ip.IsValid() {
@@ -718,9 +726,6 @@ func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.findForLink(r)
 	if !ok {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
-		return
-	}
-	if s.limitPublic(w, r, "gerät:"+d.ID, "err.rate_limited", d.Name) {
 		return
 	}
 	res, code := s.wake(r, d, srcPage, "")

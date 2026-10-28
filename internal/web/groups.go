@@ -67,7 +67,15 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 	ok := 0
 	var attempts []wakeAttempt
 	for _, d := range members {
+		if wr, busy := s.alreadyWaking(r, d); busy { // eben erst geweckt (einzeln oder als Gruppe)
+			res.Results = append(res.Results, wr)
+			ok++
+			continue
+		}
 		wr, _, a := s.sendWake(r, d, source, name)
+		if !wr.Success {
+			s.limiter.release(d.ID)
+		}
 		attempts = append(attempts, a)
 		res.Results = append(res.Results, wr)
 		if wr.Success {
@@ -142,9 +150,6 @@ func (s *Server) groupLinkPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name string, members []store.Device, source string) {
-	if s.limitPublic(w, r, "gruppe:"+strings.ToLower(name), "err.group_rate_limited", name) {
-		return
-	}
 	res, code := s.wakeGroup(r, name, members, source)
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); wait > 0 && code == http.StatusOK {
 		// Alle Geräte mit IP gleichzeitig abwarten.

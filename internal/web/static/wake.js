@@ -139,7 +139,8 @@
       running = false;
       return;
     }
-    step("send", "done", t("wake.send.done", sent.target || card.dataset.target));
+    // Eben erst geweckt (zweimal getippt, Seite neu geladen): kein neuer Weckruf, der Start läuft weiter.
+    step("send", "done", sent.already ? t("wake.send.already") : t("wake.send.done", sent.target || card.dataset.target));
 
     if (!hasIP) {
       step("wait", "skip", t("wake.wait.no_ip"));

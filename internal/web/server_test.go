@@ -295,11 +295,8 @@ func TestWakeKeysAndRateLimit(t *testing.T) {
 	if c := get("/wake/NAS?key="+d.WakeKey, false); c != http.StatusOK {
 		t.Errorf("richtiger Schlüssel: %d", c)
 	}
-	if c := get("/wake/NAS?key="+d.WakeKey, false); c != http.StatusTooManyRequests {
-		t.Errorf("sofort wiederholt: %d statt 429", c)
-	}
 	if c := get("/wake/NAS", true); c != http.StatusOK {
-		t.Errorf("angemeldet ohne Schlüssel und ohne Begrenzung: %d", c)
+		t.Errorf("angemeldet ohne Schlüssel: %d", c)
 	}
 	// Neuer Schlüssel: der alte gilt nicht mehr.
 	nd, _ := st.RotateWakeKey(d.ID)
@@ -352,8 +349,8 @@ func TestGroups(t *testing.T) {
 	if c, _ := do("POST", "/wake-group/Homelab?key="+groups[0].Key, false); c != http.StatusOK {
 		t.Errorf("öffentlich mit Schlüssel: %d", c)
 	}
-	if c, _ := do("POST", "/wake-group/Homelab?key="+groups[0].Key, false); c != http.StatusTooManyRequests {
-		t.Errorf("sofort wiederholt: %d", c)
+	if c, body := do("POST", "/wake-group/Homelab?key="+groups[0].Key, false); c != http.StatusOK || body["results"].([]any)[0].(map[string]any)["already"] != true {
+		t.Errorf("sofort wiederholt: %d %v", c, body)
 	}
 	// Gruppenseite für Browser
 	req = httptest.NewRequest("GET", "/wake-group/Homelab?key="+groups[0].Key, nil)
@@ -581,6 +578,7 @@ func TestWakeRetry(t *testing.T) {
 	noIP, _ := st.Create(store.Input{Name: "OhneIP", MAC: "00:00:00:00:00:03", Broadcast: sink})
 
 	s.wake(nil, off, srcAPI, "")
+	s.limiter.release(off.ID)    // sonst gälte der zweite Aufruf als Nachfassen
 	s.wake(nil, off, srcAPI, "") // ersetzt die ausstehende Wiederholung, statt eine zweite anzulegen
 	s.wakeGroup(nil, "", []store.Device{on, noIP}, srcGroup)
 	deadline := time.Now().Add(5 * time.Second)
@@ -603,10 +601,81 @@ func TestWakeRetry(t *testing.T) {
 	}
 
 	// Nach Close kommt keine Wiederholung mehr.
+	s.limiter.release(off.ID)
 	s.wake(nil, off, srcAPI, "")
 	s.Close()
 	time.Sleep(400 * time.Millisecond)
 	if n := len(st.History(0)); n != 6 {
 		t.Errorf("nach Close: %d Einträge statt 6", n)
+	}
+}
+
+// Ohne Anmeldung wie mit: Ein eben geweckter Rechner bekommt keinen zweiten Weckruf – über keinen
+// Einstieg, auch nicht als Teil einer Gruppe. Nachfassen ist kein Fehler, sondern "wird bereits geweckt".
+func TestWakeDedupEverywhere(t *testing.T) {
+	st, _, _ := store.Open(t.TempDir(), "")
+	mon := status.New(st, probe.New(nil, 100*time.Millisecond), 0)
+	s := New(config.Default(), st, mon, discovery.New(st, nil, 16), false, "test")
+	h := s.Handler()
+	sink := udpSink(t)
+	nas, _ := st.Create(store.Input{Name: "NAS", MAC: "02:00:00:00:00:01", Group: "Keller", Broadcast: sink})
+	st.Create(store.Input{Name: "PC", MAC: "02:00:00:00:00:02", Group: "Keller", Broadcast: sink})
+	do := func(method, path string) map[string]any {
+		req := httptest.NewRequest(method, path, nil)
+		req.Host = "192.168.1.10:8089"
+		req.Header.Set("X-WolWeb", "1")
+		req.Header.Set("Accept-Language", "de")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var m map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &m)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s %s: %d %s", method, path, rec.Code, rec.Body)
+		}
+		return m
+	}
+	if m := do("GET", "/wake/NAS"); m["success"] != true || m["already"] != nil {
+		t.Fatalf("erster Aufruf: %v", m)
+	}
+	for _, c := range [][2]string{{"GET", "/wake/NAS"}, {"POST", "/wake/NAS"}, {"POST", "/api/v1/devices/" + nas.ID + "/wake"}} {
+		if m := do(c[0], c[1]); m["success"] != true || m["already"] != true || !strings.Contains(m["message"].(string), "bereits geweckt") {
+			t.Errorf("%s %s: %v", c[0], c[1], m)
+		}
+	}
+	// Gruppe: NAS wurde eben geweckt, nur PC bekommt einen Weckruf
+	g := do("POST", "/api/v1/groups/Keller/wake")
+	res := g["results"].([]any)
+	if res[0].(map[string]any)["already"] != true || res[1].(map[string]any)["already"] != nil || g["success"] != true {
+		t.Errorf("Gruppe: %v", g)
+	}
+	if m := do("POST", "/wake-group/Keller"); m["results"].([]any)[1].(map[string]any)["already"] != true {
+		t.Errorf("Gruppenlink gleich danach: %v", m)
+	}
+	if n := len(st.History(0)); n != 2 {
+		t.Errorf("%d Verlaufseinträge statt 2 – Nachfassen darf nichts auftürmen", n)
+	}
+
+	// Ein gescheiterter Weckruf blockiert nichts: gleich nochmal versuchen sendet wieder.
+	bad, err := st.Create(store.Input{Name: "Kaputt", MAC: "02:00:00:00:00:03", Interface: "gibtsnicht0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		req := httptest.NewRequest("POST", "/api/v1/devices/"+bad.ID+"/wake", nil)
+		req.Host, req.Header["X-Wolweb"] = "192.168.1.10:8089", []string{"1"}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "already") {
+			t.Errorf("Versuch %d: %d %s", i+1, rec.Code, rec.Body)
+		}
+	}
+
+	// Ein Zeitplan weckt immer, zählt aber mit: der Wecklink gleich danach sendet nicht nochmal.
+	pc, _ := st.FindByName("PC")
+	s.limiter.release(pc.ID)
+	st.Update(pc.ID, store.Input{Name: "PC", MAC: pc.MAC, Broadcast: sink, Schedule: []string{"täglich 07:30"}}, nil)
+	s.wakeDue(time.Date(2026, 10, 30, 7, 30, 0, 0, time.Local))
+	if m := do("GET", "/wake/PC"); m["already"] != true {
+		t.Errorf("nach dem Zeitplan: %v", m)
 	}
 }
