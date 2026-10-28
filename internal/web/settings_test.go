@@ -186,7 +186,7 @@ func TestSettingsTestNotify(t *testing.T) {
 	}
 	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }))
 	defer broken.Close()
-	if rec := call(h, "POST", "/api/v1/settings/test-notify", `{"webhook":"`+broken.URL+`/geheim","ntfy":""}`); rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), "geheim") {
+	if rec := call(h, "POST", "/api/v1/settings/test-notify", `{"webhook":"`+broken.URL+`/geheim","ntfy":""}`); rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), "geheim") || strings.Contains(rec.Body.String(), "500") {
 		t.Errorf("Fehler: %d %s", rec.Code, rec.Body)
 	}
 	if rec := call(h, "POST", "/api/v1/settings/test-notify", `{"webhook":"ftp://x","ntfy":""}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), "notify.webhook") {

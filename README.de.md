@@ -438,9 +438,11 @@ Wechsel online ↔ offline, nicht das erste Ergebnis nach dem Start.
 
 wolweb schickt Benachrichtigungen genau an die eingetragene Adresse – auch an Server im eigenen Netz, etwa ein
 selbst gehostetes ntfy oder Home Assistant. **Weiterleitungen folgt es nicht**: Antwortet das Ziel mit einer
-Umleitung (3xx), geht die Nachricht nicht weiter, sondern es steht ein Fehler im Log (und bei „Testnachricht
-senden“). Sonst könnte ein umgeleiteter Server die Nachricht an ein Ziel schicken lassen, das niemand eingetragen
-hat. Abhilfe: die endgültige Adresse direkt eintragen (z. B. mit `https://` statt `http://`).
+Umleitung (3xx), geht die Nachricht nicht weiter, sondern es steht ein Fehler im Log. Sonst könnte ein umgeleiteter
+Server die Nachricht an ein Ziel schicken lassen, das niemand eingetragen hat. Abhilfe: die endgültige Adresse direkt
+eintragen (z. B. mit `https://` statt `http://`). „Testnachricht senden“ sagt nur „zugestellt“ oder „nicht
+zugestellt“ – den Grund nennt das Log (`docker logs wolweb` bzw. `journalctl -u wolweb`). So lässt sich über den Knopf
+nicht abtasten, welche internen Adressen antworten.
 
 `/metrics` liefert Kennzahlen im Prometheus-Format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
 `wolweb_device_last_seen_timestamp_seconds`, `wolweb_wakes_total`, `wolweb_discovery_found` …). Mit Anmeldung

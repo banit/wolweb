@@ -228,7 +228,10 @@ func (s *Server) testNotify(w http.ResponseWriter, r *http.Request) {
 	defer n.Close()
 	ev := notify.Event{Event: notify.Test, Device: "wolweb", Message: i18n.T(l, "notify.test")}
 	if err := n.Test(ev); err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"success": false, "message": i18n.T(l, "msg.notify_failed", i18n.ErrorText(l, err))})
+		// Nur „nicht zugestellt“: Fehlerart und HTTP-Status verrieten sonst, welche internen Adressen
+		// und Ports antworten (wolweb hängt oft in mehreren Netzen). Die Einzelheiten stehen im Log.
+		log.Printf("Test message: %v", err)
+		writeJSON(w, http.StatusBadGateway, map[string]any{"success": false, "message": i18n.T(l, "msg.notify_failed")})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": i18n.T(l, "msg.notify_sent")})

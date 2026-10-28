@@ -425,9 +425,10 @@ online ↔ offline are reported, not the first result after the start. Notificat
 
 wolweb sends notifications exactly to the configured address – servers in your own network included, e.g. a
 self-hosted ntfy or Home Assistant. **It does not follow redirects**: if the target answers with a redirect (3xx), the
-message is not passed on; instead an error is logged (and shown by “Send test message”). Otherwise a redirecting
-server could have the message delivered to a target nobody configured. Remedy: enter the final address directly
-(e.g. with `https://` instead of `http://`).
+message is not passed on; instead an error is logged. Otherwise a redirecting server could have the message
+delivered to a target nobody configured. Remedy: enter the final address directly (e.g. with `https://` instead of
+`http://`). “Send test message” only says “delivered” or “not delivered” – the reason is in the log (`docker logs
+wolweb` or `journalctl -u wolweb`), so the button cannot be used to probe which internal addresses answer.
 
 `/metrics` provides metrics in Prometheus format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
 `wolweb_device_last_seen_timestamp_seconds`, `wolweb_device_last_wake_timestamp_seconds`, `wolweb_wakes_total`,

@@ -64,7 +64,7 @@
  "imp.bad_target": "„{0}“: ungültiges Ziel „{1}“ ({2})",
  "msg.already_waking": "{0} wird bereits geweckt – der Weckruf ging eben erst raus.",
  "msg.group_sent": "Weckruf an {0} von {1} Geräten der Gruppe {2} gesendet.",
- "msg.notify_failed": "Testnachricht nicht angekommen: {0}",
+ "msg.notify_failed": "Testnachricht nicht zugestellt. Prüfe die Adresse – leitet sie weiter (etwa http → https), trage die endgültige ein. Einzelheiten stehen im Log von wolweb.",
  "msg.notify_sent": "Testnachricht gesendet",
  "msg.wake_failed": "Der Weckruf für {0} konnte nicht gesendet werden.",
  "msg.wake_no_answer": "Weckruf an {0} gesendet, das Gerät hat sich aber noch nicht gemeldet.",

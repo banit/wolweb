@@ -64,7 +64,7 @@
  "imp.bad_target": "“{0}”: invalid target “{1}” ({2})",
  "msg.already_waking": "{0} is already being woken – the wake-up call just went out.",
  "msg.group_sent": "Wake-up call sent to {0} of {1} devices in group {2}.",
- "msg.notify_failed": "Test message not delivered: {0}",
+ "msg.notify_failed": "Test message not delivered. Check the address – if it redirects (e.g. http → https), enter the final one. Details are in the wolweb log.",
  "msg.notify_sent": "Test message sent",
  "msg.wake_failed": "The wake-up call for {0} could not be sent.",
  "msg.wake_no_answer": "Wake-up call sent to {0}, but the device has not responded yet.",
