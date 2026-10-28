@@ -84,9 +84,11 @@ func main() {
 		go autoScan(ctx, scanner, iv)
 	}
 
+	ws := web.New(cfg, st, mon, scanner, prober.ICMPAvailable(), version)
+	go ws.RunSchedules(ctx)
 	srv := &http.Server{
 		Addr:              cfg.Listen(),
-		Handler:           web.New(cfg, st, mon, scanner, prober.ICMPAvailable(), version).Handler(),
+		Handler:           ws.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      11 * time.Minute, // ?wait= darf bis zu 10 Minuten warten

@@ -8,6 +8,8 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
   sendet und den Start verfolgt, bis das Gerät wirklich online ist
 - **Netzwerksuche**: findet eingeschaltete Geräte in freigegebenen Segmenten (IP, MAC, Hostname, Hersteller) –
   per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen oder ignorieren
+- **Gruppen** („Homelab“, „Büro“) gemeinsam wecken, auch per festem Gruppen-Wecklink; **Zeitpläne** wie
+  `Mo-Fr 07:30` wecken Geräte automatisch
 - **Verlauf** jedes Weckversuchs (wer, wann, woher, Ergebnis), **Export/Import** der Geräte als JSON
 - Übernimmt die `devices.json` und die Einstellungen des alten wolweb
 
@@ -18,11 +20,16 @@ aus der Netzwerksuche). Unter „Erweitert“:
 
 | Feld | Wofür |
 |---|---|
+| Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken |
+| Zeitplan | automatische Weckzeiten, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` |
 | Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
 | Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
 | Ports | eigene Ports für die Online-Prüfung statt der allgemeinen Liste |
 | SecureOn-Passwort | 6 Byte, falls die Netzwerkkarte ein Passwort im Magic Packet verlangt |
 | Notiz | freier Text auf der Karte |
+
+Zeitpläne gelten in der Ortszeit des Rechners bzw. Containers (`TZ`, in `docker-compose.yml` voreingestellt).
+Die Karte zeigt die nächste geplante Weckzeit.
 
 ## Feste Wecklinks
 
@@ -32,6 +39,7 @@ aus der Netzwerksuche). Unter „Erweitert“:
 | `curl http://host:8089/wake/NAS` | weckt sofort, Antwort JSON `{"success":true,"message":…}` (wie im Original) |
 | `curl "http://host:8089/wake/NAS?wait=120"` | weckt und wartet bis zu 120 s, bis das Gerät antwortet (`"online": true/false`; fehlt, wenn keine IP bekannt ist) |
 | `…/wake/NAS?format=html` / `?format=json` | Ausgabe erzwingen |
+| `http://host:8089/wake-group/Homelab` | ganze Gruppe: im Browser eine Seite mit dem Start jedes Geräts, sonst JSON (auch `?wait=`) |
 
 `HEAD`-Anfragen (Linkprüfer, Vorschauen in Messengern) wecken nie. Der Name ist nicht von Groß-/Kleinschreibung abhängig. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt ist
 (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts.
@@ -149,12 +157,15 @@ Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site
 | POST | `/api/v1/devices/{id}/wake` | Magic Packet senden |
 | GET | `/api/v1/devices/{id}/status` | sofort prüfen |
 | POST | `/api/v1/devices/{id}/wake-key` | neuen Weckschlüssel erzeugen |
+| GET | `/api/v1/groups` | Gruppen mit Mitgliedern (und Schlüssel des Gruppen-Wecklinks) |
+| POST | `/api/v1/groups/{name}/wake` | alle Geräte einer Gruppe wecken |
 | GET | `/api/v1/history` | Weckverlauf, neueste zuerst (`?limit=`) |
 | GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen |
 | GET | `/api/v1/discovery` | letzte Suche und Treffer |
 | POST | `/api/v1/discovery/scan`, `/cancel` | Suche starten / abbrechen |
 | POST | `/api/v1/discovery/{mac}/ignore` | `{"ignored":true}` |
 | GET | `/wake/{name}`, `/health`, `/data/get` | wie im Original |
+| GET / POST | `/wake-group/{name}` | Gruppen-Wecklink |
 
 ## Entwicklung
 

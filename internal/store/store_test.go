@@ -67,6 +67,9 @@ func TestCRUDAndValidation(t *testing.T) {
 		{Name: "x", MAC: "00:11:22:33:44:55", IP: "300.1.1.1"},
 		{Name: "x", MAC: "00:11:22:33:44:55", Broadcast: "fe80::1"},
 		{Name: "x", MAC: "00:11:22:33:44:55", Ports: []int{22, 0}},
+		{Name: "x", MAC: "00:11:22:33:44:55", Group: "a/b"},
+		{Name: "x", MAC: "00:11:22:33:44:55", Schedule: []string{"Mo 25:00"}},
+		{Name: "a\nb", MAC: "00:11:22:33:44:55"},
 	} {
 		if _, err := s.Create(in); !errors.As(err, &ve) {
 			t.Errorf("%+v sollte abgelehnt werden: %v", in, err)
@@ -232,5 +235,25 @@ func TestExportImport(t *testing.T) {
 	}
 	if _, err := dst.Import([]byte("kein json")); err == nil {
 		t.Error("kaputte Datei angenommen")
+	}
+}
+
+func TestGroupsAndSchedule(t *testing.T) {
+	s, _, _ := Open(t.TempDir(), "")
+	a, err := s.Create(Input{Name: "A", MAC: "00:00:00:00:00:01", Group: "Homelab", Schedule: []string{"mo-fr 7:30; wochenende 9:00"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Schedule) != 2 || a.Schedule[0] != "Mo-Fr 07:30" || a.Schedule[1] != "Sa,So 09:00" {
+		t.Errorf("Zeitplan nicht vereinheitlicht: %q", a.Schedule)
+	}
+	s.Create(Input{Name: "B", MAC: "00:00:00:00:00:02", Group: "homelab"})
+	s.Create(Input{Name: "C", MAC: "00:00:00:00:00:03", Group: "Büro"})
+	s.Create(Input{Name: "D", MAC: "00:00:00:00:00:04"})
+	if g := s.Groups(); len(g) != 2 || g[0] != "Büro" || g[1] != "Homelab" {
+		t.Errorf("Gruppen: %q", g)
+	}
+	if m := s.GroupMembers("HOMELAB"); len(m) != 2 || m[0].Name != "A" || m[1].Name != "B" {
+		t.Errorf("Mitglieder: %+v", m)
 	}
 }

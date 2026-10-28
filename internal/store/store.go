@@ -15,10 +15,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"wolweb/internal/config"
 	"wolweb/internal/oui"
+	"wolweb/internal/schedule"
 	"wolweb/internal/wol"
 )
 
@@ -34,6 +36,8 @@ type Device struct {
 	Ports     []int     `json:"ports,omitempty"` // eigene Ports für die Online-Prüfung, leer = Standard
 	SecureOn  string    `json:"secureon,omitempty"`
 	WakeKey   string    `json:"wake_key,omitempty"` // Schlüssel für Wecklinks ohne Anmeldung (auth.wake_keys)
+	Group     string    `json:"group,omitempty"`
+	Schedule  []string  `json:"schedule,omitempty"` // Weckzeiten, z. B. "Mo-Fr 07:30"
 	Vendor    string    `json:"vendor,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -195,6 +199,9 @@ func cleanName(s string) string {
 	s = strings.Map(func(r rune) rune {
 		if strings.ContainsRune(`/\?#%`, r) {
 			return '-'
+		}
+		if unicode.IsControl(r) {
+			return -1
 		}
 		return r
 	}, strings.TrimSpace(s))
@@ -389,15 +396,17 @@ func (s *Store) FindByName(name string) (Device, bool) {
 
 // Input sind die Felder, die die Oberfläche setzen darf.
 type Input struct {
-	Name      string `json:"name"`
-	MAC       string `json:"mac"`
-	IP        string `json:"ip"`
-	Broadcast string `json:"broadcast"`
-	Interface string `json:"interface"`
-	Icon      string `json:"icon"`
-	Note      string `json:"note"`
-	Ports     []int  `json:"ports"`
-	SecureOn  string `json:"secureon"`
+	Name      string   `json:"name"`
+	MAC       string   `json:"mac"`
+	IP        string   `json:"ip"`
+	Broadcast string   `json:"broadcast"`
+	Interface string   `json:"interface"`
+	Icon      string   `json:"icon"`
+	Note      string   `json:"note"`
+	Ports     []int    `json:"ports"`
+	SecureOn  string   `json:"secureon"`
+	Group     string   `json:"group"`
+	Schedule  []string `json:"schedule"`
 }
 
 var icons = []string{"desktop", "laptop", "server", "nas", "tv", "console", "router", "printer", "other"}
@@ -414,7 +423,7 @@ func (in *Input) validate() (Device, error) {
 	if d.Name == "." || d.Name == ".." {
 		return d, ValidationError{`Die Namen „.“ und „..“ sind nicht erlaubt.`}
 	}
-	if strings.ContainsAny(d.Name, "/\\?#%") {
+	if strings.ContainsAny(d.Name, "/\\?#%") || hasControl(d.Name) {
 		return d, ValidationError{`Der Name darf keine der Zeichen / \ ? # % enthalten (er wird Teil des Wecklinks).`}
 	}
 	hw, err := wol.ParseMAC(in.MAC)
@@ -460,7 +469,40 @@ func (in *Input) validate() (Device, error) {
 	if pass != nil {
 		d.SecureOn = wol.FormatMAC(pass)
 	}
+	d.Group = strings.TrimSpace(in.Group)
+	if utf8.RuneCountInString(d.Group) > 32 || strings.ContainsAny(d.Group, `/\?#%`) || hasControl(d.Group) {
+		return d, ValidationError{`Gruppe: höchstens 32 Zeichen, ohne / \ ? # % (sie wird Teil des Gruppen-Wecklinks).`}
+	}
+	entries, err := schedule.ParseList(in.Schedule)
+	if err != nil {
+		return d, ValidationError{"Zeitplan: " + err.Error()}
+	}
+	for _, e := range entries {
+		d.Schedule = append(d.Schedule, e.String())
+	}
 	return d, nil
+}
+
+func hasControl(s string) bool { return strings.ContainsFunc(s, unicode.IsControl) }
+
+// Groups liefert die Gruppennamen (ohne Rücksicht auf Groß-/Kleinschreibung zusammengefasst,
+// in der Schreibweise des ersten Geräts), sortiert.
+func (s *Store) Groups() []string {
+	devs, _ := s.Devices()
+	var out []string
+	for _, d := range devs {
+		if d.Group != "" && !slices.ContainsFunc(out, func(g string) bool { return strings.EqualFold(g, d.Group) }) {
+			out = append(out, d.Group)
+		}
+	}
+	slices.SortFunc(out, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
+	return out
+}
+
+// GroupMembers liefert die Geräte einer Gruppe (Groß-/Kleinschreibung egal), nach Name sortiert.
+func (s *Store) GroupMembers(group string) []Device {
+	devs, _ := s.Devices()
+	return slices.DeleteFunc(devs, func(d Device) bool { return d.Group == "" || !strings.EqualFold(d.Group, group) })
 }
 
 func (s *Store) nameTaken(name, exceptID string) bool { return nameTakenIn(s.devices, name, exceptID) }
@@ -472,7 +514,7 @@ func nameTakenIn(list []Device, name, exceptID string) bool {
 // inputOf liefert die vom Benutzer gepflegten Felder eines Geräts (für Import und Prüfung).
 func inputOf(d Device) Input {
 	return Input{Name: d.Name, MAC: d.MAC, IP: d.IP, Broadcast: d.Broadcast, Interface: d.Interface,
-		Icon: d.Icon, Note: d.Note, Ports: d.Ports, SecureOn: d.SecureOn}
+		Icon: d.Icon, Note: d.Note, Ports: d.Ports, SecureOn: d.SecureOn, Group: d.Group, Schedule: d.Schedule}
 }
 
 func (s *Store) Create(in Input) (Device, error) {

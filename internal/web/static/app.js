@@ -10,6 +10,7 @@
   const state = {
     info: { read_only: false, networks: [], wake_timeout: 180 },
     devices: [],
+    groups: [], // [{name, path, key, members}]
     found: [],
     job: null,
     filter: "all",
@@ -106,6 +107,7 @@
   async function loadDevices() {
     try {
       state.devices = await api("GET", "devices");
+      state.groups = state.devices.some((d) => d.group) ? await api("GET", "groups") : [];
       renderDevices();
     } catch (e) {
       if (e.status === 401) location.reload();
@@ -141,8 +143,8 @@
     const list = state.devices.filter(matches);
     $("#empty").hidden = total !== 0;
     $("#empty-filter").hidden = total === 0 || list.length !== 0;
-    const existing = new Map([...grid.children].map((c) => [c.dataset.id, c]));
-    const next = list.map((d) => {
+    const existing = new Map([...grid.querySelectorAll(".card")].map((c) => [c.dataset.id, c]));
+    const cards = (devs) => devs.map((d) => {
       const card = buildCard(d);
       const old = existing.get(d.id);
       if (old) {
@@ -151,7 +153,46 @@
       }
       return card;
     });
+    // Mit Gruppen: je Gruppe ein Abschnitt mit Kopf (Wecken, Link), danach die übrigen Geräte.
+    let next;
+    if (!state.groups.length) {
+      next = [el("div", { class: "grid" }, cards(list))];
+    } else {
+      next = [];
+      for (const g of state.groups) {
+        const members = list.filter((d) => d.group && d.group.toLowerCase() === g.name.toLowerCase());
+        if (members.length) next.push(groupHead(g), el("div", { class: "grid" }, cards(members)));
+      }
+      const rest = list.filter((d) => !d.group);
+      if (rest.length) next.push(el("div", { class: "group-head" }, el("h2", { text: "Weitere Geräte" })), el("div", { class: "grid" }, cards(rest)));
+    }
     keepFocus(grid, () => grid.replaceChildren(...next));
+  }
+
+  function groupHead(g) {
+    const members = state.devices.filter((d) => d.group && d.group.toLowerCase() === g.name.toLowerCase());
+    const online = members.filter((d) => deviceState(d) === "online").length;
+    return el("div", { class: "group-head", "data-id": "gruppe:" + g.name },
+      el("h2", { text: g.name }),
+      el("span", { class: "muted", text: online + " von " + members.length + " online" }),
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn btn-secondary btn-sm", "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: "Gruppe wecken" })),
+      el("button", { class: "btn btn-ghost btn-sm icon-only", title: "Gruppen-Wecklink kopieren", "aria-label": "Gruppen-Wecklink kopieren", "data-focus": "copy", onclick: () => copyURL(groupURL(g), "Gruppen-Wecklink kopiert") }, icon("link")));
+  }
+
+  function groupURL(g) {
+    const u = new URL(g.path, document.baseURI);
+    if (state.info.wake_keys && g.key) u.searchParams.set("key", g.key);
+    return u.href;
+  }
+
+  function nextWakeText(iso) {
+    const t = new Date(iso);
+    const days = Math.round((new Date(t).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+    const clock = t.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    if (days === 0) return "heute " + clock;
+    if (days === 1) return "morgen " + clock;
+    return t.toLocaleDateString("de-DE", { weekday: "short" }) + " " + clock;
   }
 
   function statusLine(d) {
@@ -184,7 +225,8 @@
           el("h3", { text: d.name, title: d.name }),
           el("div", { class: "card-meta" },
             ip ? el("span", { class: "mono", text: ip, title: d.ip ? "IP-Adresse" : "IP aus der Netzwerksuche" }) : null,
-            el("span", { class: "mono", text: d.mac, title: d.vendor || "MAC-Adresse" }))),
+            el("span", { class: "mono", text: d.mac, title: d.vendor || "MAC-Adresse" }),
+            d.next_wake ? el("span", { class: "sched", title: "Zeitplan: " + (d.schedule || []).join("; ") }, icon("clock"), nextWakeText(d.next_wake)) : null)),
         ro ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: "Bearbeiten", "aria-label": "Bearbeiten", "data-focus": "edit", onclick: () => openDialog(d) }, icon("edit"))),
       d.note ? el("p", { class: "card-note", text: d.note }) : null,
       el("div", { class: "status-line" }, statusLine(d)),
@@ -203,14 +245,14 @@
     return card;
   }
 
-  async function copyLink(d) {
-    const url = wakeURL(d);
+  function copyLink(d) { return copyURL(wakeURL(d), "Wecklink kopiert"); }
+  async function copyURL(url, title) {
     try {
       await navigator.clipboard.writeText(url);
-      toast("ok", "Wecklink kopiert", url);
+      toast("ok", title, url);
     } catch (e) {
       // Ohne HTTPS gibt es keine Zwischenablage-API – Link zum manuellen Kopieren anzeigen.
-      window.prompt("Wecklink kopieren:", url);
+      window.prompt(title.replace(" kopiert", "") + " kopieren:", url);
     }
   }
 
@@ -229,6 +271,29 @@
       return;
     }
     toast("ok", "Magic Packet gesendet", d.name + " wird gestartet …");
+    track(d);
+  }
+
+  async function wakeGroup(g) {
+    let res;
+    try {
+      res = await api("POST", "groups/" + encodeURIComponent(g.name) + "/wake");
+    } catch (e) {
+      toast("err", "Gruppe wecken fehlgeschlagen", (e.data && e.data.message) || e.message);
+      return;
+    }
+    const failed = res.results.filter((r) => !r.success);
+    toast(failed.length ? "warn" : "ok", "Gruppe " + g.name, res.message + (failed.length ? " Fehler: " + failed.map((r) => r.device).join(", ") : ""));
+    for (const r of res.results) {
+      const d = state.devices.find((x) => x.id === r.id);
+      if (r.success && d && d.check_ip) track(d, true);
+    }
+    loadDevices();
+  }
+
+  // track verfolgt den Start eines Geräts, bis es online ist oder die Wartezeit um ist.
+  async function track(d, quiet) {
+    if (state.waking.has(d.id)) return;
     const start = Date.now();
     state.waking.set(d.id, { start });
     renderDevices();
@@ -244,7 +309,7 @@
           renderDevices();
           const card = $('.card[data-id="' + CSS.escape(d.id) + '"]');
           if (card) { card.classList.add("card-flash"); setTimeout(() => card.classList.remove("card-flash"), 1300); }
-          toast("ok", d.name + " ist online", "Gestartet nach " + fmtDuration(Date.now() - start));
+          if (!quiet) toast("ok", d.name + " ist online", "Gestartet nach " + fmtDuration(Date.now() - start));
           return;
         }
       } catch (e) { /* weiter */ }
@@ -293,6 +358,9 @@
     form.note.value = v.note || "";
     form.ports.value = (v.ports || []).join(", ");
     form.secureon.value = v.secureon || "";
+    form.group.value = v.group || "";
+    form.schedule.value = (v.schedule || []).join("; ");
+    $("#group-list").replaceChildren(...[...new Set(state.devices.map((x) => x.group).filter(Boolean))].map((g) => el("option", { value: g })));
     form.ports.placeholder = state.info.ports && state.info.ports.length ? "Standard: " + state.info.ports.slice(0, 5).join(", ") + (state.info.ports.length > 5 ? " …" : "") : "Standard";
     const ic = form.querySelector('input[name="icon"][value="' + (v.icon || "desktop") + '"]');
     if (ic) ic.checked = true;
@@ -314,6 +382,8 @@
       icon: (form.querySelector('input[name="icon"]:checked') || {}).value || "desktop",
       ports: form.ports.value.split(/[\s,;]+/).filter(Boolean).map(Number),
       secureon: form.secureon.value,
+      group: form.group.value,
+      schedule: form.schedule.value.split(";").map((x) => x.trim()).filter(Boolean),
     };
     const err = $("#form-error");
     for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
@@ -348,6 +418,8 @@
       else if (/Broadcast/.test(e.message)) form.broadcast.setAttribute("aria-invalid", "true");
       else if (/^Ports/.test(e.message)) form.ports.setAttribute("aria-invalid", "true");
       else if (/SecureOn/.test(e.message)) form.secureon.setAttribute("aria-invalid", "true");
+      else if (/^Gruppe/.test(e.message)) form.group.setAttribute("aria-invalid", "true");
+      else if (/^Zeitplan/.test(e.message)) form.schedule.setAttribute("aria-invalid", "true");
       else if (/Name|namens/.test(e.message)) form.name.setAttribute("aria-invalid", "true");
     } finally {
       btn.disabled = false;

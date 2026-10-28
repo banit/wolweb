@@ -47,7 +47,7 @@
     </div>
   </div>
 
-  <section class="grid" id="devices" aria-live="polite"></section>
+  <section id="devices" aria-live="polite"></section>
 
   <div class="empty" id="empty" hidden>
     <div class="empty-art"><svg class="ico"><use href="#i-power"/></svg></div>
@@ -131,6 +131,19 @@
         <label class="field">
           <span>IP-Adresse <em class="muted">(für Online-Status)</em></span>
           <input name="ip" placeholder="192.168.1.20" autocomplete="off" class="mono">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>Gruppe</span>
+          <input name="group" list="group-list" placeholder="keine" autocomplete="off" maxlength="32">
+          <datalist id="group-list"></datalist>
+          <small class="muted">Geräte einer Gruppe lassen sich gemeinsam wecken</small>
+        </label>
+        <label class="field">
+          <span>Zeitplan</span>
+          <input name="schedule" placeholder="z. B. Mo-Fr 07:30; Sa,So 09:00" autocomplete="off">
+          <small class="muted">Automatisch wecken, mehrere Zeiten mit ; trennen</small>
         </label>
       </div>
       <details class="advanced">

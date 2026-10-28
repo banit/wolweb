@@ -257,6 +257,23 @@ a { color: var(--accent); }
 .empty-art .ico { width: 34px; height: 34px; }
 .empty-filter { text-align: center; padding: 2rem; }
 
+/* --- Gruppen --- */
+.group-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin: 1.4rem 0 .7rem; }
+.group-head:first-child { margin-top: 0; }
+.group-head h2 { font-size: 1.02rem; font-weight: 680; margin: 0; }
+.group-head .muted { font-size: .85rem; }
+.group-head .spacer { flex: 1; }
+.members { list-style: none; margin: 1rem 0 .3rem; padding: 0; width: 100%; display: grid; gap: 8px; text-align: left; }
+.members li { display: grid; grid-template-columns: 36px 1fr auto; gap: .7rem; align-items: center; padding: .55rem .7rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.members .dev-icon { width: 36px; height: 36px; border-radius: 10px; }
+.members .dev-icon::after { display: none; }
+.members .dev-icon .ico { width: 19px; height: 19px; }
+.members strong { display: block; font-weight: 620; }
+.members small { display: block; font-size: .8rem; }
+.members li[data-s="online"] .dev-icon { background: var(--ok-soft); color: var(--ok); }
+.sched { display: inline-flex; align-items: center; gap: .2rem; }
+.sched .ico { width: 13px; height: 13px; }
+
 /* --- Fußzeile, Verlauf --- */
 .page-foot { display: flex; align-items: center; gap: .25rem; flex-wrap: wrap; margin-top: 2.2rem; padding-top: .8rem; border-top: 1px solid var(--border); }
 .page-foot .spacer { flex: 1; }

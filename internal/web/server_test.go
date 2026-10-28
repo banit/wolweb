@@ -264,3 +264,79 @@ func TestWakeKeysAndRateLimit(t *testing.T) {
 		t.Error("alter Schlüssel gilt noch")
 	}
 }
+
+func TestGroups(t *testing.T) {
+	h, st := newTestServer(t, func(c *config.Config) {
+		c.Auth.Username, c.Auth.Password, c.Auth.WakeKeys = "admin", "geheim", true
+	})
+	sink := udpSink(t)
+	a, _ := st.Create(store.Input{Name: "A", MAC: "00:00:00:00:00:01", Group: "Homelab", Broadcast: sink})
+	b, _ := st.Create(store.Input{Name: "B", MAC: "00:00:00:00:00:02", Group: "homelab", Broadcast: sink})
+	st.Create(store.Input{Name: "C", MAC: "00:00:00:00:00:03", Broadcast: sink})
+	do := func(method, path string, auth bool) (int, map[string]any) {
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("X-WolWeb", "1")
+		if auth {
+			req.SetBasicAuth("admin", "geheim")
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var body map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &body)
+		return rec.Code, body
+	}
+	if c, body := do("POST", "/api/v1/groups/HOMELAB/wake", true); c != http.StatusOK || len(body["results"].([]any)) != 2 {
+		t.Fatalf("Gruppe wecken: %d %v", c, body)
+	}
+	if st.LastWake(a.ID).IsZero() || st.LastWake(b.ID).IsZero() {
+		t.Error("nicht alle Mitglieder geweckt")
+	}
+	// Liste mit abgeleitetem Schlüssel; öffentlicher Link nur mit diesem Schlüssel.
+	req := httptest.NewRequest("GET", "/api/v1/groups", nil)
+	req.SetBasicAuth("admin", "geheim")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var groups []struct{ Name, Key, Path string }
+	if err := json.Unmarshal(rec.Body.Bytes(), &groups); err != nil || len(groups) != 1 || groups[0].Key == "" {
+		t.Fatalf("Gruppenliste: %s", rec.Body)
+	}
+	if c, _ := do("GET", "/wake-group/Homelab", false); c != http.StatusNotFound {
+		t.Errorf("öffentlich ohne Schlüssel: %d", c)
+	}
+	if c, _ := do("GET", "/wake-group/Homelab/status?key="+groups[0].Key, false); c != http.StatusOK {
+		t.Errorf("Status mit Schlüssel: %d", c)
+	}
+	if c, _ := do("POST", "/wake-group/Homelab?key="+groups[0].Key, false); c != http.StatusOK {
+		t.Errorf("öffentlich mit Schlüssel: %d", c)
+	}
+	if c, _ := do("POST", "/wake-group/Homelab?key="+groups[0].Key, false); c != http.StatusTooManyRequests {
+		t.Errorf("sofort wiederholt: %d", c)
+	}
+	// Gruppenseite für Browser
+	req = httptest.NewRequest("GET", "/wake-group/Homelab?key="+groups[0].Key, nil)
+	req.Header.Set("Accept", "text/html")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-name="Homelab"`) {
+		t.Errorf("Gruppenseite: %d", rec.Code)
+	}
+}
+
+func TestScheduleWakesDueDevices(t *testing.T) {
+	st, _, _ := store.Open(t.TempDir(), "")
+	mon := status.New(st, probe.New(nil, 100*time.Millisecond), 0)
+	s := New(config.Default(), st, mon, discovery.New(st, nil, 16), false, "test")
+	sink := udpSink(t)
+	st.Create(store.Input{Name: "Früh", MAC: "00:00:00:00:00:01", Schedule: []string{"Mo-Fr 07:30"}, Broadcast: sink})
+	st.Create(store.Input{Name: "Spät", MAC: "00:00:00:00:00:02", Schedule: []string{"täglich 22:00"}, Broadcast: sink})
+	fri := time.Date(2026, 10, 30, 7, 30, 0, 0, time.Local)
+	if got := s.wakeDue(fri); len(got) != 1 || got[0] != "Früh" {
+		t.Errorf("Freitag 07:30: %v", got)
+	}
+	if got := s.wakeDue(fri.AddDate(0, 0, 1)); len(got) != 0 { // Samstag
+		t.Errorf("Samstag 07:30: %v", got)
+	}
+	if h := st.History(1); len(h) != 1 || h[0].Source != "Zeitplan" || !h[0].Success {
+		t.Errorf("Verlauf: %+v", h)
+	}
+}

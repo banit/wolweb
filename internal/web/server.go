@@ -73,6 +73,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+base+"wake/{name}/{$}", s.wakeLink)
 	mux.HandleFunc("POST "+base+"wake/{name}", s.wakeLinkPost)
 	mux.HandleFunc("GET "+base+"wake/{name}/status", s.wakeLinkStatus)
+	mux.HandleFunc("GET "+base+"wake-group/{name}", s.groupLink)
+	mux.HandleFunc("POST "+base+"wake-group/{name}", s.groupLinkPost)
+	mux.HandleFunc("GET "+base+"wake-group/{name}/status", s.groupLinkStatus)
 
 	// API
 	api := base + "api/v1/"
@@ -84,6 +87,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+api+"devices/{id}/wake", s.wakeDevice)
 	mux.HandleFunc("GET "+api+"devices/{id}/status", s.deviceStatus)
 	mux.HandleFunc("POST "+api+"devices/{id}/wake-key", s.writable(s.rotateWakeKey))
+	mux.HandleFunc("GET "+api+"groups", s.listGroups)
+	mux.HandleFunc("POST "+api+"groups/{name}/wake", s.wakeGroupAPI)
 	mux.HandleFunc("GET "+api+"history", s.history)
 	mux.HandleFunc("GET "+api+"export", s.export)
 	mux.HandleFunc("POST "+api+"import", s.writable(s.importDevices))
@@ -113,7 +118,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			return
 		}
 		if p == base+"health" || strings.HasPrefix(p, base+"static/") ||
-			(s.cfg.Auth.PublicWake && strings.HasPrefix(p, base+"wake/")) {
+			(s.cfg.Auth.PublicWake && (strings.HasPrefix(p, base+"wake/") || strings.HasPrefix(p, base+"wake-group/"))) {
 			next.ServeHTTP(w, markPublic(r)) // ohne Anmeldung: Schlüssel und Begrenzung greifen
 			return
 		}
@@ -246,6 +251,7 @@ type pageData struct {
 	Timeout int
 	Missing string
 	Key     string // Weckschlüssel, den die Weckseite bei ihren Aufrufen mitschickt
+	Group   *groupView
 }
 
 func (s *Server) render(w http.ResponseWriter, code int, name string, d pageData) {
@@ -271,6 +277,7 @@ type deviceView struct {
 	WakePath   string        `json:"wake_path"`
 	CheckIP    string        `json:"check_ip,omitempty"`
 	LastWake   *time.Time    `json:"last_wake,omitempty"`
+	NextWake   *time.Time    `json:"next_wake,omitempty"` // nächste Weckzeit laut Zeitplan
 }
 
 func (s *Server) view(d store.Device) deviceView {
@@ -281,6 +288,7 @@ func (s *Server) view(d store.Device) deviceView {
 	if t := s.store.LastWake(d.ID); !t.IsZero() {
 		v.LastWake = &t
 	}
+	v.NextWake = nextWake(d)
 	if st, ok := s.monitor.Get(d.ID); ok {
 		v.Status = &st
 	}
