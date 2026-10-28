@@ -22,10 +22,10 @@ Netzwerkkarte).
    ```
 
    oder ohne Docker: die passende Datei unter [Releases](https://github.com/banit/wolweb/releases) laden
-   (z. B. `wolweb-1.2.0-linux-arm64` für einen Raspberry Pi 4/5) und starten:
+   (z. B. `wolweb-1.3.0-linux-arm64` für einen Raspberry Pi 4/5) und starten:
 
    ```sh
-   chmod +x wolweb-1.2.0-linux-arm64 && sudo ./wolweb-1.2.0-linux-arm64
+   chmod +x wolweb-1.3.0-linux-arm64 && sudo ./wolweb-1.3.0-linux-arm64
    ```
 
 2. **Öffnen:** `http://<Adresse>:8089` im Browser, z. B. `http://192.168.1.10:8089`.
@@ -195,7 +195,7 @@ Fertige Images für amd64, arm64 (Raspberry Pi 4/5) und armv7 baut GitHub bei je
 ### Direkt / Proxmox-LXC
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.2.0" -o wolweb .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.3.0" -o wolweb .
 ```
 
 Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `deploy/wolweb.service` nach
@@ -229,7 +229,7 @@ wolweb übernimmt Konfiguration und Geräteliste des ursprünglichen
 - **Zurück:** Die alte `devices.json` bleibt unverändert; das alte Programm bzw. Image lässt sich jederzeit wieder
   starten.
 
-## Update von 1.0.x / 1.1.x
+## Update von 1.0.x / 1.1.x / 1.2.x
 
 Geräte und Einstellungen werden beim ersten Start automatisch übernommen.
 
@@ -260,6 +260,19 @@ Geräte und Einstellungen werden beim ersten Start automatisch übernommen.
 Dateien aus dem Sicherungsordner nach `data/` kopieren, Dateien, die in der Sicherung fehlen (bei 1.0.x
 `state.json` und `settings.json`), aus `data/` löschen, dann die alte Version starten. Was seit dem Update
 geändert wurde, fehlt danach.
+
+**Was sich mit 1.3 ändert – und ob du etwas tun musst:**
+
+- *Passwort für Änderungen* (neu, freiwillig): Solange keins gesetzt ist, ändert sich nichts. Mit Passwort bleiben
+  Ansehen und Wecken frei; Bearbeiten, Import und Export, die Netzwerksuche und die Einstellungsseite gibt es erst
+  nach dem Entsperren. Automationen mit `auth.api_token` sind nicht betroffen, die Anmeldung per HTTP Basic
+  entsperrt nicht. Siehe [Passwort für Änderungen](#passwort-für-änderungen).
+- *Gruppen sind eigene Einträge:* `devices.json` bekommt eine Liste `groups` (Name, Reihenfolge, frühere Namen),
+  Geräte ein Feld `order`. Vorhandene Gruppen werden alphabetisch übernommen, wie bisher angezeigt; neue Gruppen
+  kommen jetzt ans Ende, und eine leere Gruppe bleibt, bis du sie löschst (bisher verschwand sie mit ihrem letzten
+  Gerät). `GET /api/v1/groups` nennt auch leere Gruppen, in ihrer Reihenfolge. Eine ältere Version verwirft
+  `groups` und `order` beim Speichern – die Sicherung (siehe oben) enthält den Stand vor dem Update.
+- *Akzentfarbe* (neu): Standard `indigo` wie bisher.
 
 **Was sich mit 1.2 ändert – und ob du etwas tun musst:**
 
@@ -627,7 +640,7 @@ Die Screenshots in `docs/screenshots/` erzeugt `node screenshots.js` (im Ordner 
 Geräten, Adressen aus 192.168.1.x / 10.0.0.x und lokal verwalteten MACs, nie mit echten Daten des Rechners.
 
 GitHub Actions prüft jeden Push und Pull Request (gofmt, `go vet`, `go test -race`, Builds für Linux amd64/arm64/
-armv7, Windows, macOS, Browsertests, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.2.0 && git push --tags`)
+armv7, Windows, macOS, Browsertests, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.3.0 && git push --tags`)
 erzeugt ein Release mit fertigen Programmen und das Image auf ghcr.io – das Paket danach einmal unter
 „Packages“ auf öffentlich stellen.
 

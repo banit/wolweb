@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        VERSION: "1.2.0" # shown at the bottom of the overview; names the backup at the next update
+        VERSION: "1.3.0" # shown at the bottom of the overview; names the backup at the next update
     image: wolweb:latest
     # Instead of building it yourself, use the ready-made image (amd64, arm64, armv7) of a release:
     # image: ghcr.io/banit/wolweb:latest   – and remove the "build:" block

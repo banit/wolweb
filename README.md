@@ -21,10 +21,10 @@ enabled on the target computers (BIOS/UEFI, on Windows also for the network adap
    ```
 
    or without Docker: download the matching file from [Releases](https://github.com/banit/wolweb/releases)
-   (e.g. `wolweb-1.2.0-linux-arm64` for a Raspberry Pi 4/5) and run it:
+   (e.g. `wolweb-1.3.0-linux-arm64` for a Raspberry Pi 4/5) and run it:
 
    ```sh
-   chmod +x wolweb-1.2.0-linux-arm64 && sudo ./wolweb-1.2.0-linux-arm64
+   chmod +x wolweb-1.3.0-linux-arm64 && sudo ./wolweb-1.3.0-linux-arm64
    ```
 
 2. **Open** `http://<address>:8089` in a browser, e.g. `http://192.168.1.10:8089`.
@@ -187,7 +187,7 @@ published to `ghcr.io/banit/wolweb` (see `docker-compose.yml`). To build for sev
 ### Directly / Proxmox LXC
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.2.0" -o wolweb .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.3.0" -o wolweb .
 ```
 
 Copy it to `/opt/wolweb`, adapt `config.example.json` as `config.json`, copy `deploy/wolweb.service` to
@@ -221,7 +221,7 @@ wolweb takes over the configuration and device list of the original
 - **Going back:** the old `devices.json` is left untouched; the old binary or image can be started again at any
   time.
 
-## Updating from 1.0.x / 1.1.x
+## Updating from 1.0.x / 1.1.x / 1.2.x
 
 Devices and settings are taken over automatically on the first start.
 
@@ -249,6 +249,19 @@ read the new files but drops what it does not know on its next save (SecureOn, w
 ports, history). To go back: stop wolweb, copy the files from the backup folder into `data/`, delete the files from
 `data/` that the backup does not contain (for 1.0.x `state.json` and `settings.json`), then start the old version.
 Changes made since the update are lost.
+
+**What changes with 1.3 – and whether you need to act:**
+
+- *Password for changes* (new, optional): nothing changes until you set one on the settings page. With a password,
+  viewing and waking stay open; editing, import and export, the network scan and the settings page need unlocking.
+  Automations with `auth.api_token` are not affected, the HTTP Basic login does not unlock. See
+  [Password for changes](#password-for-changes).
+- *Groups are entries of their own:* `devices.json` gets a `groups` list (name, order, former names) and devices an
+  `order`. Existing groups are taken over alphabetically, as before; new groups now go to the end, and an empty
+  group stays until you delete it (it used to disappear with its last device). `GET /api/v1/groups` lists empty
+  groups too, in their order. An older version drops `groups` and `order` on save – the backup (see above) holds
+  the state from before the update.
+- *Accent color* (new): default `indigo` as before.
 
 **What changes with 1.2 – and whether you need to act:**
 
@@ -613,7 +626,7 @@ devices, addresses from 192.168.1.x / 10.0.0.x and locally administered MACs, ne
 
 GitHub Actions checks every push and pull request (gofmt, `go vet`, `go test -race`, builds for Linux
 amd64/arm64/armv7, Windows, macOS, browser tests, Docker image for three platforms). A tag `v*`
-(`git tag v1.2.0 && git push --tags`) creates a release with ready-made binaries and the image on ghcr.io – afterwards
+(`git tag v1.3.0 && git push --tags`) creates a release with ready-made binaries and the image on ghcr.io – afterwards
 set the package to public once under “Packages”.
 
 ## License
