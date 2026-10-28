@@ -856,8 +856,9 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"version":           s.version,
 		"read_only":         s.conf().ReadOnly,
 		"networks":          s.scanner.Networks(),
-		"networks_auto":     s.scanner.Auto(),   // ohne Einstellung erkannt (genau ein Heimnetz)
-		"network_choices":   s.networkChoices(), // ohne Einstellung und ohne eindeutiges Heimnetz: zur Wahl
+		"networks_auto":     s.scanner.Auto(),    // ohne Einstellung erkannt (genau ein Heimnetz)
+		"network_choices":   s.networkChoices(),  // ohne Einstellung und ohne eindeutiges Heimnetz: zur Wahl
+		"scan_off":          s.scanner.ScanOff(), // Netze eingetragen, aber keins wird durchsucht
 		"segments":          s.segments(),
 		"settings":          s.settings != nil,
 		"local_networks":    discovery.LocalNets(),

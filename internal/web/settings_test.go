@@ -210,4 +210,22 @@ func TestChooseNetwork(t *testing.T) {
 	if rec := call(h, "POST", "/api/v1/discovery/network", `{"cidr":"kein-netz"}`); rec.Code != 400 {
 		t.Errorf("ungültiges Netz: %d", rec.Code)
 	}
+	// „Alle erkannten Netze durchsuchen“
+	if rec := call(h, "POST", "/api/v1/discovery/network", `{"cidrs":["10.0.0.0/24","10.1.0.0/24"]}`); rec.Code != 200 || len(s.scanner.Networks()) != 2 {
+		t.Errorf("alle: %d %v", rec.Code, s.scanner.Networks())
+	}
+	// Netze eingetragen, keins durchsucht: info meldet „ausgeschaltet“, keine Auswahl
+	e := m.Config().Editable()
+	for i := range e.Discovery.Networks {
+		e.Discovery.Networks[i].Scan = false
+	}
+	if _, err := m.Save(e); err != nil {
+		t.Fatal(err)
+	}
+	s.Apply(m.Config())
+	var info map[string]any
+	json.Unmarshal(call(h, "GET", "/api/v1/info", "").Body.Bytes(), &info)
+	if info["scan_off"] != true || len(info["networks"].([]any)) != 0 || len(info["network_choices"].([]any)) != 0 {
+		t.Errorf("info: %v %v %v", info["scan_off"], info["networks"], info["network_choices"])
+	}
 }

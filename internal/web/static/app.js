@@ -880,9 +880,9 @@
   for (const b of drawer.querySelectorAll("[data-close]")) b.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawerOpen() && !dlg.open) closeDrawer(); });
 
-  async function chooseNetwork(cidr) {
+  async function chooseNetwork(cidrs) {
     try {
-      await api("POST", "discovery/network", { cidr });
+      await api("POST", "discovery/network", { cidrs });
     } catch (e) {
       toast("err", t("ui.scan.impossible"), e.message);
       return;
@@ -941,8 +941,14 @@
       $("#scan-title").textContent = t("ui.scan.setup_title");
       $("#scan-detail").textContent = t("ui.scan.setup_text");
       btn.disabled = true;
-      pick.replaceChildren(...choices.map((c) => el("button", { type: "button", class: "btn btn-secondary", onclick: () => chooseNetwork(c.prefix) },
-        icon("radar"), el("span", { class: "mono", text: c.prefix }), el("span", { class: "muted", text: c.interface + " · " + c.addr }))));
+      pick.replaceChildren(...choices.map((c) => el("button", { type: "button", class: "btn btn-secondary", onclick: () => chooseNetwork([c.prefix]) },
+        icon("radar"), el("span", { class: "mono", text: c.prefix }), el("span", { class: "muted", text: c.interface + " · " + c.addr }))),
+        el("button", { type: "button", class: "btn btn-primary", onclick: () => chooseNetwork(choices.map((c) => c.prefix)) },
+          icon("radar"), el("span", { text: t("ui.scan.choose_all", choices.length) })));
+    } else if (!nets.length && state.info.scan_off) {
+      $("#scan-title").textContent = t("ui.scan.off_title");
+      $("#scan-detail").textContent = t("ui.scan.off_text");
+      btn.disabled = true;
     } else if (!nets.length) {
       $("#scan-title").textContent = t("ui.scan.no_segment");
       $("#scan-detail").textContent = t("ui.scan.no_segment_hint");

@@ -31,7 +31,7 @@ func (s *Server) Apply(cfg config.Config) {
 	scan, check, _, _ := cfg.Durations()
 	s.monitor.SetPorts(cfg.Status.Ports)
 	s.monitor.SetInterval(check)
-	if err := s.scanner.SetNetworks(cfg.Discovery.ScanCIDRs()); err != nil {
+	if err := s.scanner.Configure(cfg.Discovery.ScanCIDRs(), len(cfg.Discovery.Networks) > 0); err != nil {
 		log.Printf("Settings: scan networks: %v", err) // geprüft – sollte nie vorkommen
 	}
 	s.scanner.SetInterval(scan)
@@ -249,7 +249,8 @@ func (s *Server) networkChoices() []discovery.LocalNet {
 // chooseNetwork speichert das in der Suche gewählte Heimnetz (wie in den Einstellungen).
 func (s *Server) chooseNetwork(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		CIDR string `json:"cidr"`
+		CIDR  string   `json:"cidr"`
+		CIDRs []string `json:"cidrs"` // „Alle erkannten Netze durchsuchen“
 	}
 	if err := readJSON(r, &in); err != nil {
 		s.storeError(w, r, err)
@@ -261,7 +262,12 @@ func (s *Server) chooseNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 	err := s.commit(func() (config.Config, error) {
 		e := s.settings.Config().Editable() // unter der Sperre lesen, sonst ginge eine gleichzeitige Änderung verloren
-		e.Discovery.Networks = []config.Network{{CIDR: in.CIDR, Scan: true}}
+		e.Discovery.Networks = nil
+		for _, c := range append(in.CIDRs, in.CIDR) {
+			if c != "" {
+				e.Discovery.Networks = append(e.Discovery.Networks, config.Network{CIDR: c, Scan: true})
+			}
+		}
 		return s.settings.Save(e)
 	})
 	if err != nil {

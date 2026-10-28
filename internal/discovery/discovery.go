@@ -225,8 +225,9 @@ type Scanner struct {
 	store    *store.Store
 	maxHosts int
 
-	mu       sync.Mutex // schützt networks, interval, job und cancel
+	mu       sync.Mutex // schützt networks, manual, interval, job und cancel
 	networks []netip.Prefix
+	manual   bool          // Netze sind eingetragen (auch wenn keins durchsucht wird): keine automatische Erkennung
 	interval time.Duration // automatische Suche; 0 = aus
 	reset    chan struct{}
 	job      Job
@@ -242,12 +243,20 @@ func New(s *store.Store, networks []string, maxHosts int) *Scanner {
 	for _, n := range networks {
 		sc.networks = append(sc.networks, netip.MustParsePrefix(n))
 	}
+	sc.manual = len(sc.networks) > 0
 	return sc
 }
 
-// SetNetworks ersetzt die Suchsegmente (Einstellungsseite). Eine laufende Suche bleibt bei den
-// alten.
+// SetNetworks ersetzt die Suchsegmente; ohne Segmente gilt wieder die automatische Erkennung.
 func (s *Scanner) SetNetworks(networks []string) error {
+	return s.Configure(networks, len(networks) > 0)
+}
+
+// Configure ersetzt die Suchsegmente (Einstellungsseite). manual sagt, ob überhaupt Netze eingetragen
+// sind: Stehen welche in der Liste, aber bei keinem ist „durchsuchen“ an, wird nicht gesucht – auch
+// nicht im automatisch erkannten Heimnetz, das man ja eben ausgeschlossen haben kann. Eine laufende
+// Suche bleibt bei den alten Segmenten.
+func (s *Scanner) Configure(networks []string, manual bool) error {
 	var ps []netip.Prefix
 	for _, n := range networks {
 		p, err := netip.ParsePrefix(n)
@@ -258,7 +267,7 @@ func (s *Scanner) SetNetworks(networks []string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.networks = ps
+	s.networks, s.manual = ps, manual || len(ps) > 0
 	return nil
 }
 
@@ -282,7 +291,7 @@ func (s *Scanner) networksLocked() []string {
 // genau eins gibt. Bei mehreren wählt man es in der Oberfläche (gespeichert in den Einstellungen).
 // Ausgewertet bei jedem Aufruf – nach dem Start kann DHCP die Adresse erst später liefern.
 func (s *Scanner) effectiveLocked() []netip.Prefix {
-	if len(s.networks) > 0 {
+	if s.manual {
 		return s.networks
 	}
 	if home := HomeNets(s.maxHosts); len(home) == 1 {
@@ -295,14 +304,21 @@ func (s *Scanner) effectiveLocked() []netip.Prefix {
 func (s *Scanner) Auto() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.networks) == 0 && len(s.effectiveLocked()) == 1
+	return !s.manual && len(s.effectiveLocked()) == 1
 }
 
 // Configured sagt, ob Netze eingestellt sind (sonst gilt die Erkennung).
 func (s *Scanner) Configured() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.networks) > 0
+	return s.manual
+}
+
+// ScanOff sagt, ob Netze eingetragen sind, aber bei keinem die Suche eingeschaltet ist.
+func (s *Scanner) ScanOff() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.manual && len(s.networks) == 0
 }
 
 // Broadcast liefert die Broadcast-Adresse (mit Port 9) des Suchsegments, wenn es genau eins
