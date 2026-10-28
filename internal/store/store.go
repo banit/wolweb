@@ -113,6 +113,8 @@ var AppVersion = "dev"
 var dataFiles = []string{"devices.json", "state.json", "discovered.json", "settings.json"}
 
 // backup kopiert die vorhandenen Dateien nach backup-<label>-<Zeitpunkt>/ und liefert den Ordner.
+// Jede Kopie, der Ordner und das Datenverzeichnis werden synchronisiert, bevor die Migration
+// weiterschreibt – sonst könnte nach einem Stromausfall eine halbe Sicherung als fertig gelten.
 func backup(dir, label string) (string, error) {
 	dst := filepath.Join(dir, "backup-"+label+"-"+time.Now().Format("20060102-150405"))
 	if err := os.Mkdir(dst, 0o750); err != nil {
@@ -126,11 +128,14 @@ func backup(dir, label string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(filepath.Join(dst, f), b, 0o600); err != nil {
+		if err := atomicfile.WriteSynced(filepath.Join(dst, f), b, 0o600); err != nil {
 			return "", err
 		}
 	}
-	return dst, atomicfile.SyncDir(dst)
+	if err := atomicfile.SyncDir(dst); err != nil {
+		return "", err
+	}
+	return dst, atomicfile.SyncDir(dir)
 }
 
 // previousWriter bestimmt, welche Version die vorhandenen Daten geschrieben hat.
