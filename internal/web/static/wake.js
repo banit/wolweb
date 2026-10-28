@@ -70,10 +70,15 @@
     }
     result.hidden = false;
   }
-  function setTitle(t, tab) {
-    title.textContent = t;
-    live.textContent = t;
-    document.title = (tab || t) + " · Wake on LAN";
+  // announce sagt einen Phasenwechsel einmal an – ohne Zeitangaben, die sich ständig ändern.
+  let lastLive = "";
+  function announce(text) {
+    if (text && text !== lastLive) live.textContent = lastLive = text;
+  }
+  function setTitle(text, tab) {
+    title.textContent = text;
+    announce(text);
+    document.title = (tab || text) + " · Wake on LAN";
   }
 
   async function call(method, url) {
@@ -135,6 +140,7 @@
 
     // 2. Magic Packet senden
     setState("send");
+    announce(t("wake.live.sending"));
     step("send", "active", t("wake.send.active", card.dataset.target));
     let sent;
     try {
@@ -168,6 +174,7 @@
 
     // 3. Warten, bis das Gerät antwortet
     setState("wait");
+    announce(sent.already ? t("wake.send.already") : t("wake.live.waiting"));
     note.textContent = t(retry ? "wake.wait.note_retry" : "wake.wait.note", duration(timeout / 1000));
     note.hidden = false;
     const start = Date.now();
@@ -175,6 +182,7 @@
     const tick = setInterval(() => {
       const ms = Date.now() - start;
       step("wait", "active", t(retry && ms >= retry ? "wake.wait.resent" : "wake.wait.active", fmt(ms)));
+      if (retry && ms >= retry) announce(t("wake.live.resent")); // einmal: die Wiederholung, nicht die Uhr
     }, 500);
     let online = null;
     while (Date.now() - start < timeout) {
@@ -235,7 +243,7 @@
       result.querySelector("strong").after(p);
     }
     p.textContent = t("wake.result.still_no_answer", clock);
-    live.textContent = p.textContent;
+    live.textContent = lastLive = p.textContent; // auch beim zweiten Mal ansagen
   }
 
   again.addEventListener("click", () => run(true));

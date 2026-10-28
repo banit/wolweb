@@ -448,6 +448,8 @@ textarea { resize: vertical; }
 .advanced[open] summary { margin-bottom: .7rem; }
 .advanced > .field, .advanced > .field-row + .field-row { margin-top: .8rem; }
 .form-error { color: var(--err); background: var(--err-soft); padding: .55rem .75rem; border-radius: 10px; font-size: .88rem; }
+.field-error { color: var(--err); font-weight: 600; }
+.field-error[hidden] { display: none; }
 
 /* --- Meldungen --- */
 .toasts { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: grid; gap: 8px; width: min(380px, calc(100vw - 32px)); }

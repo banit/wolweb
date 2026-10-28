@@ -246,7 +246,12 @@
 
   function clearErrors() {
     $("#set-error").hidden = true;
-    for (const i of form.querySelectorAll("[aria-invalid]")) i.removeAttribute("aria-invalid");
+    for (const i of form.querySelectorAll("[aria-invalid]")) {
+      i.removeAttribute("aria-invalid");
+      const rest = (i.getAttribute("aria-describedby") || "").split(" ").filter((x) => x && x !== "set-error");
+      if (rest.length) i.setAttribute("aria-describedby", rest.join(" "));
+      else i.removeAttribute("aria-describedby");
+    }
   }
   // showError markiert das Feld (Schlüssel wie "status.interval") und springt hin.
   function showError(key, message) {
@@ -255,7 +260,11 @@
     box.hidden = false;
     const target = form.querySelector('[data-key="' + key + '"]');
     const inputs = target ? [...target.querySelectorAll("input, textarea, select")].filter((i) => !i.disabled) : [];
-    for (const i of inputs) i.setAttribute("aria-invalid", "true");
+    for (const i of inputs) { // die Meldung gehört zum Feld: der Screenreader liest sie dort vor
+      i.setAttribute("aria-invalid", "true");
+      const ids = (i.getAttribute("aria-describedby") || "").split(" ").filter(Boolean);
+      if (!ids.includes("set-error")) i.setAttribute("aria-describedby", ["set-error", ...ids].join(" "));
+    }
     (inputs[0] || box).focus();
     if (!inputs.length) box.scrollIntoView({ block: "center" });
   }

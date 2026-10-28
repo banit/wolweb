@@ -660,8 +660,7 @@
     state.editing = d || null;
     state.prefilled = !d && !!prefill;
     form.reset();
-    $("#form-error").hidden = true;
-    for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
+    clearFieldErrors();
     const v = d || prefill || {};
     $("#device-dialog-title").textContent = d ? t("ui.dialog.edit") : prefill ? t("ui.dialog.adopt") : t("ui.dialog.add");
     form.name.value = v.name || "";
@@ -691,18 +690,46 @@
     if (prefill && !prefill.name) form.name.focus();
   }
 
-  // formError zeigt einen Fehler des Servers im Dialog; das betroffene Feld nennt er mit ("field"),
-  // Felder in aufklappbaren Bereichen werden dafür geöffnet.
+  // fieldError zeigt eine Meldung direkt am Feld, verknüpft sie per aria-describedby (der Screenreader
+  // liest sie beim Feld vor) und setzt den Fokus dorthin; aufklappbare Bereiche gehen dafür auf.
+  function fieldError(input, msg) {
+    const box = input.closest(".field") || input.parentElement;
+    let note = box.querySelector(".field-error");
+    if (!note) {
+      note = el("small", { class: "field-error", id: "err-" + (input.name || input.id) });
+      box.append(note);
+    }
+    note.textContent = msg;
+    note.hidden = false;
+    input.setAttribute("aria-invalid", "true");
+    const ids = (input.getAttribute("aria-describedby") || "").split(" ").filter(Boolean);
+    if (!ids.includes(note.id)) input.setAttribute("aria-describedby", [note.id, ...ids].join(" "));
+    for (let d = input.closest("details"); d; d = d.parentElement.closest("details")) d.open = true;
+    input.focus();
+  }
+  function clearFieldErrors() {
+    $("#form-error").hidden = true;
+    for (const note of form.querySelectorAll(".field-error")) {
+      note.hidden = true;
+      for (const i of form.querySelectorAll('[aria-describedby~="' + note.id + '"]')) {
+        const rest = i.getAttribute("aria-describedby").split(" ").filter((x) => x && x !== note.id);
+        if (rest.length) i.setAttribute("aria-describedby", rest.join(" "));
+        else i.removeAttribute("aria-describedby");
+      }
+    }
+    for (const i of form.querySelectorAll("[aria-invalid]")) i.removeAttribute("aria-invalid");
+  }
+  // formError zeigt einen Fehler des Servers: am betroffenen Feld, wenn er es nennt ("field"), sonst
+  // über dem Formular (role=alert).
   function formError(e) {
+    const field = e.data && e.data.field && form.elements[e.data.field];
+    if (field && field.type !== "hidden") {
+      fieldError(field, e.message);
+      return;
+    }
     const err = $("#form-error");
     err.textContent = e.message;
     err.hidden = false;
-    const field = e.data && e.data.field && form.elements[e.data.field];
-    if (field) {
-      field.setAttribute("aria-invalid", "true");
-      const box = field.closest("details");
-      if (box) box.open = true;
-    }
   }
 
   form.addEventListener("submit", async (ev) => {
@@ -717,18 +744,10 @@
       schedule: sched.on.checked ? schedList() : [], // ausgeschaltet: Zeitplan entfernen
       schedule_paused: sched.on.checked && form.schedule_paused.checked,
     };
-    const err = $("#form-error");
-    for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
-    if (body.ports.some((p) => !Number.isInteger(p))) {
-      err.textContent = t("ui.ports_numbers");
-      err.hidden = false;
-      $(".advanced").open = true;
-      form.ports.setAttribute("aria-invalid", "true");
-      form.ports.focus();
-      return;
-    }
-    if (!body.name.trim()) { form.name.setAttribute("aria-invalid", "true"); form.name.focus(); return; }
-    if (!body.mac.trim()) { form.mac.setAttribute("aria-invalid", "true"); form.mac.focus(); return; }
+    clearFieldErrors();
+    if (!body.name.trim()) return fieldError(form.name, t("ui.err.name_missing"));
+    if (!body.mac.trim()) return fieldError(form.mac, t("ui.err.mac_missing"));
+    if (body.ports.some((p) => !Number.isInteger(p))) return fieldError(form.ports, t("ui.ports_numbers"));
     const btn = $("#save-device");
     btn.disabled = true;
     try {
@@ -1030,7 +1049,7 @@
     return el("form", { class: "found-name", novalidate: true, onsubmit: (ev) => {
       ev.preventDefault();
       if (!input.value.trim()) {
-        err.textContent = t("ui.found.name_missing");
+        err.textContent = t("ui.err.name_missing");
         err.hidden = false;
         input.setAttribute("aria-invalid", "true");
         input.focus();

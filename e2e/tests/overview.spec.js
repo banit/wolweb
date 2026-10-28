@@ -26,8 +26,26 @@ test("ungültige MAC wird am Feld gemeldet", async ({ page }) => {
   await page.fill('#device-form input[name="name"]', "Kaputt");
   await page.fill('#device-form input[name="mac"]', "00:11:22");
   await page.click("#save-device");
-  await expect(page.locator("#form-error")).toBeVisible();
-  await expect(page.locator('#device-form input[name="mac"]')).toHaveAttribute("aria-invalid", "true");
+  const mac = page.locator('#device-form input[name="mac"]');
+  await expect(mac).toHaveAttribute("aria-invalid", "true");
+  await expect(mac).toBeFocused();
+  await expect(page.locator("#err-mac")).toBeVisible(); // Meldung am Feld …
+  const msg = await page.locator("#err-mac").textContent();
+  await expect(mac).toHaveAccessibleDescription(new RegExp("^" + msg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))); // … und vorgelesen
+});
+
+test("Pflichtfeld leer: Meldung am Feld, Fokus dorthin", async ({ page }) => {
+  await page.goto("./");
+  await page.click("#add-device");
+  await page.fill('#device-form input[name="mac"]', "02:00:00:00:00:f1");
+  await page.click("#save-device");
+  const name = page.locator('#device-form input[name="name"]');
+  await expect(name).toBeFocused();
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await expect(name).toHaveAccessibleDescription(/^Bitte einen Gerätenamen eingeben\./);
+  await name.fill("Werkstatt");
+  await page.click("#save-device");
+  await expect(page.locator("#device-dialog")).toBeHidden();
 });
 
 test("Suche und Filter", async ({ page, request }) => {

@@ -25,9 +25,14 @@
     p.textContent = pill;
     if (detail !== undefined) li.querySelector("[data-detail]").textContent = detail;
   }
+  // announce sagt einen Phasenwechsel einmal an – ohne Zeitangaben, die sich ständig ändern.
+  let lastLive = "";
+  function announce(text) {
+    if (text && text !== lastLive) live.textContent = lastLive = text;
+  }
   function setTitle(text) {
     title.textContent = text;
-    live.textContent = text;
+    announce(text);
   }
   function fmt(ms) {
     const s = Math.floor(ms / 1000);
@@ -106,6 +111,7 @@
     const watch = items.filter((li) => li.dataset.s === "sent");
     card.dataset.state = "wait";
     if (watch.length) {
+      announce(t("group.live.waiting"));
       note.textContent = t(retry ? "wake.wait.note_retry" : "wake.wait.note", duration(timeout / 1000));
       note.hidden = false;
     }
@@ -114,6 +120,7 @@
       const ms = Date.now() - start;
       sub.textContent = t("ui.x_of_y_online", watch.filter((li) => li.dataset.s === "online").length, watch.length) + " · " + fmt(ms) +
         (retry && ms >= retry ? " · " + t("ui.resent") : "");
+      if (retry && ms >= retry && watch.some((li) => li.dataset.s === "sent")) announce(t("wake.live.resent"));
       await sleep(2000);
       await poll(start);
     }
@@ -132,6 +139,7 @@
         const li = items.find((x) => x.dataset.id === m.id);
         if (li && (li.dataset.s === "sent" || li.dataset.s === "late") && m.status && m.status.state === "online") {
           mark(li, "online", t("ui.online"), start ? t("group.after", fmt(Date.now() - start)) : "");
+          announce(t("group.live.member_online", li.querySelector("strong").textContent));
         }
       }
     } catch (e) { /* kurz nicht erreichbar – weiter */ }
@@ -179,7 +187,7 @@
       const p = document.createElement("p");
       p.textContent = t("wake.result.still_no_answer", clock);
       result.querySelector("strong").after(p);
-      live.textContent = p.textContent;
+      live.textContent = lastLive = p.textContent; // auch beim zweiten Mal ansagen
     } else {
       again.querySelector("span").textContent = t("wake.btn.again");
     }

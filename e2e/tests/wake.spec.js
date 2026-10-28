@@ -28,6 +28,14 @@ test("läuft schon: nichts senden, aber anbieten", async ({ page, request }) => 
 test("keine Antwort: Paket wird wiederholt, dann Tipps", async ({ page, request }) => {
   test.setTimeout(45000);
   const nas = await offlineDevice(request, "NAS");
+  // Jede Ansage der Live-Region mitschreiben (Screenreader hören genau diese Folge).
+  await page.addInitScript(() => {
+    window.said = [];
+    new MutationObserver((list) => {
+      const live = document.getElementById("wake-live");
+      if (live && list.some((m) => live.contains(m.target) && m.target !== live.parentNode)) window.said.push(live.textContent);
+    }).observe(document, { childList: true, characterData: true, subtree: true });
+  });
   await page.goto("wake/NAS");
   // Server: WOLWEB_WAKE_RETRY=2s, WOLWEB_WAKE_TIMEOUT=8s
   await expect(page.locator('[data-step="check"] [data-detail]')).toHaveText("Noch nicht erreichbar – Weckruf wird gesendet");
@@ -45,6 +53,12 @@ test("keine Antwort: Paket wird wiederholt, dann Tipps", async ({ page, request 
   await page.getByRole("button", { name: "Nochmals prüfen" }).click();
   await expect(result).toContainText("Weiterhin keine Antwort");
   await expect(page.locator("#wake")).toHaveAttribute("data-state", "timeout");
+  // Phasen genau einmal und ohne mitlaufende Uhr
+  const said = (await page.evaluate(() => window.said)).filter(Boolean);
+  expect(said.slice(0, 5)).toEqual(["NAS wird gestartet", "Weckruf wird gesendet …", "Weckruf gesendet. Warte auf den Start.",
+    "Noch keine Antwort – Weckruf erneut gesendet.", "Start noch nicht bestätigt"]);
+  expect(said[5]).toMatch(/^Weiterhin keine Antwort/);
+  expect(said.filter((x) => /\d:\d\d(?! Uhr)/.test(x) && !/geprüft um/.test(x))).toEqual([]);
   await expect(async () => {
     const { events } = await (await request.get("api/v1/history")).json();
     expect(events.filter((e) => e.id === nas.id).map((e) => !!e.retry).sort()).toEqual([false, true]);
