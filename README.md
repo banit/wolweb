@@ -247,7 +247,9 @@ Changes made since the update are lost.
 - *Default language English:* `language` now defaults to `en`. The interface still follows the browser, but without
   a setting, notifications (webhook, ntfy) and answers to clients that send no language (curl, Home Assistant) are
   now English. To keep German: `"language": "de"` in `config.json`, `WOLWEB_LANGUAGE=de` or “Default language” on
-  the settings page. The log is English now, and the backup folder is called `backup-…`.
+  the settings page. The log is English now, and the backup folder is called `backup-…`. Technical status fields
+  change too: `method` says `tcp/445 (refused)` instead of `tcp/445 (abgelehnt)`, and the IP-conflict `note` is
+  always English – update automations that compare these strings.
 - *Docker:* the new `docker-compose.yml` no longer sets `WOLWEB_NETWORKS` and `WOLWEB_SCAN_INTERVAL` (they are only
   commented examples now) – the network is detected, and the fields on the settings page are no longer locked. If you
   had pinned your network there and want to keep it, copy the line into the new file. Schedules run in the
@@ -394,7 +396,9 @@ variable names are given, the first is the one of the original wolweb – both w
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | all | selection of `online`, `offline`, `wake`, `wake_failed` |
 
 `devices.json` only contains what you enter yourself; what wolweb observes (last woken, last online, the last 500
-wake attempts) is kept in `state.json`. To move or back up wolweb, the export at the bottom of the page is enough.
+wake attempts) is kept in `state.json`. The export at the bottom of the page backs up the devices and their wake-link
+keys. For a complete backup or a move to another machine, stop wolweb and copy the whole data directory and your
+`config.json` – and keep any environment variables you use for configuration.
 
 A device's broadcast address is determined automatically from the network of its IP; only enter one under “Advanced”
 for special cases. If no IP is known, `bcastip` applies; without that setting, the broadcast address of the scanned
@@ -504,8 +508,12 @@ without it, the answer is 403 with a message for humans and the technical reason
 | GET | `/api/v1/history` | wake history, newest first (`?limit=`) |
 | GET / POST | `/api/v1/export`, `/api/v1/import` | download devices as JSON / take them over from a file; the answer lists every entry (`items`: `added` – possibly with `new_name` –, `skipped`, `error` with the reason), the interface shows the complete list |
 | GET | `/api/v1/discovery` | last scan and results |
-| POST | `/api/v1/discovery/scan`, `/cancel` | start / cancel a scan |
+| POST | `/api/v1/discovery/scan`, `/api/v1/discovery/cancel` | start / cancel a scan |
 | POST | `/api/v1/discovery/{mac}/ignore` | `{"ignored":true}` |
+| DELETE | `/api/v1/discovery/{mac}` | remove a scan result |
+| POST | `/api/v1/discovery/network` | save the network chosen for the scan |
+| GET / PUT / DELETE | `/api/v1/settings` | read / change / reset the settings of the settings page |
+| POST | `/api/v1/settings/test-notify` | send a test notification |
 | GET | `/wake/{name}`, `/health`, `/data/get` | as in the original |
 | GET / POST | `/wake-group/{name}` | group wake link |
 | GET | `/metrics` | metrics for Prometheus |

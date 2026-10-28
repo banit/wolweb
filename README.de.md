@@ -188,7 +188,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main
 
 Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `deploy/wolweb.service` nach
 `/etc/systemd/system/` (Benutzer `wolweb` anlegen, `data/` beschreibbar machen), dann
-`systemctl enable --now wolweb`.
+`systemctl enable --now wolweb`. Die Unit gewährt nur `CAP_NET_RAW` für Ping und ARP-Scan, sonst nichts.
+
+`wolweb -h` zeigt die Kommandozeilenoptionen (`-c` Konfigurationsdatei, `-d` devices.json des ursprünglichen wolweb,
+`-healthcheck` für Docker).
 
 ## Umstieg vom ursprünglichen wolweb
 
@@ -255,6 +258,8 @@ geändert wurde, fehlt danach.
   werden ohne Einstellung aber Benachrichtigungen (Webhook, ntfy) und Antworten an Aufrufe ohne Sprachangabe
   (curl, Home Assistant). Deutsch behalten: `"language": "de"` in `config.json`, `WOLWEB_LANGUAGE=de` oder
   „Standardsprache“ auf der Einstellungsseite. Das Log ist jetzt englisch, der Sicherungsordner heißt `backup-…`.
+  Auch technische Statusfelder ändern sich: `method` lautet `tcp/445 (refused)` statt `tcp/445 (abgelehnt)`, und der
+  Hinweis auf einen IP-Konflikt (`note`) ist immer englisch – Automationen mit solchen Textvergleichen anpassen.
 - *Docker:* Die neue `docker-compose.yml` setzt `WOLWEB_NETWORKS` und `WOLWEB_SCAN_INTERVAL` nicht mehr (nur noch
   als Beispiel auskommentiert) – das Netz wird erkannt, und die Felder auf der Einstellungsseite sind nicht mehr
   gesperrt. Wer sein Netz dort fest vorgegeben hatte und das behalten will, übernimmt die Zeile in die neue Datei.
@@ -404,7 +409,9 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | alle | Auswahl aus `online`, `offline`, `wake`, `wake_failed` |
 
 `devices.json` enthält nur, was man selbst einträgt; was wolweb beobachtet (zuletzt geweckt, zuletzt online, die
-letzten 500 Weckversuche) steht in `state.json`. Zum Umziehen oder Sichern reicht der Export unten auf der Seite.
+letzten 500 Weckversuche) steht in `state.json`. Der Export unten auf der Seite sichert die Geräte samt
+Wecklink-Schlüsseln. Für eine vollständige Sicherung oder einen Umzug wolweb stoppen und das ganze Datenverzeichnis
+und die `config.json` kopieren – und die Umgebungsvariablen aufheben, mit denen wolweb eingestellt ist.
 
 Die Broadcast-Adresse eines Geräts wird automatisch aus dem Netz seiner IP bestimmt; nur bei Sonderfällen im
 Gerät unter „Erweitert“ eintragen. Ist keine IP bekannt, gilt `bcastip`, ohne Einstellung die Broadcast-Adresse des
@@ -515,8 +522,12 @@ fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in
 | GET | `/api/v1/history` | Weckverlauf, neueste zuerst (`?limit=`) |
 | GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen; die Antwort nennt jeden Eintrag (`items`: `added` – ggf. mit `new_name` –, `skipped`, `error` mit Grund), die Oberfläche zeigt die vollständige Liste |
 | GET | `/api/v1/discovery` | letzte Suche und Treffer |
-| POST | `/api/v1/discovery/scan`, `/cancel` | Suche starten / abbrechen |
+| POST | `/api/v1/discovery/scan`, `/api/v1/discovery/cancel` | Suche starten / abbrechen |
 | POST | `/api/v1/discovery/{mac}/ignore` | `{"ignored":true}` |
+| DELETE | `/api/v1/discovery/{mac}` | Suchtreffer entfernen |
+| POST | `/api/v1/discovery/network` | für die Suche gewähltes Netz speichern |
+| GET / PUT / DELETE | `/api/v1/settings` | Einstellungen der Einstellungsseite lesen / ändern / zurücksetzen |
+| POST | `/api/v1/settings/test-notify` | Testbenachrichtigung senden |
 | GET | `/wake/{name}`, `/health`, `/data/get` | wie im Original |
 | GET / POST | `/wake-group/{name}` | Gruppen-Wecklink |
 | GET | `/metrics` | Kennzahlen für Prometheus |
@@ -529,7 +540,8 @@ go run . -c config.json
 ```
 
 Die Oberfläche liegt in `internal/web/` (Vorlagen und statische Dateien, eingebettet per `go:embed`).
-Herstellerliste aktualisieren: `sh tools/gen-oui.sh`.
+Herstellerliste aktualisieren: `sh tools/gen-oui.sh`. Code-Kommentare und Commit-Texte sind überwiegend deutsch;
+Issues und Pull Requests auf Englisch sind willkommen.
 
 Browsertests (Playwright mit Chromium, braucht Go und Node.js) liegen in `e2e/`. Sie bauen wolweb selbst, starten
 es mit leerem Datenverzeichnis auf Port 8399 (Pakete gehen nur an 127.0.0.1) und prüfen Übersicht, Gerätedialog,
