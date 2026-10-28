@@ -24,7 +24,8 @@ func settingsServer(t *testing.T, cfgJSON string) (*Server, http.Handler, *confi
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
-	cfgJSON = strings.Replace(cfgJSON, "{", `{"data_dir": "`+filepath.Join(dir, "data")+`", `, 1)
+	dataDir, _ := json.Marshal(filepath.Join(dir, "data")) // als JSON-Text: Windows-Pfade haben Backslashes
+	cfgJSON = strings.Replace(cfgJSON, "{", `{"data_dir": `+string(dataDir)+`, `, 1)
 	os.WriteFile(path, []byte(cfgJSON), 0o644)
 	m, err := config.Open(path)
 	if err != nil {
