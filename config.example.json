@@ -4,6 +4,7 @@
   "vdir": "/",
   "bcastip": "",
   "read_only": false,
+  "language": "de",
   "data_dir": "data",
   "discovery": {
     "networks": ["192.168.1.0/24"],
@@ -19,6 +20,13 @@
     "username": "",
     "password": "",
     "api_token": "",
-    "public_wake": true
+    "public_wake": true,
+    "wake_keys": false
+  },
+  "allowed_hosts": [],
+  "notify": {
+    "webhook": "",
+    "ntfy": "",
+    "events": []
   }
 }

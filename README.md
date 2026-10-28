@@ -3,6 +3,32 @@
 Wake on LAN mit Weboberfläche – Neufassung von [sameerdhoot/wolweb](https://github.com/sameerdhoot/wolweb) in Go,
 als einzelne Datei ohne externe Abhängigkeiten im Browser.
 
+*English: see [below](#english).*
+
+![Übersicht mit Gruppen, Online-Status und nächster geplanter Weckzeit](docs/screenshots/overview-light.png)
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/wake-waiting.png" alt="Weckseite: Magic Packet gesendet, wartet auf den Start"></td>
+<td width="50%"><img src="docs/screenshots/wake-online.png" alt="Weckseite: Gerät ist online"></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><sub>Fester Wecklink auf dem Handy: prüft, weckt und bestätigt den Start</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/discovery.png" alt="Netzwerksuche mit neuen Geräten"></td>
+<td><img src="docs/screenshots/device-dialog.png" alt="Gerätedialog im Dunkelmodus"></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/history.png" alt="Weckverlauf"></td>
+<td><img src="docs/screenshots/overview-en.png" alt="Übersicht auf Englisch"></td>
+</tr>
+<tr>
+<td align="center"><sub>Netzwerksuche · Verlauf</sub></td>
+<td align="center"><sub>Gerätedialog (dunkel) · englische Oberfläche</sub></td>
+</tr>
+</table>
+
 - **Übersicht** mit Online-Status jedes Geräts (Ping und TCP-Ports), Suche und Filter, hell/dunkel – Änderungen
   erscheinen sofort in jedem offenen Fenster (Server-Sent Events)
 - **Feste Wecklinks** `/wake/<Name>`: im Browser eine Bestätigungsseite, die das Gerät prüft, das Magic Packet
@@ -21,17 +47,17 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
 ## Geräte
 
 Pflicht sind nur Name und MAC-Adresse. Die IP-Adresse braucht es für den Online-Status (sonst nimmt wolweb die IP
-aus der Netzwerksuche). Unter „Erweitert“:
+aus der Netzwerksuche).
 
 | Feld | Wofür |
 |---|---|
 | Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken |
 | Zeitplan | automatische Weckzeiten, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` |
-| Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
-| Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
-| Ports | eigene Ports für die Online-Prüfung statt der allgemeinen Liste |
-| SecureOn-Passwort | 6 Byte, falls die Netzwerkkarte ein Passwort im Magic Packet verlangt |
-| Notiz | freier Text auf der Karte |
+| *Erweitert:* Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
+| *Erweitert:* Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
+| *Erweitert:* Ports | eigene Ports für die Online-Prüfung statt der allgemeinen Liste |
+| *Erweitert:* SecureOn-Passwort | 6 Byte, falls die Netzwerkkarte ein Passwort im Magic Packet verlangt |
+| *Erweitert:* Notiz | freier Text auf der Karte |
 
 Zeitpläne gelten in der Ortszeit des Rechners bzw. Containers (`TZ`, in `docker-compose.yml` voreingestellt).
 Die Karte zeigt die nächste geplante Weckzeit.
@@ -46,9 +72,12 @@ Die Karte zeigt die nächste geplante Weckzeit.
 | `…/wake/NAS?format=html` / `?format=json` | Ausgabe erzwingen |
 | `http://host:8089/wake-group/Homelab` | ganze Gruppe: im Browser eine Seite mit dem Start jedes Geräts, sonst JSON (auch `?wait=`) |
 
-`HEAD`-Anfragen (Linkprüfer, Vorschauen in Messengern) wecken nie. Der Name ist nicht von Groß-/Kleinschreibung abhängig. Tipp: Die Weckseite auf dem Handy „Zum Home-Bildschirm“
-hinzufügen – dann weckt ein Tipp aufs Symbol das Gerät. Die Übersicht selbst lässt sich ebenso als App ablegen. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt ist
-(eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts.
+Der Name ist nicht von Groß-/Kleinschreibung abhängig. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
+ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts.
+`HEAD`-Anfragen (Linkprüfer, Vorschauen in Messengern) wecken nie.
+
+Tipp: Die Weckseite auf dem Handy „Zum Home-Bildschirm“ hinzufügen – dann weckt ein Tipp aufs Symbol das Gerät.
+Die Übersicht selbst lässt sich ebenso als App ablegen.
 
 Online gilt ein Gerät, wenn es auf Ping antwortet oder einer der Ports (`status.ports`) eine Verbindung annimmt **oder
 ablehnt** – eine Ablehnung kommt nur von einem laufenden Betriebssystem. Das gilt für Geräte im eigenen Netzsegment;
@@ -102,7 +131,7 @@ Fertige Images für amd64, arm64 (Raspberry Pi 4/5) und armv7 baut GitHub bei je
 ### Direkt / Proxmox-LXC
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.0.2" -o wolweb .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.1.0" -o wolweb .
 ```
 
 Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `deploy/wolweb.service` nach
@@ -221,3 +250,81 @@ GitHub Actions prüft jeden Push und Pull Request (gofmt, `go vet`, `go test -ra
 armv7, Windows, macOS, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.1.0 && git push --tags`)
 erzeugt ein Release mit fertigen Programmen und das Image auf ghcr.io – das Paket danach einmal unter
 „Packages“ auf öffentlich stellen.
+
+---
+
+## English
+
+**wolweb** is a Wake on LAN web app – a Go rewrite of [sameerdhoot/wolweb](https://github.com/sameerdhoot/wolweb):
+a single binary (or a 23 MB Docker image) with no external dependencies in the browser. The interface is available
+in **English and German**; it follows the browser language and can be switched in the top right corner.
+
+### Features
+
+- **Overview** with the online status of every device (ping and TCP ports), search and filters, light/dark mode –
+  changes appear instantly in every open window (Server-Sent Events)
+- **Fixed wake links** `/wake/<name>`: in a browser a confirmation page that checks the device, sends the magic
+  packet and follows the start until the device is really online; `curl` and Home Assistant get JSON
+  (`?wait=120` waits until the device responds)
+- **Network scan**: finds devices that are switched on in the configured segments (IP, MAC, host name, vendor) –
+  on demand or periodically; add new devices with one click or ignore them
+- **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`;
+  **schedules** such as `Mon-Fri 07:30; Sat,Sun 09:00` wake devices automatically
+- **Notifications** via webhook (JSON) or ntfy push when a device goes online/offline or is woken;
+  **Prometheus metrics** at `/metrics`
+- **History** of every wake attempt (who, when, from where, result), **export/import** of devices as JSON
+- **Security**: optional login (HTTP Basic, API token), per-device keys for public wake links, rate limiting,
+  protection against DNS rebinding
+- Per-device ports for the online check, SecureOn passwords, sending via a specific network interface,
+  home-screen icons (web app manifest)
+- Imports the `devices.json` and settings of the original wolweb
+
+### Quick start (Docker)
+
+```sh
+docker compose up -d --build
+```
+
+`docker-compose.yml` uses `network_mode: host` (required for broadcasts and ARP) and grants only `NET_RAW`. Data is
+stored in `./data`; the folder must belong to root (let Docker create it, or `sudo chown -R root:root data`). To import
+an old `devices.json`, put it at `./data/legacy-devices.json` before the first start. Release tags publish
+multi-arch images (amd64, arm64, armv7) to `ghcr.io/banit/wolweb`. Docker Desktop (Windows/macOS) has no real host
+network – waking and scanning do not work there.
+
+Without Docker: `CGO_ENABLED=0 go build -o wolweb .`, adapt `config.example.json` as `config.json`, and use
+`deploy/wolweb.service` for systemd (it grants `CAP_NET_RAW` for ping and ARP scans).
+
+### Configuration
+
+`config.json` is optional; environment variables override it. The most important settings:
+
+| Key | Variable | Default | Meaning |
+|---|---|---|---|
+| `port` | `WOLWEB_PORT` | `8089` | port of the web interface |
+| `language` | `WOLWEB_LANGUAGE` | `de` | `en` or `de`: language when neither the switch nor the browser name one (also used for notifications) |
+| `discovery.networks` | `WOLWEB_NETWORKS` | – | segments for the network scan, e.g. `192.168.1.0/24` (comma separated) |
+| `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off |
+| `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | online check of all devices |
+| `bcastip` | `WOLWEBBCASTIP` | automatic | fallback target when neither device nor network provide one |
+| `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | login (HTTP Basic – use HTTPS on the internet) |
+| `auth.api_token` | `WOLWEB_TOKEN` | – | `Authorization: Bearer …` for automations |
+| `auth.public_wake` | `WOLWEB_PUBLIC_WAKE` | `true` | wake links work without login |
+| `auth.wake_keys` | `WOLWEB_WAKE_KEYS` | `false` | wake links without login need the device key (`?key=…`) |
+| `allowed_hosts` | `WOLWEB_ALLOWED_HOSTS` | – | additional host names, e.g. `wol.example.com` (DNS rebinding protection) |
+| `notify.webhook` / `notify.ntfy` | `WOLWEB_WEBHOOK` / `WOLWEB_NTFY` | – | notification targets |
+
+All keys are described in the German [configuration table](#konfiguration) above; their names are the same.
+
+### API
+
+The REST API lives under `/api/v1/` (see the [table above](#api)); changing requests need the header
+`X-WolWeb: 1` or a bearer token. Messages follow `Accept-Language` (or `?lang=en`), validation errors name the
+affected field (`"field": "mac"`). Wake links stay compatible with the original:
+`curl http://host:8089/wake/NAS` → `{"success":true,"message":"Magic packet sent to NAS."}` (with
+`Accept-Language: en`).
+
+### Development
+
+`go test ./...` runs all tests; translations live in `internal/i18n/de.json` and `en.json` (a test makes sure both
+contain the same keys and every key used by the templates and scripts). GitHub Actions checks formatting, `go vet`,
+the race detector and builds for all platforms.

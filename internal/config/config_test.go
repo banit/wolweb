@@ -37,3 +37,11 @@ func TestNotifyValidated(t *testing.T) {
 		}
 	}
 }
+
+// Die Beispielkonfiguration muss sich laden lassen (sie wird oft unverändert übernommen).
+func TestExampleLoads(t *testing.T) {
+	c, found, err := Load("../../config.example.json")
+	if err != nil || !found || c.Language != "de" || len(c.Discovery.Networks) != 1 {
+		t.Fatalf("%v %v %+v", err, found, c)
+	}
+}

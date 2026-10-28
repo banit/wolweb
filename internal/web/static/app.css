@@ -372,7 +372,7 @@ textarea { resize: vertical; }
 .icon-picker input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .advanced summary { cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--muted); padding: .2rem 0; }
 .advanced[open] summary { margin-bottom: .7rem; }
-.advanced > .field { margin-top: .8rem; }
+.advanced > .field, .advanced > .field-row + .field-row { margin-top: .8rem; }
 .form-error { color: var(--err); background: var(--err-soft); padding: .55rem .75rem; border-radius: 10px; font-size: .88rem; }
 
 /* --- Meldungen --- */
