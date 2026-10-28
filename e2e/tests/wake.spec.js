@@ -11,14 +11,16 @@ test("ohne IP: Paket gesendet", async ({ page, request }) => {
   await addDevice(request, { name: "Büro-PC" });
   await page.goto("wake/" + encodeURIComponent("Büro-PC"));
   await expect(page.locator("#wake")).toHaveAttribute("data-state", "sent");
-  await expect(page.locator("#wake-result")).toContainText("Weckruf ist raus");
-  await expect(page.locator("#wake-live")).toHaveText("Magic Packet gesendet"); // Ansage für Screenreader
+  await expect(page.locator("#wake-result")).toContainText("Weckruf gesendet");
+  await expect(page.locator("#wake-result")).toHaveClass(/\bsent\b/); // kein grüner „Start bestätigt“
+  await expect(page.locator("#wake-live")).toHaveText("Weckruf gesendet"); // Ansage für Screenreader
 });
 
 test("läuft schon: nichts senden, aber anbieten", async ({ page, request }) => {
   await onlineDevice(request, "Proxmox");
   await page.goto("wake/Proxmox");
   await expect(page.locator("#wake")).toHaveAttribute("data-state", "online", { timeout: 15000 });
+  await expect(page.locator("#wake-result")).toHaveClass(/\bok\b/);
   await expect(page.locator('[data-step="send"]')).toHaveAttribute("data-s", "skip");
   await expect(page.locator("#wake-again")).toBeVisible();
 });
@@ -49,8 +51,19 @@ test("Gruppenseite weckt alle und wartet auf die mit IP", async ({ page, request
   await onlineDevice(request, "Proxmox", { group: "Homelab" });
   await addDevice(request, { name: "Switch", group: "Homelab" });
   await page.goto("wake-group/Homelab");
-  await expect(page.locator("#group")).toHaveAttribute("data-state", "online", { timeout: 15000 });
+  // Gemischt: einer bestätigt, beim anderen nur gesendet – das ist kein „alle gestartet“.
+  await expect(page.locator("#group")).toHaveAttribute("data-state", "sent", { timeout: 15000 });
   await expect(page.locator('#members li[data-s="online"]')).toHaveCount(1);
   await expect(page.locator('#members li[data-s="skip"]')).toHaveCount(1);
+  await expect(page.locator("#group-result")).toContainText("1 von 2 Geräten erreichbar.");
+  await expect(page.locator("#group-result")).toContainText("Beim anderen wurde der Weckruf gesendet");
   await expect(page.locator("#group-live")).not.toBeEmpty();
+});
+
+test("Gruppenseite: alle mit IP erreichbar heißt Start bestätigt", async ({ page, request }) => {
+  await onlineDevice(request, "Proxmox", { group: "Rack" });
+  await onlineDevice(request, "NAS", { group: "Rack" });
+  await page.goto("wake-group/Rack");
+  await expect(page.locator("#group")).toHaveAttribute("data-state", "online", { timeout: 15000 });
+  await expect(page.locator("#group-result")).toHaveClass(/\bok\b/);
 });

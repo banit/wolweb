@@ -399,6 +399,7 @@ textarea { resize: vertical; }
 .toast.out { animation: toast-out .2s ease forwards; }
 .toast .ico { margin-top: 1px; }
 .toast.ok .ico { color: var(--ok); }
+.toast.sent .ico { color: var(--accent); }
 .toast.err .ico { color: var(--err); }
 .toast.warn .ico { color: var(--warn); }
 .toast strong { display: block; font-size: .9rem; }
@@ -426,7 +427,7 @@ textarea { resize: vertical; }
   transition: background-color .4s, color .4s, border-color .4s, transform .4s;
 }
 .wake-icon > .ico { grid-area: 1 / 1; width: 42px; height: 42px; transition: opacity .3s, transform .4s; }
-.wake-icon .done-ico, .wake-icon .warn-ico { opacity: 0; transform: scale(.6); }
+.wake-icon .done-ico, .wake-icon .warn-ico, .wake-icon .sent-ico { opacity: 0; transform: scale(.6); }
 .wake-icon.warn { --tone: var(--warn); --tone-soft: var(--warn-soft); }
 .ring {
   position: absolute; inset: 20px; border-radius: 50%;
@@ -439,21 +440,22 @@ textarea { resize: vertical; }
 .ring.r3 { animation-delay: 1.6s !important; }
 @keyframes ripple { 0% { transform: scale(.75); opacity: .55; } 100% { transform: scale(1.45); opacity: 0; } }
 .wake-card[data-state="send"] .wake-icon { transform: scale(1.06); }
-.wake-card[data-state="online"] .wake-icon,
-.wake-card[data-state="sent"] .wake-icon { --tone: var(--ok); --tone-soft: var(--ok-soft); animation: bump .5s ease; }
+/* Drei Ausgänge, deutlich verschieden: gesendet (blau, Papierflieger) – Start bestätigt (grün, Haken) –
+   Start noch nicht bestätigt (gelb, Warnzeichen). Ein bloßer Weckruf bekommt nie den grünen Haken. */
+.wake-card[data-state="online"] .wake-icon { --tone: var(--ok); --tone-soft: var(--ok-soft); animation: bump .5s ease; }
+.wake-card[data-state="sent"] .wake-icon { --tone: var(--accent); --tone-soft: var(--accent-soft); border-style: dashed; }
+.wake-card[data-state="sent"] .sent-ico { opacity: 1; transform: none; }
 .wake-card[data-state="online"] .dev-ico,
 .wake-card[data-state="sent"] .dev-ico,
 .wake-card[data-state="timeout"] .dev-ico,
 .wake-card[data-state="error"] .dev-ico { opacity: 0; transform: scale(.6); }
-.wake-card[data-state="online"] .done-ico,
-.wake-card[data-state="sent"] .done-ico { opacity: 1; transform: none; }
+.wake-card[data-state="online"] .done-ico { opacity: 1; transform: none; }
 .wake-card[data-state="timeout"] .wake-icon { --tone: var(--warn); --tone-soft: var(--warn-soft); }
 .wake-card[data-state="error"] .wake-icon { --tone: var(--err); --tone-soft: var(--err-soft); }
 .wake-card[data-state="timeout"] .warn-ico,
 .wake-card[data-state="error"] .warn-ico { opacity: 1; transform: none; }
 .check-path { stroke-width: 2.4; stroke-dasharray: 24; stroke-dashoffset: 24; }
-.wake-card[data-state="online"] .check-path,
-.wake-card[data-state="sent"] .check-path { animation: draw .5s .15s ease forwards; }
+.wake-card[data-state="online"] .check-path { animation: draw .5s .15s ease forwards; }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes bump { 40% { transform: scale(1.12); } }
 .wake-card[data-state="online"] .ring { animation: burst .9s ease-out 1 both; border-color: var(--ok); }
@@ -493,6 +495,8 @@ textarea { resize: vertical; }
 
 .wake-result { width: 100%; padding: .85rem 1rem; border-radius: 14px; text-align: left; font-size: .9rem; animation: card-in .3s ease both; }
 .wake-result.ok { background: var(--ok-soft); color: var(--text); }
+.wake-result.sent { background: var(--accent-soft); color: var(--text); border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); }
+.wake-result.sent strong { color: var(--accent); }
 .wake-result.ok strong { color: var(--ok); }
 .wake-result.warn { background: var(--warn-soft); }
 .wake-result.warn strong { color: var(--warn); }

@@ -145,9 +145,9 @@
     if (!hasIP) {
       step("wait", "skip", t("wake.wait.no_ip"));
       step("online", "skip", "");
-      setState("sent");
-      setTitle(t("ui.packet_sent"), "✓ " + name);
-      showResult("ok", t("wake.result.sent"), t("wake.result.sent_text", name));
+      setState("sent"); // gesendet, aber nicht bestätigt – kein grüner Haken
+      setTitle(t("wake.title.sent"), "→ " + name);
+      showResult("sent", t("wake.result.sent"), t("wake.result.sent_text", name));
       again.querySelector("span").textContent = t("wake.btn.again");
       again.hidden = false;
       running = false;
@@ -177,14 +177,14 @@
       step("wait", "done", t("ui.started_after", fmt(took)));
       step("online", "done", via(online));
       setState("online");
-      setTitle(t("ui.x_is_online", name), "✓ " + name);
+      setTitle(t("wake.title.confirmed", name), "✓ " + name);
       showResult("ok", t("wake.result.started"), t("wake.result.started_text", name, human(took)));
     } else {
       step("wait", "warn", t("wake.wait.no_answer", fmt(took)));
       step("online", "", "");
       setState("timeout");
       setTitle(t("wake.title.no_answer"), "! " + name);
-      showResult("warn", t("wake.result.timeout", name), t("wake.result.timeout_text"), [t("wake.tip.bios"), t("wake.tip.power"), t("wake.tip.firewall")]);
+      showResult("warn", t("wake.result.timeout"), t("wake.result.timeout_text"), [t("wake.tip.bios"), t("wake.tip.power"), t("wake.tip.firewall")]);
       again.querySelector("span").textContent = t("wake.btn.again");
       again.hidden = false;
     }

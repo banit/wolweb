@@ -31,6 +31,7 @@
     const s = Math.floor(ms / 1000);
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   }
+  const { tn } = window.wolwebI18n;
   function show(kind, head, text) {
     result.className = "wake-result " + kind;
     result.replaceChildren();
@@ -102,11 +103,19 @@
     }
     const online = watch.filter((li) => li.dataset.s === "online").length;
     const failed = items.filter((li) => li.dataset.s === "error").length;
+    const unchecked = items.filter((li) => li.dataset.s === "skip").length; // ohne IP: gesendet, Start nicht prüfbar
     sub.textContent = t("ui.x_of_y_online", online, watch.length);
-    if (!failed && online === watch.length) {
-      card.dataset.state = watch.length ? "online" : "sent";
-      setTitle(watch.length ? t("group.title.online", name) : t("group.title.sent"));
-      show("ok", watch.length ? t("group.result.all_online") : t("wake.result.sent"), watch.length ? "" : t("group.result.no_ip"));
+    if (!failed && online === watch.length && !unchecked) {
+      // Alle geprüft und erreichbar: Start bestätigt
+      card.dataset.state = "online";
+      setTitle(t("group.title.online", name));
+      show("ok", t("group.result.all_online"), "");
+    } else if (!failed && online === watch.length) {
+      // Alle prüfbaren sind da, für die übrigen ging nur der Weckruf raus – kein grüner Haken.
+      card.dataset.state = "sent";
+      setTitle(t("group.title.sent"));
+      show("sent", watch.length ? t("group.result.mixed", online, items.length) : t("wake.result.sent"),
+        watch.length ? tn("group.result.mixed_rest", unchecked) : t("group.result.no_ip"));
     } else {
       card.dataset.state = "timeout";
       setTitle(t("group.title.partial"));

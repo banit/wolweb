@@ -110,7 +110,7 @@
   function toast(kind, title, text) {
     const box = $("#toasts");
     const t = el("div", { class: "toast " + kind }, // der Kasten selbst ist die Ansage (role=status)
-      icon(kind === "ok" ? "check" : kind === "err" ? "x" : "alert"),
+      icon(kind === "ok" ? "check" : kind === "sent" ? "send" : kind === "err" ? "x" : "alert"),
       el("div", {}, el("strong", { text: title }), text ? el("p", { text }) : null));
     box.append(t);
     setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 250); }, kind === "err" ? 7000 : 4200);
@@ -292,12 +292,12 @@
       return;
     }
     if (!d.check_ip) {
-      toast("ok", t("ui.packet_sent"), t("ui.sent_no_ip", d.name, res.target));
+      toast("sent", t("ui.packet_sent"), t("ui.sent_no_ip", d.name, res.target)); // gesendet ≠ gestartet
       loadDevices();
       return;
     }
-    if (res.already) toast("ok", t("ui.already_waking", d.name), t("ui.is_starting", d.name));
-    else toast("ok", t("ui.packet_sent"), t("ui.is_starting", d.name));
+    if (res.already) toast("sent", t("ui.already_waking", d.name), t("ui.is_starting", d.name));
+    else toast("sent", t("ui.packet_sent"), t("ui.is_starting", d.name));
     track(d);
   }
 
