@@ -18,8 +18,8 @@ func TestLegacyImport(t *testing.T) {
 	dir := t.TempDir()
 	legacy := filepath.Join(dir, "old.json")
 	os.WriteFile(legacy, []byte(`{"devices":[
-		{"name":"NAS","mac":"28-c6-8e-36-dc-38","ip":"192.168.1.255:9","interface":""},
-		{"name":"NAS","mac":"28:c6:8e:36:dc:39","ip":"10.0.0.255"},
+		{"name":"NAS","mac":"02-aa-bb-cc-dc-38","ip":"192.168.1.255:9","interface":""},
+		{"name":"NAS","mac":"02:aa:bb:cc:dc:39","ip":"10.0.0.255"},
 		{"name":"kaputt","mac":"xyz","ip":""}]}`), 0o644)
 	s, notes, err := Open(filepath.Join(dir, "data"), legacy)
 	if err != nil {
@@ -35,7 +35,7 @@ func TestLegacyImport(t *testing.T) {
 	if devs[0].Name != "NAS" || devs[1].Name != "NAS 2" {
 		t.Errorf("Namen: %q, %q", devs[0].Name, devs[1].Name)
 	}
-	if devs[0].MAC != "28:C6:8E:36:DC:38" || devs[0].Broadcast != "192.168.1.255:9" || devs[1].Broadcast != "10.0.0.255:9" {
+	if devs[0].MAC != "02:AA:BB:CC:DC:38" || devs[0].Broadcast != "192.168.1.255:9" || devs[1].Broadcast != "10.0.0.255:9" {
 		t.Errorf("Umwandlung falsch: %+v", devs)
 	}
 	// Neu öffnen: eigenes Format, gleiche Daten

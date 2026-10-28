@@ -247,7 +247,7 @@ zusätzlichen Schnittstellen eintragen – die Standardroute bleibt im Hauptnetz
 *Container → Netzwerk → Hinzufügen* (Bridge `vmbr0`, VLAN-Tag `20`, IPv4 statisch, Gateway leer) oder auf dem Host:
 
 ```sh
-pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=192.168.20.5/24
+pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=10.0.0.5/24
 ```
 
 Die Bridge muss „VLAN aware“ sein (*Host → System → Netzwerk → vmbr0 → VLAN aware*, bzw. `bridge-vlan-aware yes` in
@@ -257,7 +257,7 @@ Die Bridge muss „VLAN aware“ sein (*Host → System → Netzwerk → vmbr0 �
 
 ```sh
 sudo ip link add link eth0 name eth0.20 type vlan id 20
-sudo ip addr add 192.168.20.5/24 dev eth0.20
+sudo ip addr add 10.0.0.5/24 dev eth0.20
 sudo ip link set eth0.20 up
 ```
 
@@ -265,7 +265,7 @@ Dauerhaft mit NetworkManager (Raspberry Pi OS ab Bookworm, Ubuntu Desktop):
 
 ```sh
 sudo nmcli con add type vlan con-name vlan20 dev eth0 id 20 \
-  ipv4.method manual ipv4.addresses 192.168.20.5/24 ipv4.never-default yes ipv6.method disabled
+  ipv4.method manual ipv4.addresses 10.0.0.5/24 ipv4.never-default yes ipv6.method disabled
 ```
 
 mit ifupdown (Debian, Paket `vlan`) in `/etc/network/interfaces.d/vlan20`:
@@ -273,7 +273,7 @@ mit ifupdown (Debian, Paket `vlan`) in `/etc/network/interfaces.d/vlan20`:
 ```
 auto eth0.20
 iface eth0.20 inet static
-    address 192.168.20.5/24
+    address 10.0.0.5/24
 ```
 
 mit netplan (Ubuntu Server) in `/etc/netplan/60-vlan20.yaml`, danach `sudo netplan apply`:
@@ -285,12 +285,12 @@ network:
     vlan20:
       id: 20
       link: eth0
-      addresses: [192.168.20.5/24]
+      addresses: [10.0.0.5/24]
 ```
 
 **Docker:** Mit `network_mode: host` (wie in `docker-compose.yml`) sieht wolweb alle Schnittstellen des Hosts –
 das VLAN-Interface also wie oben auf dem Host anlegen, am Container ändert sich nichts. Ohne Host-Netz geht es mit
-je einem macvlan-Netz pro VLAN (`docker network create -d macvlan -o parent=eth0.20 --subnet 192.168.20.0/24 vlan20`),
+je einem macvlan-Netz pro VLAN (`docker network create -d macvlan -o parent=eth0.20 --subnet 10.0.0.0/24 vlan20`),
 das ist aber umständlicher. Docker Desktop (Windows, macOS) kann beides nicht.
 
 **Absichern:** Eine Schnittstelle in einem abgeschotteten Netz (IoT, Gäste) macht wolweb auch von dort erreichbar.
@@ -298,7 +298,7 @@ Mit `host` in `config.json` (bzw. `WOLWEB_HOST`) die Weboberfläche nur an die A
 `"host": "192.168.1.5"` – Wecken und Suche im VLAN funktionieren trotzdem.
 
 Geht keine eigene Schnittstelle, zeigt die Einstellungsseite das Netz als „nicht direkt angeschlossen“ und weckt
-Geräte darin per gerichtetem Broadcast (z. B. `192.168.20.255:9`). Ankommen wird er nur, wenn der Router ihn ins
+Geräte darin per gerichtetem Broadcast (z. B. `10.0.0.255:9`). Ankommen wird er nur, wenn der Router ihn ins
 VLAN weiterleitet – bei OPNsense und pfSense etwa mit dem Plugin „UDP Broadcast Relay“; die meisten Heimrouter
 können das nicht, und suchen lässt sich dort ohnehin nicht.
 
@@ -315,7 +315,7 @@ können das nicht, und suchen lässt sich dort ohnehin nicht.
 | `read_only` | `WOLWEBREADONLY` / `WOLWEB_READONLY` | `false` | nur wecken, nichts ändern |
 | `language` | `WOLWEB_LANGUAGE` | `de` | `de` oder `en`: Sprache, wenn weder Umschalter noch Browser eine nennen (auch für Benachrichtigungen) |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`), Suchergebnisse (`discovered.json`) und Änderungen der Einstellungsseite (`settings.json`) |
-| `discovery.networks` | `WOLWEB_NETWORKS` | automatisch | Netze (CIDR, Variable kommagetrennt); leer = das eine Heimnetz automatisch, bei mehreren Auswahl in der Oberfläche; auch mit Namen: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
+| `discovery.networks` | `WOLWEB_NETWORKS` | automatisch | Netze (CIDR, Variable kommagetrennt); leer = das eine Heimnetz automatisch, bei mehreren Auswahl in der Oberfläche; auch mit Namen: `{"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus (mindestens `1m`) |
 | `discovery.max_hosts` | – | `1024` | größtes erlaubtes Segment |
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | Online-Prüfung aller Geräte, `0` = aus (mindestens `5s`) |
@@ -471,8 +471,11 @@ npx playwright install chromium
 npx playwright test
 ```
 
+Die Screenshots in `docs/screenshots/` erzeugt `node screenshots.js` (im Ordner `e2e`) neu – mit erfundenen
+Geräten, Adressen aus 192.168.1.x / 10.0.0.x und lokal verwalteten MACs, nie mit echten Daten des Rechners.
+
 GitHub Actions prüft jeden Push und Pull Request (gofmt, `go vet`, `go test -race`, Builds für Linux amd64/arm64/
-armv7, Windows, macOS, Browsertests, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.1.0 && git push --tags`)
+armv7, Windows, macOS, Browsertests, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.2.0 && git push --tags`)
 erzeugt ein Release mit fertigen Programmen und das Image auf ghcr.io – das Paket danach einmal unter
 „Packages“ auf öffentlich stellen.
 
@@ -600,14 +603,14 @@ wake and scan – usually an additional VLAN-tagged interface on the machine run
 gateway; the switch port or bridge must carry the VLAN tagged). Once it exists, it appears in the settings under
 “Interfaces of this machine”; “Add” lists the network, and you can give it a name and VLAN ID.
 
-- **Proxmox LXC:** add a second NIC with a VLAN tag, e.g. `pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=192.168.20.5/24`
+- **Proxmox LXC:** add a second NIC with a VLAN tag, e.g. `pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=10.0.0.5/24`
   (the bridge must be VLAN aware).
 - **Linux / Docker host:** `ip link add link eth0 name eth0.20 type vlan id 20` (persistently via NetworkManager,
   ifupdown or netplan – examples in the German section [Mehrere Netze und VLANs](#mehrere-netze-und-vlans)); with
   `network_mode: host` the container sees it automatically.
 - **Hardening:** bind the web interface to the main network with `host` (e.g. `"host": "192.168.1.5"`), otherwise wolweb
   is also reachable from the VLAN.
-- Without an interface, wolweb uses the network's directed broadcast (e.g. `192.168.20.255:9`); it only arrives if the
+- Without an interface, wolweb uses the network's directed broadcast (e.g. `10.0.0.255:9`); it only arrives if the
   router forwards it (OPNsense/pfSense: “UDP Broadcast Relay”), and scanning is not possible there.
 
 ### Configuration
@@ -653,5 +656,6 @@ affected field (`"field": "mac"`). Wake links stay compatible with the original:
 contain the same keys and every key used by the templates and scripts). Browser tests (Playwright, axe-core) live in
 `e2e/`: `cd e2e && npm ci && npx playwright install chromium && npx playwright test` builds wolweb, starts it on
 port 8399 with an empty data directory and checks the overview, dialogs, wake and group pages, keyboard use, touch
-target sizes and WCAG 2.2 AA. GitHub Actions checks formatting, `go vet`, the race detector, builds for all
+target sizes and WCAG 2.2 AA. `node screenshots.js` (in `e2e`) regenerates the screenshots with invented devices and
+addresses only. GitHub Actions checks formatting, `go vet`, the race detector, builds for all
 platforms and runs the browser tests.

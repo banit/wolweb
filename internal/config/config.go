@@ -47,7 +47,7 @@ type Discovery struct {
 }
 
 // Network ist ein Netzsegment, oft ein VLAN. In config.json genügt "192.168.1.0/24"; mit Namen:
-// {"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20, "scan": false}.
+// {"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}.
 type Network struct {
 	CIDR string `json:"cidr"`
 	Name string `json:"name,omitempty"`

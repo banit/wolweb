@@ -180,7 +180,7 @@
             el("label", { class: "field" }, el("span", { text: t("set.net.name") }),
               el("input", { name: "net-name", value: n.name, maxlength: "40", autocomplete: "off", placeholder: t("set.net.name_ph"), disabled: off, oninput: upd("name") })),
             el("label", { class: "field" }, el("span", { text: t("set.net.cidr") }),
-              el("input", { name: "net-cidr", value: n.cidr, class: "mono", autocomplete: "off", placeholder: "192.168.20.0/24", required: true, disabled: off, oninput: upd("cidr") })),
+              el("input", { name: "net-cidr", value: n.cidr, class: "mono", autocomplete: "off", placeholder: "10.0.0.0/24", required: true, disabled: off, oninput: upd("cidr") })),
             el("label", { class: "field net-vlan" }, el("span", { text: t("set.net.vlan") }),
               el("input", { name: "net-vlan", value: n.vlan, inputmode: "numeric", autocomplete: "off", placeholder: "–", disabled: off, oninput: upd("vlan") }))),
           netStatus(n),

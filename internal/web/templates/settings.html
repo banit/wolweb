@@ -53,13 +53,13 @@
         <p>{{.T "set.help.intro"}}</p>
         <h4>Proxmox (LXC)</h4>
         <p>{{.T "set.help.proxmox"}}</p>
-        <pre tabindex="0"><code>pct set &lt;ID&gt; -net1 name=eth1,bridge=vmbr0,tag=20,ip=192.168.20.5/24</code></pre>
+        <pre tabindex="0"><code>pct set &lt;ID&gt; -net1 name=eth1,bridge=vmbr0,tag=20,ip=10.0.0.5/24</code></pre>
         <h4>Docker</h4>
         <p>{{.T "set.help.docker"}}</p>
         <h4>Debian, Raspberry Pi OS, Ubuntu</h4>
         <p>{{.T "set.help.linux"}}</p>
         <pre tabindex="0"><code>ip link add link eth0 name eth0.20 type vlan id 20
-ip addr add 192.168.20.5/24 dev eth0.20
+ip addr add 10.0.0.5/24 dev eth0.20
 ip link set eth0.20 up</code></pre>
         <p>{{.T "set.help.after"}}</p>
       </details>

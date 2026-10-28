@@ -6,7 +6,7 @@ dir=$(mktemp -d)
 cd "$(dirname "$0")/.."
 go build -o "$dir/wolweb" .
 export TZ=UTC WOLWEB_DATA_DIR="$dir/data" WOLWEB_HOST=127.0.0.1 WOLWEB_PORT="${PORT:-8399}" WOLWEB_LANGUAGE=de \
-  WOLWEB_BCASTIP=127.0.0.1 WOLWEB_WAKE_TIMEOUT=8s WOLWEB_WAKE_RETRY=2s
+  WOLWEB_BCASTIP=127.0.0.1 WOLWEB_WAKE_TIMEOUT="${WOLWEB_WAKE_TIMEOUT:-8s}" WOLWEB_WAKE_RETRY="${WOLWEB_WAKE_RETRY:-2s}"
 # Zwei erfundene Suchtreffer (192.168.1.x, lokal verwaltete MACs): einer mit Hostnamen, einer ohne.
 mkdir -p "$dir/data"
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)

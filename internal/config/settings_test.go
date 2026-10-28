@@ -12,20 +12,20 @@ import (
 
 func TestNetworkJSON(t *testing.T) {
 	var d Discovery
-	if err := json.Unmarshal([]byte(`{"networks":["192.168.1.0/24",{"cidr":"10.0.20.0/24","name":"IoT","vlan":20},{"cidr":"10.0.30.0/24","scan":false}]}`), &d); err != nil {
+	if err := json.Unmarshal([]byte(`{"networks":["192.168.1.0/24",{"cidr":"10.0.0.0/25","name":"IoT","vlan":20},{"cidr":"10.0.0.128/25","scan":false}]}`), &d); err != nil {
 		t.Fatal(err)
 	}
-	want := []Network{{CIDR: "192.168.1.0/24", Scan: true}, {CIDR: "10.0.20.0/24", Name: "IoT", VLAN: 20, Scan: true}, {CIDR: "10.0.30.0/24"}}
+	want := []Network{{CIDR: "192.168.1.0/24", Scan: true}, {CIDR: "10.0.0.0/25", Name: "IoT", VLAN: 20, Scan: true}, {CIDR: "10.0.0.128/25"}}
 	for i, n := range want {
 		if d.Networks[i] != n {
 			t.Errorf("Netz %d: %+v, erwartet %+v", i, d.Networks[i], n)
 		}
 	}
-	if got := strings.Join(d.ScanCIDRs(), " "); got != "192.168.1.0/24 10.0.20.0/24" {
+	if got := strings.Join(d.ScanCIDRs(), " "); got != "192.168.1.0/24 10.0.0.0/25" {
 		t.Errorf("durchsucht: %s", got)
 	}
 	b, _ := json.Marshal(d.Networks)
-	if string(b) != `["192.168.1.0/24",{"cidr":"10.0.20.0/24","name":"IoT","vlan":20,"scan":true},{"cidr":"10.0.30.0/24","scan":false}]` {
+	if string(b) != `["192.168.1.0/24",{"cidr":"10.0.0.0/25","name":"IoT","vlan":20,"scan":true},{"cidr":"10.0.0.128/25","scan":false}]` {
 		t.Errorf("geschrieben: %s", b)
 	}
 	if l := d.Networks[1].Label(); l != "IoT (VLAN 20)" {
@@ -65,13 +65,13 @@ func TestSettingsLayers(t *testing.T) {
 
 	e := m.Config().Editable()
 	e.Discovery.Interval = "1h"
-	e.Discovery.Networks = append(e.Discovery.Networks, Network{CIDR: "10.0.20.1/24", Name: " IoT ", VLAN: 20, Scan: true})
+	e.Discovery.Networks = append(e.Discovery.Networks, Network{CIDR: "10.0.0.1/25", Name: " IoT ", VLAN: 20, Scan: true})
 	e.Status.Interval = "5m" // gesperrt: zählt nicht
 	cfg, err := m.Save(e)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Discovery.Interval != "1h" || cfg.Status.Interval != "45s" || cfg.Discovery.Networks[1] != (Network{CIDR: "10.0.20.0/24", Name: "IoT", VLAN: 20, Scan: true}) {
+	if cfg.Discovery.Interval != "1h" || cfg.Status.Interval != "45s" || cfg.Discovery.Networks[1] != (Network{CIDR: "10.0.0.0/25", Name: "IoT", VLAN: 20, Scan: true}) {
 		t.Fatalf("übernommen: %+v", cfg.Discovery)
 	}
 	// Nur Abweichungen von config.json, nichts Gesperrtes

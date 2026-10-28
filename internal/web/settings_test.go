@@ -72,7 +72,7 @@ func TestSettingsAPI(t *testing.T) {
 	// Ändern: gilt sofort, ohne Neustart
 	e := v.Settings
 	e.Status.WakeRetry = "10s"
-	e.Discovery.Networks = append(e.Discovery.Networks, config.Network{CIDR: "10.9.20.0/24", Name: "IoT", VLAN: 20, Scan: true})
+	e.Discovery.Networks = append(e.Discovery.Networks, config.Network{CIDR: "10.0.0.0/24", Name: "IoT", VLAN: 20, Scan: true})
 	e.Language = "en"
 	b, _ := json.Marshal(e)
 	rec = call(h, "PUT", "/api/v1/settings", string(b))
@@ -87,7 +87,7 @@ func TestSettingsAPI(t *testing.T) {
 		t.Errorf("Antwort: %v %+v", v.Stored, v.Networks)
 	}
 	// Ein Gerät im IoT-Netz ohne eigene Schnittstelle bekommt den gerichteten Broadcast.
-	if got := s.wakeTarget(store.Device{MAC: "00:11:22:33:44:55", IP: "10.9.20.7"}); got != "10.9.20.255:9" {
+	if got := s.wakeTarget(store.Device{MAC: "00:11:22:33:44:55", IP: "10.0.0.7"}); got != "10.0.0.255:9" {
 		t.Errorf("Ziel im fremden VLAN: %s", got)
 	}
 	var info map[string]any

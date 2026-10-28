@@ -48,8 +48,8 @@ func TestT(t *testing.T) {
 	}
 	// Verschachtelte Meldung wird mitübersetzt, Fehler bleiben mit errors.Is erreichbar.
 	inner := errors.New("connection refused")
-	m := M("wol.send", "1.2.3.4:9", inner)
-	if got := m.In(EN); got != "Sending to 1.2.3.4:9: connection refused" {
+	m := M("wol.send", "192.168.1.255:9", inner)
+	if got := m.In(EN); got != "Sending to 192.168.1.255:9: connection refused" {
 		t.Errorf("verschachtelt: %q", got)
 	}
 	if !errors.Is(m, inner) {
