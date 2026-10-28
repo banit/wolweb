@@ -318,3 +318,24 @@ test("Start nicht bestätigt: Warnung bleibt stehen, nochmals prüfen", async ({
   await warn.getByRole("button", { name: "Hinweis schließen" }).click();
   await expect(card.locator(".card-warn")).toHaveCount(0);
 });
+
+test("Verlauf in Worten: je Eintrag ein Ergebnissatz, Einzelheiten unter „Details“", async ({ page, request }) => {
+  test.setTimeout(45000);
+  const H = { "X-WolWeb": "1" };
+  const drucker = await addDevice(request, { name: "Drucker" });
+  const nas = await offlineDevice(request, "NAS");
+  for (const d of [drucker, nas]) expect((await request.post("api/v1/devices/" + d.id + "/wake", { headers: H })).ok()).toBeTruthy();
+  await page.waitForTimeout(9000); // Server: WOLWEB_WAKE_TIMEOUT=8s
+  await page.goto("./");
+  await page.click("#open-history");
+  const item = (name) => page.locator("#history-list > li", { hasText: name }).first();
+  await expect(item("Drucker").locator(".h-result")).toHaveText("Weckruf gesendet");
+  await expect(item("NAS").locator(".h-result")).toHaveText("Start nicht bestätigt (automatisch wiederholt)"); // neuester: die Wiederholung
+  await expect(page.locator("#history-list > li", { hasText: "NAS" }).nth(1).locator(".h-result")).toHaveText("Start nicht bestätigt");
+  const details = item("NAS").locator("details");
+  await expect(details.getByText("Ausgelöst über: Übersicht")).toBeHidden();
+  await details.getByText("Details").click();
+  await expect(details.getByText("Ausgelöst über: Übersicht")).toBeVisible();
+  await expect(details).toContainText("Gesendet an 127.0.0.1:9");
+  await expect(item("Drucker").locator("details")).toContainText("Ohne IP-Adresse lässt sich der Start nicht prüfen.");
+});

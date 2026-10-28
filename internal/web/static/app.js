@@ -1110,18 +1110,42 @@
     const s = t(key, ev.group || "");
     return s === key ? ev.source : s; // unbekannte Quelle: so anzeigen, wie sie gespeichert ist
   }
+  // outcome: ein Satz je Eintrag – ob der Weckruf rausging und ob der Start bestätigt ist.
+  function outcome(ev) {
+    if (!ev.success) return { kind: "err", icon: "x", text: t("ui.hist.failed") };
+    if (ev.started) return { kind: "ok", icon: "check", text: t("ui.hist.started", fmtDuration(new Date(ev.started) - new Date(ev.time))) };
+    if (ev.was_online) return { kind: "ok", icon: "check", text: t("ui.hist.running") };
+    if (!ev.checkable) return { kind: "sent", icon: SOURCE_ICON[ev.source] || "send", text: t("ui.hist.sent") };
+    // Die Wiederholung kommt wake_retry nach dem Weckruf, die Wartezeit läuft aber ab dem Weckruf.
+    const wait = (state.info.wake_timeout - (ev.retry ? state.info.wake_retry || 0 : 0)) * 1000;
+    if (Date.now() - new Date(ev.time) < wait) return { kind: "sent", icon: "send", text: t("ui.hist.waiting") };
+    return { kind: "warn", icon: "alert", text: t("ui.hist.unconfirmed") };
+  }
   async function openHistory() {
     const d = $("#history-dialog");
     let events = [];
     try { events = (await api("GET", "history?limit=200")).events || []; } catch (e) { toast("err", t("ui.history_unavailable"), e.message); return; }
     const fmt = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-    $("#history-list").replaceChildren(...events.map((ev) => el("li", { class: ev.success ? "ok" : "err" },
-      icon(ev.success ? (SOURCE_ICON[ev.source] || "check") : "x"),
-      el("div", { class: "h-main" },
-        el("strong", { text: ev.device }),
-        el("div", { class: "h-meta", text: [sourceText(ev), ev.retry && t("ui.retry_event"), ev.user, ev.client, ev.target && t("ui.to_target", ev.target)].filter(Boolean).join(" · ") }),
-        ev.error ? el("div", { class: "h-meta", text: ev.error }) : null),
-      el("time", { datetime: ev.time, title: new Date(ev.time).toLocaleString(locale), text: fmt.format(new Date(ev.time)) }))));
+    $("#history-list").replaceChildren(...events.map((ev) => {
+      const r = outcome(ev);
+      const details = [
+        t("ui.hist.source", sourceText(ev)),
+        ev.retry && t("ui.retry_event"),
+        ev.user && t("ui.hist.user", ev.user),
+        ev.client && t("ui.hist.client", ev.client),
+        ev.target && t("ui.hist.target", ev.target),
+        ev.success && !ev.checkable && t("ui.hist.no_ip"),
+        ev.error && t("ui.hist.error", ev.error),
+      ].filter(Boolean);
+      return el("li", { class: r.kind },
+        icon(r.icon),
+        el("div", { class: "h-main" },
+          el("strong", { text: ev.device }),
+          el("p", { class: "h-result", text: r.text + (ev.retry ? " " + t("ui.hist.retried") : "") }),
+          el("details", { class: "h-details" }, el("summary", { text: t("ui.hist.details") }),
+            el("ul", {}, details.map((x) => el("li", { text: x }))))),
+        el("time", { datetime: ev.time, title: new Date(ev.time).toLocaleString(locale), text: fmt.format(new Date(ev.time)) }));
+    }));
     $("#history-empty").hidden = events.length !== 0;
     d.showModal();
   }

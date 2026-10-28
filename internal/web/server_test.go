@@ -991,3 +991,33 @@ func TestRenameKeepsOldLinks(t *testing.T) {
 		t.Errorf("Alias nicht freigegeben: %v", got.Aliases)
 	}
 }
+
+// Verlauf in Worten: Der Eintrag weiß, ob sich der Start prüfen ließ und wann das Gerät danach
+// erreichbar war.
+func TestHistoryRecordsStart(t *testing.T) {
+	st, _, _ := store.Open(t.TempDir(), "")
+	s := New(config.Default(), st, status.New(st, probe.New(nil, 100*time.Millisecond), 0), discovery.New(st, nil, 16), false, "test")
+	withIP, _ := st.Create(store.Input{Name: "NAS", MAC: "02:00:00:00:00:01", IP: "192.0.2.10", Broadcast: udpSink(t)})
+	noIP, _ := st.Create(store.Input{Name: "Switch", MAC: "02:00:00:00:00:02", Broadcast: udpSink(t)})
+	for _, d := range []store.Device{withIP, noIP} {
+		_, _, a := s.sendWake(nil, d, srcUI, "")
+		s.recordWakes(a)
+	}
+	off := status.State{State: "offline"}
+	s.statusChanged(withIP, off, true, status.State{State: "online"})
+	s.statusChanged(noIP, off, true, status.State{State: "online"}) // ohne IP gibt es nichts zu bestätigen
+	byName := map[string]store.Event{}
+	for _, ev := range st.History(0) {
+		byName[ev.Device] = ev
+	}
+	if ev := byName["NAS"]; !ev.Checkable || ev.Started == nil || ev.WasOnline {
+		t.Errorf("NAS: %+v", ev)
+	}
+	if ev := byName["Switch"]; ev.Checkable || ev.Started != nil {
+		t.Errorf("Switch: %+v", ev)
+	}
+	// Nur Wechsel nach online bestätigen, und nur Weckrufe aus dem Zeitfenster.
+	if st.ConfirmStart(withIP.ID, time.Now().Add(time.Hour), time.Minute) {
+		t.Error("alter Weckruf bestätigt")
+	}
+}

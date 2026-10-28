@@ -31,6 +31,11 @@ type Event struct {
 	Success bool      `json:"success"`
 	Error   string    `json:"error,omitempty"`
 	Retry   bool      `json:"retry,omitempty"` // automatische Wiederholung, weil das Gerät nicht antwortete
+	// Ergebnis des Starts: Checkable – eine IP war bekannt, der Start ließ sich also prüfen;
+	// WasOnline – das Gerät lief schon; Started – wann es danach erreichbar war.
+	Checkable bool       `json:"checkable,omitempty"`
+	WasOnline bool       `json:"was_online,omitempty"`
+	Started   *time.Time `json:"started,omitempty"`
 }
 
 // HistoryMax begrenzt den Verlauf (älteste Einträge fallen heraus).
@@ -107,6 +112,31 @@ func (s *Store) RecordWake(evs ...Event) error {
 		s.state.History = slices.Clone(s.state.History[n-HistoryMax:])
 	}
 	return s.saveState()
+}
+
+// ConfirmStart vermerkt, dass ein Gerät erreichbar wurde: Erfolgreiche, prüfbare Weckrufe der
+// letzten window, deren Start noch offen ist, bekommen den Zeitpunkt (auch eine Wiederholung).
+// Gespeichert wird gesammelt (FlushState). Liefert, ob sich etwas änderte.
+func (s *Store) ConfirmStart(id string, at time.Time, window time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for i := len(s.state.History) - 1; i >= 0; i-- {
+		ev := &s.state.History[i]
+		if at.Sub(ev.Time) > window {
+			break
+		}
+		if ev.ID != id || !ev.Success || !ev.Checkable || ev.WasOnline || ev.Started != nil || ev.Time.After(at) {
+			continue
+		}
+		t := at.UTC()
+		ev.Started = &t
+		changed = true
+	}
+	if changed {
+		s.stateDirty = true
+	}
+	return changed
 }
 
 // LastWake liefert den Zeitpunkt des letzten erfolgreichen Weckens (Null, wenn nie).

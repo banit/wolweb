@@ -45,7 +45,8 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
   `Mo-Fr 07:30` wecken Geräte automatisch
 - **Benachrichtigungen** per Webhook (JSON) oder ntfy aufs Handy, wenn ein Gerät online/offline geht oder
   geweckt wird; **Prometheus-Metriken** unter `/metrics`
-- **Verlauf** jedes Weckversuchs (wer, wann, woher, Ergebnis), **Export/Import** der Geräte als JSON
+- **Verlauf** in Worten: je Weckversuch ein Satz („Weckruf gesendet“, „Start bestätigt (nach 0:42 min)“, „Start nicht
+  bestätigt“), wer, woher und wohin unter „Details“; **Export/Import** der Geräte als JSON
 - **Deutsch und Englisch**: Die Oberfläche folgt der Sprache des Browsers und lässt sich oben rechts umschalten;
   auch die Meldungen der API kommen in der gewählten Sprache
 - Übernimmt die `devices.json` und die Einstellungen des alten wolweb
@@ -475,7 +476,8 @@ in **English and German**; it follows the browser language and can be switched i
 - **Notifications** via webhook (JSON) or ntfy push when a device goes online/offline or is woken – sent exactly to
   the configured address (servers on your LAN included); redirects (3xx) are not followed but logged as an error, so
   a redirecting server cannot divert messages to a target nobody configured; **Prometheus metrics** at `/metrics`
-- **History** of every wake attempt (who, when, from where, result), **export/import** of devices as JSON
+- **History** in words: one sentence per wake attempt ("Wake-up call sent", "Start confirmed (after 0:42 min)",
+  "Start not confirmed"), who, from where and to where under "Details"; **export/import** of devices as JSON
 - **Security**: optional login (HTTP Basic, API token), per-device keys for public wake links, no double waking (one
   wake-up call per device every 10 s on all paths; a second call reports `"already": true`). A wake link wakes when
   opened – on purpose, also from dashboards on other sites; any website you visit could therefore send your browser

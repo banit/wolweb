@@ -153,6 +153,11 @@ func (s *Server) devicesChanged() { s.hub.publish("devices", struct{}{}) }
 // statusChanged wird vom Monitor nach jeder Statusänderung aufgerufen.
 func (s *Server) statusChanged(d store.Device, old status.State, hadOld bool, st status.State) {
 	s.hub.publish("status", map[string]any{"id": d.ID, "status": st})
+	// Erreichbar geworden: offene Weckrufe im Verlauf gelten als „Start bestätigt“ – auch wenn der
+	// Start länger dauerte als die Wartezeit der Weckseite.
+	if st.State == "online" && (!hadOld || old.State != "online") {
+		s.store.ConfirmStart(d.ID, time.Now(), max(2*s.rt().wakeTimeout, 5*time.Minute))
+	}
 	// Benachrichtigen nur bei echten Wechseln online ↔ offline – nicht beim ersten Ergebnis nach
 	// dem Start und nicht bei "unbekannt" (keine IP).
 	if hadOld && old.State != st.State && (old.State == "online" || old.State == "offline") &&

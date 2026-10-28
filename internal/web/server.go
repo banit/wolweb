@@ -619,6 +619,13 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 	evs := make([]store.Event, len(as))
 	for i, a := range as {
 		evs[i] = a.ev
+		// Für den Verlauf in Worten: Ließ sich der Start prüfen, lief das Gerät schon?
+		if ip, _ := s.monitor.Target(a.d); ip.IsValid() {
+			evs[i].Checkable = true
+			if st, ok := s.monitor.Get(a.d.ID); ok && st.State == "online" && !a.ev.Retry {
+				evs[i].WasOnline = true
+			}
+		}
 	}
 	if err := s.store.RecordWake(evs...); err != nil {
 		log.Printf("Verlauf speichern: %v", err)

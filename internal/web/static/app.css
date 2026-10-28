@@ -299,6 +299,13 @@ a { color: var(--accent); }
 .history li .ico { width: 18px; height: 18px; margin-top: 2px; }
 .history li.ok .ico { color: var(--ok); }
 .history li.err .ico { color: var(--err); }
+.history li.sent .ico { color: var(--accent); }
+.history li.warn .ico { color: var(--warn); }
+.history .h-result { font-size: .88rem; }
+.history .h-details { font-size: .78rem; color: var(--muted); }
+.history .h-details summary { cursor: pointer; width: max-content; }
+.history .h-details ul { margin: .2rem 0 0; padding-left: 1rem; overflow-wrap: anywhere; }
+.history .h-details li { display: list-item; padding: 0; border: 0; background: none; }
 .history .h-main { min-width: 0; }
 .history .h-main strong { font-weight: 620; }
 .history .h-meta { font-size: .78rem; color: var(--muted); overflow-wrap: anywhere; }
