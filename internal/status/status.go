@@ -97,11 +97,20 @@ func (m *Monitor) Check(ctx context.Context, d store.Device) State {
 		m.set(d, st)
 		return st
 	}
-	r := m.prober.Check(ctx, ip)
-	st := State{State: "offline", IP: ip.String(), IPSource: src, CheckedAt: time.Now().UTC(), started: started}
 	m.mu.RLock()
-	st.LastSeen = m.states[d.ID].LastSeen
+	prev := m.states[d.ID]
 	m.mu.RUnlock()
+	hint := ""
+	if prev.State == "online" { // zuerst mit der Methode prüfen, die zuletzt geklappt hat
+		hint = prev.Method
+	}
+	var ports []int // nil = Standardliste
+	if len(d.Ports) > 0 {
+		ports = d.Ports
+	}
+	r := m.prober.Check(ctx, ip, ports, hint)
+	st := State{State: "offline", IP: ip.String(), IPSource: src, CheckedAt: time.Now().UTC(), started: started}
+	st.LastSeen = prev.LastSeen
 	if r.Online {
 		// Antwortet unter der IP ein anderes Gerät (andere MAC in der Nachbartabelle), zählt das nicht.
 		if mac := discovery.NeighborMAC(ip); mac != nil && !strings.EqualFold(mac.String(), d.MAC) {

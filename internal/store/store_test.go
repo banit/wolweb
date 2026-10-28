@@ -65,6 +65,7 @@ func TestCRUDAndValidation(t *testing.T) {
 		{Name: "x", MAC: "nope"},
 		{Name: "x", MAC: "00:11:22:33:44:55", IP: "300.1.1.1"},
 		{Name: "x", MAC: "00:11:22:33:44:55", Broadcast: "fe80::1"},
+		{Name: "x", MAC: "00:11:22:33:44:55", Ports: []int{22, 0}},
 	} {
 		if _, err := s.Create(in); !errors.As(err, &ve) {
 			t.Errorf("%+v sollte abgelehnt werden: %v", in, err)

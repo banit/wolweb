@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,14 +46,33 @@ func New(ports []int, timeout time.Duration) *Prober {
 // ICMPAvailable sagt, ob Ping-Pakete verschickt werden können.
 func (p *Prober) ICMPAvailable() bool { return p.pinger != nil }
 
-// Check liefert, sobald eine Methode Erfolg meldet, spätestens nach Timeout.
-func (p *Prober) Check(ctx context.Context, ip netip.Addr) Result {
+// tcpDelay ist der Vorsprung für Ping (und für die zuletzt erfolgreiche Methode), bevor die
+// übrigen TCP-Ports angefragt werden. Antwortet das Gerät rechtzeitig, entsteht keine einzige
+// weitere Verbindung – sonst stünde z. B. alle 30 s ein "kex_exchange_identification" im
+// sshd-Log jedes geprüften Geräts.
+const tcpDelay = 300 * time.Millisecond
+
+// Check prüft ip und liefert, sobald eine Methode Erfolg meldet, spätestens nach Timeout.
+// ports ersetzt die Standardliste (nil = p.Ports). hint ist die zuletzt erfolgreiche Methode
+// ("icmp", "tcp/22", "tcp/445 (abgelehnt)"): Ein TCP-Port daraus wird sofort angefragt.
+func (p *Prober) Check(ctx context.Context, ip netip.Addr, ports []int, hint string) Result {
+	if ports == nil {
+		ports = p.Ports
+	}
 	ctx, cancel := context.WithTimeout(ctx, p.Timeout)
 	defer cancel()
-	res := make(chan Result, len(p.Ports)+1)
+	res := make(chan Result, len(ports)+1)
 	var wg sync.WaitGroup
 	start := time.Now()
 	refusedCounts := p.OnLink == nil || p.OnLink(ip)
+	first := hintPort(hint)
+	if !slices.Contains(ports, first) {
+		first = 0
+	}
+	var delay time.Duration // ohne Ping und ohne Hinweis: alle Ports sofort
+	if p.pinger != nil || first != 0 {
+		delay = tcpDelay
+	}
 	if p.pinger != nil {
 		wg.Add(1)
 		go func() {
@@ -62,10 +82,21 @@ func (p *Prober) Check(ctx context.Context, ip netip.Addr) Result {
 			}
 		}()
 	}
-	for _, port := range p.Ports {
+	for _, port := range ports {
+		wait := delay
+		if port == first {
+			wait = 0
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if wait > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(wait):
+				}
+			}
 			if ok, refused := tcpProbe(ctx, ip, port); ok && (!refused || refusedCounts) {
 				m := "tcp/" + strconv.Itoa(port)
 				if refused {
@@ -84,6 +115,16 @@ func (p *Prober) Check(ctx context.Context, ip netip.Addr) Result {
 	case <-ctx.Done():
 	}
 	return Result{}
+}
+
+// hintPort liest den Port aus "tcp/22" bzw. "tcp/22 (abgelehnt)"; sonst 0.
+func hintPort(method string) int {
+	rest, ok := strings.CutPrefix(method, "tcp/")
+	if !ok {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.Fields(rest + " ")[0])
+	return n
 }
 
 func tcpProbe(ctx context.Context, ip netip.Addr, port int) (ok, refused bool) {

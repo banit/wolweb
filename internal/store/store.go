@@ -31,6 +31,7 @@ type Device struct {
 	Interface string     `json:"interface,omitempty"`
 	Icon      string     `json:"icon,omitempty"`
 	Note      string     `json:"note,omitempty"`
+	Ports     []int      `json:"ports,omitempty"` // eigene Ports für die Online-Prüfung, leer = Standard
 	Vendor    string     `json:"vendor,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
@@ -341,6 +342,7 @@ type Input struct {
 	Interface string `json:"interface"`
 	Icon      string `json:"icon"`
 	Note      string `json:"note"`
+	Ports     []int  `json:"ports"`
 }
 
 var icons = []string{"desktop", "laptop", "server", "nas", "tv", "console", "router", "printer", "other"}
@@ -384,6 +386,17 @@ func (in *Input) validate() (Device, error) {
 	d.Note = strings.TrimSpace(in.Note)
 	if utf8.RuneCountInString(d.Note) > 500 {
 		return d, ValidationError{"Die Notiz ist zu lang (höchstens 500 Zeichen)."}
+	}
+	for _, p := range in.Ports {
+		if p <= 0 || p > 65535 {
+			return d, ValidationError{fmt.Sprintf("Ports: %d ist kein gültiger Port (1–65535).", p)}
+		}
+		if !slices.Contains(d.Ports, p) {
+			d.Ports = append(d.Ports, p)
+		}
+	}
+	if len(d.Ports) > 16 {
+		return d, ValidationError{"Ports: höchstens 16 Stück."}
 	}
 	return d, nil
 }

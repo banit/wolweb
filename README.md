@@ -27,6 +27,10 @@ ablehnt** – eine Ablehnung kommt nur von einem laufenden Betriebssystem. Das g
 hinter einem Router zählt nur eine angenommene Verbindung oder Ping, weil dort auch eine Firewall stellvertretend
 ablehnen kann.
 
+Geprüft wird zuerst per Ping und mit der Methode, die beim letzten Mal geklappt hat; die übrigen Ports kommen erst
+0,3 s später dran. Ein Gerät, das auf Ping antwortet, bekommt so keine einzige TCP-Verbindung (kein Rauschen im
+SSH-Log). Pro Gerät lassen sich unter „Erweitert“ eigene Ports eintragen, z. B. `32400` für einen Plex-Server.
+
 ## Netzwerksuche
 
 In `discovery.networks` (oder `WOLWEB_NETWORKS`) die Segmente eintragen, z. B. `192.168.1.0/24`. Gesucht wird nur

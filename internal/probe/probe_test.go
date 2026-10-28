@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -30,18 +31,45 @@ func TestOpenPortIsOnline(t *testing.T) {
 	port := l.Addr().(*net.TCPAddr).Port
 	// Ohne Ping (pinger nil); hinter einem Router zählt eine angenommene Verbindung trotzdem.
 	p := &Prober{Ports: []int{port}, Timeout: time.Second, OnLink: func(netip.Addr) bool { return false }}
-	if r := p.Check(context.Background(), loopback); !r.Online || r.Method == "" {
+	if r := p.Check(context.Background(), loopback, nil, ""); !r.Online || r.Method == "" {
 		t.Errorf("offener Port: %+v", r)
 	}
 }
 
 func TestRefusedCountsOnlyOnLink(t *testing.T) {
 	p := &Prober{Ports: []int{freePort(t)}, Timeout: time.Second}
-	if r := p.Check(context.Background(), loopback); !r.Online {
+	if r := p.Check(context.Background(), loopback, nil, ""); !r.Online {
 		t.Error("Ablehnung im eigenen Netz sollte als online gelten")
 	}
 	p.OnLink = func(netip.Addr) bool { return false }
-	if r := p.Check(context.Background(), loopback); r.Online {
+	if r := p.Check(context.Background(), loopback, nil, ""); r.Online {
 		t.Errorf("Ablehnung hinter einem Router zählt als online: %+v", r)
+	}
+}
+
+func TestHintedPortFirst(t *testing.T) {
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	open := l.Addr().(*net.TCPAddr).Port
+	// Der abgelehnte Port wäre ohne Hinweis genauso schnell; mit Hinweis muss der offene gewinnen.
+	p := &Prober{Ports: []int{freePort(t), open}, Timeout: time.Second}
+	want := "tcp/" + strconv.Itoa(open)
+	if r := p.Check(context.Background(), loopback, nil, want); r.Method != want {
+		t.Errorf("Methode %q statt %q", r.Method, want)
+	}
+	// Eigene Ports ersetzen die Standardliste.
+	if r := p.Check(context.Background(), loopback, []int{open}, ""); r.Method != want {
+		t.Errorf("eigene Ports: %q", r.Method)
+	}
+}
+
+func TestHintPort(t *testing.T) {
+	for in, want := range map[string]int{"tcp/22": 22, "tcp/445 (abgelehnt)": 445, "icmp": 0, "": 0, "tcp/x": 0} {
+		if got := hintPort(in); got != want {
+			t.Errorf("%q: %d statt %d", in, got, want)
+		}
 	}
 }

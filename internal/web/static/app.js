@@ -286,11 +286,13 @@
     form.broadcast.value = v.broadcast || "";
     form.interface.value = v.interface || "";
     form.note.value = v.note || "";
+    form.ports.value = (v.ports || []).join(", ");
+    form.ports.placeholder = state.info.ports && state.info.ports.length ? "Standard: " + state.info.ports.slice(0, 5).join(", ") + (state.info.ports.length > 5 ? " …" : "") : "Standard";
     const ic = form.querySelector('input[name="icon"][value="' + (v.icon || "desktop") + '"]');
     if (ic) ic.checked = true;
     $("#vendor-hint").textContent = v.vendor ? "Hersteller: " + v.vendor : "";
     form.broadcast.placeholder = "automatisch" + (state.info.default_broadcast ? " (" + state.info.default_broadcast + ")" : "");
-    $(".advanced").open = !!(v.broadcast || v.interface || v.note);
+    $(".advanced").open = !!(v.broadcast || v.interface || v.note || (v.ports && v.ports.length));
     $("#delete-device").hidden = !d;
     dlg.showModal();
     (v.name ? form.mac : form.name).focus();
@@ -303,9 +305,18 @@
       name: form.name.value, mac: form.mac.value, ip: form.ip.value, broadcast: form.broadcast.value,
       interface: form.interface.value, note: form.note.value,
       icon: (form.querySelector('input[name="icon"]:checked') || {}).value || "desktop",
+      ports: form.ports.value.split(/[\s,;]+/).filter(Boolean).map(Number),
     };
     const err = $("#form-error");
     for (const i of form.querySelectorAll("input")) i.removeAttribute("aria-invalid");
+    if (body.ports.some((p) => !Number.isInteger(p))) {
+      err.textContent = "Ports: bitte nur Zahlen, getrennt durch Komma.";
+      err.hidden = false;
+      $(".advanced").open = true;
+      form.ports.setAttribute("aria-invalid", "true");
+      form.ports.focus();
+      return;
+    }
     if (!body.name.trim()) { form.name.setAttribute("aria-invalid", "true"); form.name.focus(); return; }
     if (!body.mac.trim()) { form.mac.setAttribute("aria-invalid", "true"); form.mac.focus(); return; }
     const btn = $("#save-device");
@@ -327,6 +338,7 @@
       if (/MAC/.test(e.message)) form.mac.setAttribute("aria-invalid", "true");
       else if (/IP-Adresse/.test(e.message)) form.ip.setAttribute("aria-invalid", "true");
       else if (/Broadcast/.test(e.message)) form.broadcast.setAttribute("aria-invalid", "true");
+      else if (/^Ports/.test(e.message)) form.ports.setAttribute("aria-invalid", "true");
       else if (/Name|namens/.test(e.message)) form.name.setAttribute("aria-invalid", "true");
     } finally {
       btn.disabled = false;

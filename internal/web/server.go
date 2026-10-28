@@ -510,6 +510,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"auth":              s.cfg.AuthEnabled(),
 		"public_wake":       s.cfg.Auth.PublicWake,
 		"wake_timeout":      int(s.wakeTimeout.Seconds()),
+		"ports":             s.cfg.Status.Ports,
 	})
 }
 

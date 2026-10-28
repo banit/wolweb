@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -34,9 +35,25 @@ type LocalNet struct {
 	Broadcast string       `json:"broadcast"`
 }
 
-// LocalNets listet die IPv4-Netze der eigenen Schnittstellen (ohne Loopback).
+var localCache struct {
+	sync.Mutex
+	at   time.Time
+	nets []LocalNet
+}
+
+// LocalNets listet die IPv4-Netze der eigenen Schnittstellen (ohne Loopback). Das Ergebnis wird
+// 10 s zwischengespeichert – es wird je Gerät und Anfrage gebraucht (Broadcast, Online-Prüfung).
 func LocalNets() []LocalNet {
-	var out []LocalNet
+	localCache.Lock()
+	defer localCache.Unlock()
+	if localCache.nets == nil || time.Since(localCache.at) > 10*time.Second {
+		localCache.nets, localCache.at = readLocalNets(), time.Now()
+	}
+	return slices.Clone(localCache.nets)
+}
+
+func readLocalNets() []LocalNet {
+	out := []LocalNet{}
 	ifs, _ := net.Interfaces()
 	for _, ifc := range ifs {
 		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
