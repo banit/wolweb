@@ -154,6 +154,15 @@ die genau sagt, was einzutragen ist. Am einfachsten öffnest du wolweb einmal ü
 bereit. Alternativ in `config.json` `"allowed_hosts": ["wol.example.com"]` bzw. in Docker
 `WOLWEB_ALLOWED_HOSTS=wol.example.com`. Beim Start steht ein entsprechender Hinweis im Log.
 
+**Sicherung und Weg zurück:** Bevor eine neue Version die Daten zum ersten Mal schreibt, legt sie eine Kopie an:
+`data/sicherung-<alte Version>-<Datum>/` (etwa `sicherung-1.0.x-20261028-160512/` mit `devices.json`,
+`discovered.json` und – ab 1.1 – `state.json` und `settings.json`). Das passiert einmal je Versionswechsel. Eine
+ältere Version kann die neuen Dateien zwar lesen, verwirft beim nächsten Speichern aber, was sie nicht kennt
+(SecureOn, Weckschlüssel, Gruppen, Zeitpläne, eigene Ports, Verlauf). Zurück geht es so: wolweb stoppen, die
+Dateien aus dem Sicherungsordner nach `data/` kopieren, Dateien, die in der Sicherung fehlen (bei 1.0.x
+`state.json` und `settings.json`), aus `data/` löschen, dann die alte Version starten. Was seit dem Update
+geändert wurde, fehlt danach.
+
 ## Einstellungen
 
 Das Zahnrad oben rechts öffnet die Einstellungsseite (`/settings`). Dort lassen sich die Netze und VLANs,
@@ -464,6 +473,13 @@ against DNS rebinding. The domain then shows a page that says exactly what to ad
 via its IP address (`http://192.168.1.5:8089`) and allow the name in the settings under “Security” – it is already
 offered there. Alternatively `"allowed_hosts": ["wol.example.com"]` in `config.json` or
 `WOLWEB_ALLOWED_HOSTS=wol.example.com` in Docker. A hint is logged at start-up.
+
+**Backup and going back:** before a new version writes the data for the first time, it makes a copy in
+`data/sicherung-<old version>-<date>/` (e.g. `sicherung-1.0.x-20261028-160512/`), once per version change. An older
+version can read the new files but drops what it does not know (SecureOn, wake keys, groups, schedules, custom
+ports, history) on its next save. To go back: stop wolweb, copy the files from the backup folder into `data/`,
+delete files from `data/` that the backup does not contain (for 1.0.x `state.json` and `settings.json`), and start
+the old version. Changes made since the update are lost.
 
 ### Settings page
 

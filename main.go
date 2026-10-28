@@ -58,6 +58,7 @@ func main() {
 	}
 
 	legacy, _ := filepath.Abs(*legacyPath)
+	store.AppVersion = version
 	st, notes, err := store.Open(cfg.DataDir, legacy)
 	if errors.Is(err, fs.ErrPermission) {
 		log.Fatalf("Datenverzeichnis %s ist nicht beschreibbar: %v\n"+

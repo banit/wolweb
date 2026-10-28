@@ -87,11 +87,57 @@ type Store struct {
 	revision   int64
 	state      stateFile
 	stateDirty bool
+	rewrite    bool // nach einem Versionswechsel devices.json einmal neu schreiben
 }
 
 type devicesFile struct {
-	Version int      `json:"version"`
+	Version int `json:"version"`
+	// Writer ist die Programmversion, die die Datei zuletzt geschrieben hat. Fehlt sie, stammt die
+	// Datei von 1.0.x (ohne state.json) oder 1.1.x.
+	Writer  string   `json:"writer,omitempty"`
 	Devices []Device `json:"devices"`
+}
+
+// AppVersion ist die Version dieses Programms (setzt main). Wechselt sie, sichert Open die Dateien
+// vorher – eine ältere Version verwirft beim Speichern, was sie nicht kennt.
+var AppVersion = "dev"
+
+// dataFiles sind die Dateien im Datenverzeichnis, die eine Sicherung umfasst.
+var dataFiles = []string{"devices.json", "state.json", "discovered.json", "settings.json"}
+
+// backup kopiert die vorhandenen Dateien nach sicherung-<label>-<Zeitpunkt>/ und liefert den Ordner.
+func backup(dir, label string) (string, error) {
+	dst := filepath.Join(dir, "sicherung-"+label+"-"+time.Now().Format("20060102-150405"))
+	if err := os.Mkdir(dst, 0o750); err != nil {
+		return "", err
+	}
+	for _, f := range dataFiles {
+		b, err := os.ReadFile(filepath.Join(dir, f))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(filepath.Join(dst, f), b, 0o600); err != nil {
+			return "", err
+		}
+	}
+	return dst, atomicfile.SyncDir(dst)
+}
+
+// previousWriter bestimmt, welche Version die vorhandenen Daten geschrieben hat.
+func previousWriter(dir string, b []byte) string {
+	var f struct {
+		Writer string `json:"writer"`
+	}
+	if json.Unmarshal(b, &f) == nil && f.Writer != "" {
+		return f.Writer
+	}
+	if _, err := os.Stat(filepath.Join(dir, "state.json")); err == nil {
+		return "1.1.x"
+	}
+	return "1.0.x"
 }
 
 type legacyFile struct {
@@ -121,14 +167,23 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 			return nil, nil, fmt.Errorf("%s: %w", path, err)
 		}
 		s.devices, migratedWake = devs, lw
-		if n != "" {
-			// Die Datei im alten Format wird gleich überschrieben – vorher sichern, damit ein
-			// Zurück zum alten wolweb möglich bleibt.
-			bak := path + ".alt-" + time.Now().Format("20060102-150405")
-			if err := os.WriteFile(bak, b, 0o640); err != nil {
-				return nil, nil, fmt.Errorf("Sicherung %s: %w", bak, err)
+		// Die Dateien werden gleich im neuen Format geschrieben. Eine ältere Version (1.0.x, das
+		// Original-wolweb) verwürfe dabei, was sie nicht kennt – vorher alles sichern, damit der
+		// Weg zurück offen bleibt (Sicherung zurückspielen, siehe README).
+		label := "original"
+		if n == "" {
+			label = previousWriter(dir, b)
+		}
+		if label != AppVersion {
+			bak, err := backup(dir, label)
+			if err != nil {
+				return nil, nil, fmt.Errorf("Sicherung vor dem Update: %w", err)
 			}
-			notes = append(notes, n, "Datei im alten Format gesichert als "+bak)
+			notes = append(notes, fmt.Sprintf("Daten von wolweb %s gesichert in %s", label, bak))
+			s.rewrite = true
+		}
+		if n != "" {
+			notes = append(notes, n)
 			if err := s.saveDevices(); err != nil {
 				return nil, nil, err
 			}
@@ -197,8 +252,10 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 			s.devices[i].WakeKey, missingKey = newWakeKey(), true
 		}
 	}
-	// last_wake erst nach dem Speichern von state.json aus devices.json entfernen.
-	if len(migratedWake) > 0 || missingKey {
+	// last_wake erst nach dem Speichern von state.json aus devices.json entfernen. Nach einem
+	// Versionswechsel einmal neu schreiben, damit die Datei die neue Version nennt (und die
+	// Sicherung nicht bei jedem Start erneut entsteht).
+	if len(migratedWake) > 0 || missingKey || s.rewrite {
 		if err := s.saveDevices(); err != nil {
 			return nil, nil, err
 		}
@@ -301,7 +358,7 @@ func writeAtomic(path string, v any) error { return atomicfile.WriteJSON(path, v
 
 // saveDevices muss unter s.mu (Schreibsperre) oder vor der Freigabe des Stores aufgerufen werden.
 func (s *Store) saveDevices() error {
-	return writeAtomic(filepath.Join(s.dir, "devices.json"), devicesFile{Version: 2, Devices: s.devices})
+	return writeAtomic(filepath.Join(s.dir, "devices.json"), devicesFile{Version: 2, Writer: AppVersion, Devices: s.devices})
 }
 
 func (s *Store) saveFound() error {

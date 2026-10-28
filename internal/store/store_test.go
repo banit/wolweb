@@ -149,17 +149,82 @@ func TestOldFoundEntriesExpire(t *testing.T) {
 
 func TestLegacyFileInDataDirIsBackedUp(t *testing.T) {
 	dir := t.TempDir()
-	orig := []byte(`{"devices":[{"name":"NAS","mac":"28:c6:8e:36:dc:38","ip":"192.168.1.255:9"}]}`)
+	orig := []byte(`{"devices":[{"name":"NAS","mac":"02:00:00:00:00:38","ip":"192.168.1.255:9"}]}`)
 	os.WriteFile(filepath.Join(dir, "devices.json"), orig, 0o644)
 	if _, _, err := Open(dir, ""); err != nil {
 		t.Fatal(err)
 	}
-	baks, _ := filepath.Glob(filepath.Join(dir, "devices.json.alt-*"))
+	baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-original-*", "devices.json"))
 	if len(baks) != 1 {
 		t.Fatalf("Sicherungen: %v", baks)
 	}
 	if b, _ := os.ReadFile(baks[0]); string(b) != string(orig) {
 		t.Errorf("Sicherung weicht ab: %s", b)
+	}
+}
+
+// Update von 1.0.x: Vor dem ersten Schreiben im neuen Format liegt eine Sicherung mit Versionsangabe
+// bereit (für den Weg zurück), einmal – nicht bei jedem Start. Unicast-Ziele bleiben, wie sie sind.
+func TestUpdateFrom10BacksUpOnce(t *testing.T) {
+	old := AppVersion
+	AppVersion = "1.2.0"
+	defer func() { AppVersion = old }()
+	dir := t.TempDir()
+	orig := []byte(`{"version":2,"devices":[
+		{"id":"abc","name":"NAS","mac":"02:00:00:00:00:01","broadcast":"10.0.0.5:7","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","last_wake":"2026-09-01T10:00:00Z"},
+		{"id":"def","name":"PC","mac":"02:00:00:00:00:02","broadcast":"10.0.0.255:9","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}`)
+	os.WriteFile(filepath.Join(dir, "devices.json"), orig, 0o644)
+	os.WriteFile(filepath.Join(dir, "discovered.json"), []byte(`[]`), 0o644)
+	s, notes, err := Open(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-1.0.x-*"))
+	if len(baks) != 1 || !strings.Contains(strings.Join(notes, " "), "1.0.x") {
+		t.Fatalf("Sicherungen: %v, Hinweise %v", baks, notes)
+	}
+	if b, _ := os.ReadFile(filepath.Join(baks[0], "devices.json")); string(b) != string(orig) {
+		t.Errorf("Sicherung weicht ab: %s", b)
+	}
+	if _, err := os.Stat(filepath.Join(baks[0], "discovered.json")); err != nil {
+		t.Errorf("discovered.json nicht gesichert: %v", err)
+	}
+	// Unicast-Ziel in einem anderen Netz unverändert, auch nach dem Speichern
+	if d, _ := s.Get("abc"); d.Broadcast != "10.0.0.5:7" {
+		t.Errorf("Ziel geändert: %q", d.Broadcast)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "devices.json"))
+	if !strings.Contains(string(b), `"writer": "1.2.0"`) || !strings.Contains(string(b), `"broadcast": "10.0.0.5:7"`) {
+		t.Errorf("neu geschrieben: %s", b)
+	}
+	// Zweiter Start derselben Version: keine weitere Sicherung
+	if _, _, err := Open(dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	if baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-*")); len(baks) != 1 {
+		t.Errorf("weitere Sicherung: %v", baks)
+	}
+	// Nächstes Update (1.2.0 → 1.3.0): wieder eine Sicherung, jetzt mit der alten Version im Namen
+	AppVersion = "1.3.0"
+	if _, _, err := Open(dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	if baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-1.2.0-*")); len(baks) != 1 {
+		t.Errorf("keine Sicherung von 1.2.0: %v", baks)
+	}
+}
+
+// Original-wolweb: ein Unicast-Ziel (einzelne IP:Port in einem anderen Netz) wird wörtlich übernommen.
+func TestLegacyUnicastTargetKept(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "old.json")
+	os.WriteFile(legacy, []byte(`{"devices":[{"name":"Server","mac":"02:00:00:00:00:03","ip":"10.0.0.5:7","interface":""}]}`), 0o644)
+	s, _, err := Open(filepath.Join(dir, "data"), legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if devs, _ := s.Devices(); len(devs) != 1 || devs[0].Broadcast != "10.0.0.5:7" {
+		t.Errorf("%+v", devs)
 	}
 }
 
