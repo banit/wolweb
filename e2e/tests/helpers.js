@@ -4,7 +4,14 @@ const { expect } = require("@playwright/test");
 const HEADERS = { "X-WolWeb": "1" };
 const PORT = Number(process.env.PORT || 8399);
 
+// Passwort für Änderungen in den Tests; reset entfernt es wieder, falls ein Test abbricht.
+const PASSWORD = "geheim-123";
+
 async function reset(request) {
+  if ((await (await request.get("api/v1/info")).json()).password) {
+    await request.post("api/v1/unlock", { headers: HEADERS, data: { password: PASSWORD } });
+    expect((await request.put("api/v1/password", { headers: HEADERS, data: { current: PASSWORD, password: "" } })).ok()).toBeTruthy();
+  }
   expect((await request.delete("api/v1/settings", { headers: HEADERS })).ok()).toBeTruthy(); // Einstellungen wie in config.json
   const res = await request.get("api/v1/devices");
   for (const d of await res.json()) {
@@ -67,4 +74,4 @@ function contrast(page, selector) {
   });
 }
 
-module.exports = { HEADERS, PORT, reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets, contrast };
+module.exports = { HEADERS, PORT, PASSWORD, reset, addDevice, onlineDevice, offlineDevice, settled, smallTargets, contrast };

@@ -29,6 +29,7 @@ func main() {
 	configPath := flag.String("c", "config.json", "configuration file (defaults apply if it is missing)")
 	legacyPath := flag.String("d", "devices.json", "devices.json of the original wolweb, imported on first start")
 	healthcheck := flag.Bool("healthcheck", false, "checks /health of the running server (for Docker) and exits")
+	resetPassword := flag.Bool("reset-password", false, "removes the password for changes and exits (stop the server first)")
 	flag.Parse()
 
 	settings, err := config.Open(*configPath)
@@ -70,6 +71,13 @@ func main() {
 	}
 	for _, n := range notes {
 		log.Print(n)
+	}
+	if *resetPassword {
+		if err := st.SetPassword(""); err != nil {
+			log.Fatalf("Removing the password: %v", err)
+		}
+		log.Print("Password for changes removed")
+		return
 	}
 	devices, _ := st.Devices()
 	log.Printf("%d device(s) loaded from %s", len(devices), cfg.DataDir)

@@ -195,7 +195,7 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 `systemctl enable --now wolweb`. Die Unit gewährt nur `CAP_NET_RAW` für Ping und ARP-Scan, sonst nichts.
 
 `wolweb -h` zeigt die Kommandozeilenoptionen (`-c` Konfigurationsdatei, `-d` devices.json des ursprünglichen wolweb,
-`-healthcheck` für Docker).
+`-healthcheck` für Docker, `-reset-password` siehe [Passwort für Änderungen](#passwort-für-änderungen)).
 
 ## Umstieg vom ursprünglichen wolweb
 
@@ -297,10 +297,38 @@ erlaubte Hostnamen und die Standardsprache ändern. Änderungen gelten sofort, o
   ausgegraut mit dem Namen der Variable. Wer es lieber auf der Seite pflegt, nimmt die Variable heraus.
 - **Nicht auf der Seite**: Adresse, Port, Pfad, Datenverzeichnis, Nur-Lesen und die Zugangsdaten. Über die Seite
   könnte man sich sonst aussperren – oder ohne Anmeldung einfach eine setzen.
-- Ohne Anmeldung kann jeder im Netz die Einstellungen sehen und ändern; die Seite weist darauf hin. Im
-  Nur-Lesen-Modus lässt sie sich nur ansehen.
+- Ohne Anmeldung und ohne [Passwort für Änderungen](#passwort-für-änderungen) kann jeder im Netz die Einstellungen
+  sehen und ändern; die Seite weist darauf hin. Im Nur-Lesen-Modus lässt sie sich nur ansehen.
 
 ![Einstellungen: Netze und VLANs mit Schnittstellen des Rechners](docs/screenshots/settings.png)
+
+### Passwort für Änderungen
+
+Unten auf der Einstellungsseite lässt sich ein Passwort für Änderungen setzen – ohne Benutzernamen. Mit Passwort:
+
+- **Ansehen und Wecken bleiben frei** für alle im Netz: Übersicht, Status, Weckknöpfe, Gruppen wecken und die festen
+  Wecklinks.
+- **Alles andere erst nach dem Entsperren**: Geräte anlegen, bearbeiten und löschen, Gruppen zuordnen, Import und
+  Export, die Netzwerksuche und die Einstellungsseite. Das Schloss in der Kopfzeile fragt nach dem Passwort; danach
+  bleibt dieser Browser entsperrt, bis er geschlossen wird oder 12 Stunden lang nichts passiert. Derselbe Knopf
+  sperrt sofort wieder.
+- Ändern oder Entfernen verlangt das bisherige Passwort; ein neues Passwort beendet die Entsperrung aller anderen
+  Browser. Nach 5 Fehlversuchen je Adresse heißt es 30 s warten (mit jedem weiteren Fehlversuch doppelt so lange,
+  höchstens 15 Minuten).
+- Gespeichert wird nur ein PBKDF2-SHA256-Hash in `data/state.json`; die Entsperrung ist ein signiertes Cookie
+  (HttpOnly, SameSite=Strict).
+- Automationen mit `auth.api_token` sind nicht betroffen. Die Anmeldung per HTTP Basic entsperrt nicht – die kennt
+  oft der ganze Haushalt, das Passwort für Änderungen ist für weniger Leute gedacht.
+- **Vergessen?** wolweb anhalten und einmal mit `-reset-password` starten: Das entfernt das Passwort und beendet sich.
+
+  ```sh
+  docker compose stop wolweb
+  docker compose run --rm wolweb -reset-password
+  docker compose start wolweb
+  ```
+
+  Ohne Docker: den Dienst anhalten, `wolweb -c config.json -reset-password` mit derselben Konfiguration ausführen
+  (damit es das Datenverzeichnis findet) und den Dienst wieder starten.
 
 ## Mehrere Netze und VLANs
 
@@ -469,6 +497,8 @@ braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_
 
 - **Anmeldung**: `auth.username`/`auth.password` (HTTP Basic, im Internet nur hinter HTTPS) und/oder `auth.api_token`
   für Automationen.
+- **Passwort für Änderungen**: Ansehen und Wecken bleiben frei, Ändern erst nach dem Entsperren – siehe
+  [Passwort für Änderungen](#passwort-für-änderungen).
 - **Öffentliche Wecklinks** (`auth.public_wake`): Mit Anmeldung bleiben `/wake/<Name>` und die Weckseite ohne Login
   erreichbar. Damit niemand Geräte über erratene Namen weckt, verlangt `auth.wake_keys` zusätzlich einen Schlüssel
   je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern.
@@ -524,7 +554,9 @@ Touch-Ziele auf einem Handy.
 ## API
 
 Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site-Requests) oder ein Bearer-Token;
-fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in `"error"`.
+fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in `"error"`. Mit
+[Passwort für Änderungen](#passwort-für-änderungen) bekommen ändernde Aufrufe ohne Entsperrung oder Token 403 mit
+`"locked": true`.
 
 | Methode | Pfad | |
 |---|---|---|
@@ -548,6 +580,8 @@ fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in
 | POST | `/api/v1/discovery/network` | für die Suche gewähltes Netz speichern |
 | GET / PUT / DELETE | `/api/v1/settings` | Einstellungen der Einstellungsseite lesen / ändern / zurücksetzen |
 | POST | `/api/v1/settings/test-notify` | Testbenachrichtigung senden |
+| POST | `/api/v1/unlock`, `/api/v1/lock` | diesen Browser mit `{"password": "…"}` entsperren (setzt ein Cookie) / wieder sperren |
+| PUT | `/api/v1/password` | Passwort für Änderungen setzen, ändern oder entfernen: `{"current": "…", "password": "…"}` (leeres `password` entfernt es) |
 | GET | `/wake/{name}`, `/health`, `/data/get` | wie im Original |
 | GET / POST | `/wake-group/{name}` | Gruppen-Wecklink |
 | GET | `/metrics` | Kennzahlen für Prometheus |

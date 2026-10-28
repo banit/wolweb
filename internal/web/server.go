@@ -45,8 +45,9 @@ type Server struct {
 	retry    retries
 	tmpl     *template.Template
 	limiter  wakeLimiter
-	rejected rejectedHosts // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
-	schedRan ranSchedules  // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
+	attempts attemptLimiter // Fehlversuche beim Entsperren
+	rejected rejectedHosts  // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
+	schedRan ranSchedules   // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
 	hub      hub
 
 	wakesMu sync.Mutex
@@ -125,36 +126,39 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+api+"info", s.info)
 	mux.HandleFunc("GET "+api+"events", s.events)
 	mux.HandleFunc("GET "+api+"devices", s.listDevices)
-	mux.HandleFunc("POST "+api+"devices", s.writable(s.createDevice))
-	mux.HandleFunc("POST "+api+"devices/group", s.writable(s.setGroup))
-	mux.HandleFunc("PUT "+api+"devices/{id}", s.writable(s.updateDevice))
-	mux.HandleFunc("DELETE "+api+"devices/{id}", s.writable(s.deleteDevice))
+	mux.HandleFunc("POST "+api+"devices", s.change(s.createDevice))
+	mux.HandleFunc("POST "+api+"devices/group", s.change(s.setGroup))
+	mux.HandleFunc("PUT "+api+"devices/{id}", s.change(s.updateDevice))
+	mux.HandleFunc("DELETE "+api+"devices/{id}", s.change(s.deleteDevice))
 	mux.HandleFunc("POST "+api+"devices/{id}/wake", s.wakeDevice)
 	mux.HandleFunc("GET "+api+"devices/{id}/status", s.deviceStatus)
-	mux.HandleFunc("POST "+api+"devices/{id}/wake-key", s.writable(s.rotateWakeKey))
+	mux.HandleFunc("POST "+api+"devices/{id}/wake-key", s.change(s.rotateWakeKey))
 	mux.HandleFunc("GET "+api+"schedule/preview", s.schedulePreview)
 	mux.HandleFunc("GET "+api+"groups", s.listGroups)
 	mux.HandleFunc("POST "+api+"groups/{name}/wake", s.wakeGroupAPI)
 	mux.HandleFunc("GET "+api+"history", s.history)
-	mux.HandleFunc("GET "+api+"export", s.export)
-	mux.HandleFunc("POST "+api+"import", s.writable(s.importDevices))
+	mux.HandleFunc("GET "+api+"export", s.editable(s.export)) // mit Weckschlüsseln
+	mux.HandleFunc("POST "+api+"import", s.change(s.importDevices))
 	mux.HandleFunc("GET "+api+"discovery", s.discovery)
-	mux.HandleFunc("POST "+api+"discovery/scan", s.startScan)
-	mux.HandleFunc("POST "+api+"discovery/cancel", s.cancelScan)
-	mux.HandleFunc("POST "+api+"discovery/{mac}/ignore", s.writable(s.ignoreFound))
-	mux.HandleFunc("DELETE "+api+"discovery/{mac}", s.writable(s.forgetFound))
-	mux.HandleFunc("POST "+api+"discovery/network", s.withSettings(s.writable(s.chooseNetwork)))
+	mux.HandleFunc("POST "+api+"discovery/scan", s.editable(s.startScan))
+	mux.HandleFunc("POST "+api+"discovery/cancel", s.editable(s.cancelScan))
+	mux.HandleFunc("POST "+api+"discovery/{mac}/ignore", s.change(s.ignoreFound))
+	mux.HandleFunc("DELETE "+api+"discovery/{mac}", s.change(s.forgetFound))
+	mux.HandleFunc("POST "+api+"discovery/network", s.withSettings(s.change(s.chooseNetwork)))
 	mux.HandleFunc("GET "+base+"settings", s.withSettings(s.settingsPage))
-	mux.HandleFunc("GET "+api+"settings", s.withSettings(s.getSettings))
-	mux.HandleFunc("PUT "+api+"settings", s.withSettings(s.writable(s.putSettings)))
-	mux.HandleFunc("DELETE "+api+"settings", s.withSettings(s.writable(s.resetSettings)))
-	mux.HandleFunc("POST "+api+"settings/test-notify", s.withSettings(s.writable(s.testNotify)))
+	mux.HandleFunc("GET "+api+"settings", s.withSettings(s.editable(s.getSettings)))
+	mux.HandleFunc("PUT "+api+"settings", s.withSettings(s.change(s.putSettings)))
+	mux.HandleFunc("DELETE "+api+"settings", s.withSettings(s.change(s.resetSettings)))
+	mux.HandleFunc("POST "+api+"settings/test-notify", s.withSettings(s.change(s.testNotify)))
+	mux.HandleFunc("POST "+api+"unlock", s.unlock)
+	mux.HandleFunc("POST "+api+"lock", s.lock)
+	mux.HandleFunc("PUT "+api+"password", s.change(s.setPassword))
 
 	// Kompatibel zum Original: Geräteliste im alten Format
 	mux.HandleFunc("GET "+base+"data/get", s.legacyData)
 	mux.HandleFunc("GET "+base+"metrics", s.metrics)
 
-	return s.recoverer(s.hostGuard(s.auth(s.csrf(securityHeaders(mux)))))
+	return s.recoverer(s.hostGuard(s.auth(s.csrf(s.keepUnlocked(securityHeaders(mux))))))
 }
 
 // --- Middleware ---
@@ -183,11 +187,8 @@ func (s *Server) auth(next http.Handler) http.Handler {
 }
 
 func (s *Server) authorized(r *http.Request) bool {
-	eq := func(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
-	if t := s.conf().Auth.APIToken; t != "" {
-		if h, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && eq(strings.TrimSpace(h), t) {
-			return true
-		}
+	if s.tokenAuthorized(r) {
+		return true
 	}
 	if s.conf().Auth.Username != "" {
 		if u, p, ok := r.BasicAuth(); ok && eq(u, s.conf().Auth.Username) && eq(p, s.conf().Auth.Password) {
@@ -196,6 +197,15 @@ func (s *Server) authorized(r *http.Request) bool {
 	}
 	return false
 }
+
+// tokenAuthorized: Die Anfrage trägt das API-Token (Automationen).
+func (s *Server) tokenAuthorized(r *http.Request) bool {
+	t := s.conf().Auth.APIToken
+	h, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return t != "" && ok && eq(strings.TrimSpace(h), t)
+}
+
+func eq(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
 
 // csrf: Ändernde Anfragen brauchen den Kopf "X-WolWeb". Fremde Webseiten können ihn nicht ohne
 // CORS-Freigabe setzen; Automationen mit Token sind ausgenommen.
@@ -876,7 +886,9 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"wake_retry":        int(s.rt().wakeRetry.Seconds()),
 		"ports":             s.conf().Status.Ports,
 		"wake_keys":         s.conf().Auth.WakeKeys && s.conf().AuthEnabled(),
-		"timezone":          localZone(), // Zeitpläne laufen in der Ortszeit des Servers
+		"timezone":          localZone(),           // Zeitpläne laufen in der Ortszeit des Servers
+		"password":          s.store.HasPassword(), // Bearbeitungsschutz eingerichtet
+		"locked":            !s.unlocked(r),        // diese Anfrage darf nichts ändern
 	})
 }
 

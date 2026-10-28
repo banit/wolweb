@@ -188,7 +188,7 @@ Copy it to `/opt/wolweb`, adapt `config.example.json` as `config.json`, copy `de
 `systemctl enable --now wolweb`. The unit grants `CAP_NET_RAW` for ping and the ARP scan and nothing else.
 
 `wolweb -h` lists the command-line options (`-c` configuration file, `-d` devices.json of the original wolweb,
-`-healthcheck` for Docker).
+`-healthcheck` for Docker, `-reset-password` see [Password for changes](#password-for-changes)).
 
 ## Switching from the original wolweb
 
@@ -285,10 +285,36 @@ host names and the default language. Changes apply immediately, without a restar
   the variable's name. If you prefer to manage it on the page, remove the variable.
 - **Not on the page**: address, port, path, data directory, read-only mode and credentials. Otherwise you could lock
   yourself out via the page – or, without login, simply set one.
-- Without login, anyone in the network can view and change the settings; the page points this out. In read-only mode
-  it can only be viewed.
+- Without login and without a [password for changes](#password-for-changes), anyone in the network can view and
+  change the settings; the page points this out. In read-only mode it can only be viewed.
 
 ![Settings: networks and VLANs with the machine's interfaces](docs/screenshots/settings.png)
+
+### Password for changes
+
+At the bottom of the settings page you can set a password for changes – no username needed. With a password:
+
+- **Viewing and waking stay open** to everyone in the network: overview, status, wake buttons, group wake and the
+  fixed wake links.
+- **Everything else needs unlocking**: adding, editing and deleting devices, assigning groups, import and export,
+  the network scan and the settings page. The lock in the top bar asks for the password; this browser then stays
+  unlocked until it is closed or nothing happens for 12 hours. The same button locks again right away.
+- Changing or removing the password needs the current one; a new password ends the unlock of every other browser.
+  After 5 wrong attempts per address, wolweb makes you wait 30 s (doubling with every further miss, up to 15 min).
+- Only a PBKDF2-SHA256 hash is stored, in `data/state.json`; the unlock is a signed cookie (HttpOnly,
+  SameSite=Strict).
+- Automations with `auth.api_token` are not affected. The HTTP Basic login does not unlock – the whole household
+  often knows it, the password for changes is meant for fewer people.
+- **Forgotten?** Stop wolweb and start it once with `-reset-password`: it removes the password and exits.
+
+  ```sh
+  docker compose stop wolweb
+  docker compose run --rm wolweb -reset-password
+  docker compose start wolweb
+  ```
+
+  Without Docker: stop the service, run `wolweb -c config.json -reset-password` with the same configuration (so it
+  finds the data directory) and start the service again.
 
 ## Multiple networks and VLANs
 
@@ -455,6 +481,8 @@ address accepted the message is of course still visible to anyone who may use th
 
 - **Login**: `auth.username`/`auth.password` (HTTP Basic, on the internet only behind HTTPS) and/or `auth.api_token`
   for automations.
+- **Password for changes**: viewing and waking stay open, changes need unlocking – see
+  [Password for changes](#password-for-changes).
 - **Public wake links** (`auth.public_wake`): with login enabled, `/wake/<name>` and the wake page stay reachable
   without login. So that nobody can wake devices by guessing names, `auth.wake_keys` additionally requires a key per
   device – “Copy wake link” appends it (`/wake/NAS?key=…`), and it can be renewed in the device dialog.
@@ -509,7 +537,9 @@ targets on a phone.
 ## API
 
 All changing requests need the header `X-WolWeb: 1` (protection against cross-site requests) or a bearer token;
-without it, the answer is 403 with a message for humans and the technical reason in `"error"`.
+without it, the answer is 403 with a message for humans and the technical reason in `"error"`. With a
+[password for changes](#password-for-changes), changing requests without unlock or token get 403 with
+`"locked": true`.
 
 | Method | Path | |
 |---|---|---|
@@ -533,6 +563,8 @@ without it, the answer is 403 with a message for humans and the technical reason
 | POST | `/api/v1/discovery/network` | save the network chosen for the scan |
 | GET / PUT / DELETE | `/api/v1/settings` | read / change / reset the settings of the settings page |
 | POST | `/api/v1/settings/test-notify` | send a test notification |
+| POST | `/api/v1/unlock`, `/api/v1/lock` | unlock this browser with `{"password": "…"}` (sets a cookie) / lock it again |
+| PUT | `/api/v1/password` | set, change or remove the password for changes: `{"current": "…", "password": "…"}` (empty `password` removes it) |
 | GET | `/wake/{name}`, `/health`, `/data/get` | as in the original |
 | GET / POST | `/wake-group/{name}` | group wake link |
 | GET | `/metrics` | metrics for Prometheus |

@@ -50,7 +50,10 @@
     svg.append(use);
     return svg;
   }
-  async function api(method, url, body, raw) {
+  // Ändern geht nicht im Nur-Lesen-Betrieb und nicht, solange der Bearbeitungsschutz gesperrt ist.
+  const editable = () => !state.info.read_only && !state.info.locked;
+
+  async function api(method, url, body, raw, again) {
     const opts = { method, cache: "no-store", headers: { "Accept": "application/json", "X-WolWeb": "1" } };
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
@@ -59,6 +62,14 @@
     const res = await fetch("api/v1/" + url, opts);
     let data = null;
     try { data = await res.json(); } catch (e) { /* leer */ }
+    // Gesperrt (Passwort für Änderungen): nach dem Passwort fragen und die Anfrage wiederholen.
+    if (res.status === 403 && data && data.locked && !again) {
+      if (await window.wolwebLock.unlock()) {
+        setLocked(false);
+        return api(method, url, body, raw, true);
+      }
+      setLocked(true);
+    }
     if (!res.ok || !data) {
       const err = new Error((data && data.message) || t("ui.unexpected_response", res.status));
       err.status = res.status;
@@ -180,7 +191,7 @@
     }
     const list = state.devices.filter(matches);
     for (const d of state.devices) if (deviceState(d) === "online") state.unconfirmed.delete(d.id); // doch noch gestartet
-    $("#select-toggle").hidden = state.info.read_only || total < 2;
+    $("#select-toggle").hidden = !editable() || total < 2;
     for (const id of state.selected) if (!state.devices.some((d) => d.id === id)) state.selected.delete(id);
     $("#empty").hidden = total !== 0;
     $("#empty-filter").hidden = total === 0 || list.length !== 0;
@@ -269,7 +280,7 @@
 
   function buildCard(d) {
     const simple = state.simple; // einfache Ansicht: nur Name, Status und der Weckknopf
-    const ro = state.info.read_only || simple;
+    const ro = !editable() || simple;
     const s = deviceState(d);
     const ip = d.ip || d.check_ip;
     // Die Knöpfe heißen auf jeder Karte gleich ("Wecken") – der Gerätename als Beschreibung sagt
@@ -1009,7 +1020,7 @@
   }
 
   function buildFound(f) {
-    const ro = state.info.read_only;
+    const ro = !editable();
     const kind = classify(f);
     const title = f.hostname || vendorText(f.vendor) || t("ui.found.unknown");
     const actions = [];
@@ -1316,6 +1327,7 @@
   // applyInfo übernimmt, was von den Einstellungen abhängt (auch nach einer Änderung im Betrieb).
   function applyInfo() {
     $("#open-settings").hidden = !state.info.settings;
+    applyLock();
     // Broadcast-Vorschläge im Gerätedialog: die eingetragenen Netze
     $("#broadcast-list").replaceChildren(...(state.info.segments || []).map((s) => el("option", { value: s.broadcast, label: s.label })));
   }
@@ -1326,6 +1338,40 @@
     renderDiscovery();
   }
 
+  // ---------- Bearbeitungsschutz ----------
+  // applyLock blendet aus, was gerade nicht geht (Nur-Lesen oder gesperrt), und zeigt das Schloss.
+  function applyLock() {
+    const off = !editable();
+    $("#add-device").hidden = off;
+    $("#import-btn").hidden = off;
+    $("#export-link").hidden = !!state.info.locked; // mit Weckschlüsseln – im Nur-Lesen-Betrieb weiter erlaubt
+    for (const b of document.querySelectorAll('[data-action="add"]')) b.hidden = off;
+    const btn = $("#lock-toggle");
+    btn.hidden = !state.info.password || state.info.read_only;
+    window.wolwebLock.button(btn, !!state.info.locked);
+  }
+  function setLocked(on) {
+    if (!!state.info.locked === on) return;
+    state.info.locked = on;
+    if (on && state.selecting) setSelecting(false);
+    if (on && dlg.open) dlg.close();
+    applyLock();
+    renderDevices();
+    renderDiscovery();
+  }
+  $("#lock-toggle").addEventListener("click", async () => {
+    if (state.info.locked) {
+      if (!(await window.wolwebLock.unlock())) return;
+      setLocked(false);
+      toast("ok", t("ui.lock.unlocked"), t("ui.lock.unlocked_text"));
+    } else {
+      try { await window.wolwebLock.lock(); } catch (e) { toast("err", t("ui.lock.failed"), e.message); return; }
+      setLocked(true);
+      toast("ok", t("ui.lock.locked"), t("ui.lock.locked_text"));
+    }
+    $("#lock-toggle").focus();
+  });
+
   // ---------- Start ----------
   async function init() {
     buildIconPicker();
@@ -1334,11 +1380,6 @@
     try {
       state.info = await api("GET", "info");
     } catch (e) { /* Standardwerte */ }
-    if (state.info.read_only) {
-      $("#add-device").hidden = true;
-      $("#import-btn").hidden = true;
-      for (const b of document.querySelectorAll('[data-action="add"]')) b.hidden = true;
-    }
     if (state.info.version) $("#version").textContent = "wolweb " + state.info.version;
     applyInfo();
     await loadDevices();

@@ -1,0 +1,20 @@
+{{define "unlock"}}<!-- Entsperren: Passwort für Änderungen (lock.js) -->
+<dialog class="modal modal-small" id="unlock-dialog" aria-labelledby="unlock-title" aria-describedby="unlock-text">
+  <form id="unlock-form" novalidate>
+    <div class="modal-body">
+      <h2 id="unlock-title">{{.T "ui.lock.title"}}</h2>
+      <p class="muted" id="unlock-text">{{.T "ui.lock.text"}}</p>
+      <label class="field">
+        <span>{{.T "ui.lock.password"}}</span>
+        <input type="password" name="password" id="unlock-password" autocomplete="current-password" maxlength="128" required aria-describedby="unlock-error">
+      </label>
+      <p class="form-error" id="unlock-error" role="alert" hidden></p>
+    </div>
+    <footer class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-ghost" id="unlock-cancel">{{.T "ui.cancel"}}</button>
+      <button type="submit" class="btn btn-primary" id="unlock-ok"><svg aria-hidden="true" class="ico"><use href="#i-unlock"/></svg>{{.T "ui.lock.unlock"}}</button>
+    </footer>
+  </form>
+</dialog>
+{{end}}

@@ -39,7 +39,7 @@
     $("#toasts").append(t);
     setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 250); }, kind === "err" ? 7000 : 4200);
   }
-  async function api(method, url, body) {
+  async function api(method, url, body, again) {
     const opts = { method, cache: "no-store", headers: { "Accept": "application/json", "X-WolWeb": "1" } };
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
@@ -48,6 +48,10 @@
     const res = await fetch("api/v1/" + url, opts);
     let data = null;
     try { data = await res.json(); } catch (e) { /* keine JSON-Antwort */ }
+    // Entsperrung abgelaufen (Passwort für Änderungen): nachfragen und die Anfrage wiederholen.
+    if (res.status === 403 && data && data.locked && !again && view && await window.wolwebLock.unlock()) {
+      return api(method, url, body, true);
+    }
     if (!res.ok) throw Object.assign(new Error((data && data.message) || t("ui.unexpected_response", res.status)), { data: data || {}, status: res.status });
     return data;
   }
@@ -94,7 +98,7 @@
 
     const src = v.file_found ? t("set.source.file", v.file) : t("set.source.defaults");
     $("#set-source").textContent = src + (v.stored.length ? " · " + tn("set.stored", v.stored.length) : "");
-    $("#set-no-auth").hidden = v.auth;
+    $("#set-no-auth").hidden = v.auth || v.password;
     $("#set-read-only").hidden = !v.read_only;
     $("#set-reset").hidden = !v.stored.length || v.read_only;
     $("#set-save").hidden = v.read_only;
@@ -117,6 +121,8 @@
     }
     $("#net-add").disabled = !!locked("discovery.networks") || v.read_only;
     $("#notify-test").disabled = v.read_only;
+    renderPassword();
+    showLockscreen(false);
     setDirty(false);
   }
 
@@ -345,14 +351,124 @@
     }
   });
 
+  // ---------- Passwort für Änderungen ----------
+  const pwForm = $("#pw-form");
+  function renderPassword() {
+    const on = view.password;
+    $("#pw-section").hidden = false;
+    $("#pw-state").textContent = on ? t("set.pw.on") : t("set.pw.off");
+    $("#pw-state").className = "pw-state " + (on ? "ok" : "warn");
+    pwForm.hidden = view.read_only;
+    $("#pw-current-field").hidden = !on;
+    $("#pw-save-text").textContent = on ? t("set.pw.change") : t("set.pw.set");
+    $("#pw-remove").hidden = !on;
+    pwError();
+    const btn = $("#lock-toggle");
+    btn.hidden = !on || view.read_only;
+    window.wolwebLock.button(btn, false);
+  }
+  // pwError zeigt eine Meldung am Feld (name) oder löscht alle.
+  function pwError(name, message) {
+    for (const i of pwForm.querySelectorAll("[aria-invalid]")) i.removeAttribute("aria-invalid");
+    const box = $("#pw-error");
+    box.textContent = message || "";
+    box.hidden = !message;
+    for (const i of pwForm.querySelectorAll("input")) {
+      const ids = (i.getAttribute("aria-describedby") || "").split(" ").filter((x) => x && x !== "pw-error");
+      if (message && i.name === name) ids.unshift("pw-error");
+      if (ids.length) i.setAttribute("aria-describedby", ids.join(" "));
+      else i.removeAttribute("aria-describedby");
+    }
+    if (!message) return;
+    const f = pwForm.elements[name];
+    if (f) {
+      f.setAttribute("aria-invalid", "true");
+      f.focus();
+    } else {
+      box.focus();
+    }
+  }
+  async function savePassword(password) {
+    const current = view.password ? pwForm.elements.current.value : "";
+    const btn = password ? $("#pw-save") : $("#pw-remove");
+    btn.disabled = true;
+    try {
+      await api("PUT", "password", { current, password });
+      view.password = !!password;
+      for (const i of pwForm.querySelectorAll("input")) i.value = "";
+      $("#set-no-auth").hidden = view.auth || view.password;
+      renderPassword();
+      if (password) toast("ok", t("set.pw.saved"), t("set.pw.saved_text"));
+      else toast("ok", t("set.pw.removed"), t("set.pw.removed_text"));
+      $("#pw-state").focus();
+    } catch (err) {
+      const field = err.data && err.data.field;
+      pwError(field === "current" || field === "password" ? field : "", err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  pwForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const f = pwForm.elements;
+    if (view.password && !f.current.value) return pwError("current", t("set.pw.current_missing"));
+    if (!f.password.value) return pwError("password", t("set.pw.missing"));
+    if (f.password.value !== f.repeat.value) return pwError("repeat", t("set.pw.mismatch"));
+    savePassword(f.password.value);
+  });
+  $("#pw-remove").addEventListener("click", async () => {
+    if (!pwForm.elements.current.value) return pwError("current", t("set.pw.current_missing"));
+    if (!(await confirmDialog(t("set.pw.remove_q"), t("set.pw.remove_text"), t("set.pw.remove")))) return;
+    savePassword("");
+  });
+
+  // ---------- Sperren ----------
+  // Gesperrt zeigt die Seite nur den Hinweis mit „Entsperren“ – die Einstellungen gibt der Server
+  // erst danach heraus.
+  function showLockscreen(on) {
+    $("#set-lockscreen").hidden = !on;
+    for (const id of ["#set-intro", "#settings-form", "#pw-section"]) $(id).hidden = on;
+    if (on) {
+      for (const id of ["#set-no-auth", "#set-read-only"]) $(id).hidden = true;
+      $("#set-source").textContent = t("set.lockscreen.title");
+      $("#lock-toggle").hidden = true;
+      setDirty(false);
+    }
+  }
+  async function unlockAndLoad() {
+    if (await window.wolwebLock.unlock()) {
+      await load();
+      toast("ok", t("ui.lock.unlocked"), t("ui.lock.unlocked_text"));
+      form.focus();
+    }
+  }
+  $("#lockscreen-unlock").addEventListener("click", unlockAndLoad);
+  $("#lock-toggle").addEventListener("click", async () => {
+    try { await window.wolwebLock.lock(); } catch (e) { toast("err", t("ui.lock.failed"), e.message); return; }
+    view = null;
+    showLockscreen(true);
+    toast("ok", t("ui.lock.locked"), t("ui.lock.locked_text"));
+    $("#lockscreen-unlock").focus();
+  });
+
   // Sprunglink: "#settings-form" löst sich wegen <base> gegen die Basisadresse auf – selbst springen.
   $(".skip-link").addEventListener("click", (e) => {
     e.preventDefault();
     form.focus();
   });
 
-  api("GET", "settings").then(render).catch((err) => {
-    $("#set-source").textContent = t("set.load_failed");
-    toast("err", t("set.load_failed"), err.message);
-  });
+  async function load() {
+    try {
+      render(await api("GET", "settings"));
+    } catch (err) {
+      if (err.data && err.data.locked) {
+        showLockscreen(true);
+        return false;
+      }
+      $("#set-source").textContent = t("set.load_failed");
+      toast("err", t("set.load_failed"), err.message);
+    }
+    return true;
+  }
+  load().then((ok) => { if (!ok) unlockAndLoad(); }); // gesperrt: gleich nach dem Passwort fragen
 })();

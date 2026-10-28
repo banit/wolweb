@@ -13,6 +13,7 @@
 <script id="i18n" type="application/json">{{.I18N}}</script>
 <script src="static/theme.js?v={{.Version}}"></script>
 <script src="static/i18n.js?v={{.Version}}" defer></script>
+<script src="static/lock.js?v={{.Version}}" defer></script>
 <script src="static/settings.js?v={{.Version}}" defer></script>
 </head>
 <body class="app">
@@ -26,9 +27,23 @@
       <p class="muted" id="set-source">{{.T "page.loading"}}</p>
     </div>
   </div>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost icon-only lock-toggle" id="lock-toggle" hidden>
+      <svg aria-hidden="true" class="ico"><use href="#i-lock"/></svg>
+    </button>
+  </div>
 </header>
 
 <main class="container settings">
+  <!-- Gesperrt: erst nach dem Passwort zeigt der Server die Einstellungen -->
+  <section class="set-section lockscreen" id="set-lockscreen" aria-labelledby="lockscreen-title" hidden>
+    <h2 id="lockscreen-title">{{.T "set.lockscreen.title"}}</h2>
+    <p class="muted">{{.T "set.lockscreen.text"}}</p>
+    <div class="row gap-start">
+      <button type="button" class="btn btn-primary" id="lockscreen-unlock"><svg aria-hidden="true" class="ico"><use href="#i-unlock"/></svg>{{.T "ui.lock.unlock"}}</button>
+    </div>
+  </section>
+
   <p class="notice" id="set-intro">{{.T "set.intro"}}</p>
   <p class="notice warn" id="set-no-auth" hidden>{{.T "set.no_auth"}}</p>
   <p class="notice" id="set-read-only" hidden>{{.T "set.read_only"}}</p>
@@ -177,6 +192,35 @@ ip link set eth0.20 up</code></pre>
       <button type="submit" class="btn btn-primary" id="set-save"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.save"}}</button>
     </div>
   </form>
+
+  <!-- Passwort für Änderungen: gilt sofort, nicht über „Speichern“ -->
+  <section class="set-section" id="pw-section" aria-labelledby="sec-password" hidden>
+    <h2 id="sec-password">{{.T "set.pw.title"}}</h2>
+    <p class="muted small">{{.T "set.pw.intro"}}</p>
+    <p class="pw-state" id="pw-state" tabindex="-1"></p>
+    <form id="pw-form" class="pw-form" novalidate>
+      <label class="field" id="pw-current-field">
+        <span>{{.T "set.pw.current"}}</span>
+        <input type="password" name="current" autocomplete="current-password" maxlength="128">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "set.pw.new"}}</span>
+          <input type="password" name="password" autocomplete="new-password" maxlength="128" aria-describedby="pw-hint">
+        </label>
+        <label class="field">
+          <span>{{.T "set.pw.repeat"}}</span>
+          <input type="password" name="repeat" autocomplete="new-password" maxlength="128" aria-describedby="pw-hint">
+        </label>
+      </div>
+      <small class="muted" id="pw-hint">{{.T "set.pw.hint"}}</small>
+      <p class="form-error" id="pw-error" role="alert" tabindex="-1" hidden></p>
+      <div class="row gap-start">
+        <button type="submit" class="btn btn-primary" id="pw-save"><svg aria-hidden="true" class="ico"><use href="#i-lock"/></svg><span id="pw-save-text">{{.T "set.pw.set"}}</span></button>
+        <button type="button" class="btn btn-ghost" id="pw-remove" hidden><svg aria-hidden="true" class="ico"><use href="#i-trash"/></svg>{{.T "set.pw.remove"}}</button>
+      </div>
+    </form>
+  </section>
 </main>
 
 <!-- Bestätigen -->
@@ -194,6 +238,7 @@ ip link set eth0.20 up</code></pre>
   </form>
 </dialog>
 
+{{template "unlock" .}}
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>
 </html>

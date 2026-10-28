@@ -647,6 +647,12 @@ textarea { resize: vertical; }
 .gap-start { gap: .6rem; flex-wrap: wrap; }
 input:disabled, textarea:disabled, select:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
 .lock-note { display: block; font-size: .78rem; color: var(--warn); }
+.pw-state { display: flex; gap: .5rem; align-items: center; font-size: .92rem; font-weight: 600; }
+.pw-state:focus { outline: none; }
+.pw-state::before { content: ""; width: .6rem; height: .6rem; border-radius: 50%; background: var(--warn); flex: none; }
+.pw-state.ok::before { background: var(--ok); }
+.pw-form { display: grid; gap: .8rem; }
+.lockscreen { justify-items: start; }
 .notice { padding: .75rem .95rem; border-radius: 12px; background: var(--accent-soft); color: var(--text); font-size: .9rem; }
 .notice.warn { background: var(--warn-soft); }
 .check { display: flex; gap: .6rem; align-items: flex-start; cursor: pointer; font-size: .92rem; }
