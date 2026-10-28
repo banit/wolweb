@@ -31,18 +31,36 @@ type retries struct {
 	check func(ctx context.Context, d store.Device) status.State
 }
 
-// take nimmt die Wiederholung für id aus Wecken g heraus – nur wenn sie noch dran ist: nicht durch
-// ein neueres Wecken ersetzt, nicht beendet, und das Gerät gibt es noch. Unter der Sperre, direkt
-// vor dem Senden; so hält ein Wecken, Löschen oder Beenden während der Prüfung die alte Runde auf.
-func (s *Server) takeRetry(id string, g uint64) (store.Device, bool) {
+// retryOne entscheidet für ein Gerät aus Wecken g und sendet gegebenenfalls – beides unter der Sperre
+// der Wiederholungen. Ein neues Wecken oder Löschen (supersedeRetry) kommt damit entweder vorher, dann
+// ist die Runde nicht mehr dran, oder erst nach dem Senden; eine überholte Runde sendet nie mehr.
+// Die Sperre hält dabei nur ein Gerät lang (drei Pakete, unter einer Sekunde).
+func (s *Server) retryOne(ctx context.Context, a wakeAttempt, g uint64, st status.State) (wakeAttempt, bool) {
 	q := &s.retry
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.closed || q.gen[id] != g {
-		return store.Device{}, false
+	if q.closed || q.gen[a.d.ID] != g {
+		return wakeAttempt{}, false
 	}
+	delete(q.gen, a.d.ID)
+	// Aktuelle Daten – oder gelöscht; gesendet wird nur, wenn das Gerät weiter nicht antwortet.
+	d, ok := s.store.Get(a.d.ID)
+	if !ok || ctx.Err() != nil || st.State != "offline" {
+		return wakeAttempt{}, false
+	}
+	log.Printf("%s did not respond within %v after waking – sending the wake-up call again", d.Name, s.rt().wakeRetry)
+	_, _, b := s.sendWake(nil, d, a.ev.Source, a.ev.Group)
+	b.ev.Client, b.ev.User, b.ev.Retry = a.ev.Client, a.ev.User, true
+	return b, true
+}
+
+// supersedeRetry verwirft die ausstehende Wiederholung für id – vor jedem neuen Weckruf und vor dem
+// Löschen. Sendet gerade eine Wiederholung für das Gerät, wartet das hier, bis sie fertig ist.
+func (s *Server) supersedeRetry(id string) {
+	q := &s.retry
+	q.mu.Lock()
 	delete(q.gen, id)
-	return s.store.Get(id) // aktuelle Daten – oder gelöscht
+	q.mu.Unlock()
 }
 
 // scheduleRetry merkt erfolgreiche Weckversuche von Geräten mit IP für eine Wiederholung vor –
@@ -119,14 +137,9 @@ func (s *Server) runRetry(g uint64, as []wakeAttempt) {
 	var again []wakeAttempt
 	for i, a := range mine {
 		// Erst jetzt, direkt vor dem Senden: noch dran? (neu geweckt, gelöscht, beendet → nein)
-		d, ok := s.takeRetry(a.d.ID, g)
-		if !ok || base.Err() != nil || states[i].State != "offline" { // online oder nicht mehr prüfbar
-			continue
+		if b, ok := s.retryOne(base, a, g, states[i]); ok {
+			again = append(again, b)
 		}
-		log.Printf("%s did not respond within %v after waking – sending the wake-up call again", d.Name, s.rt().wakeRetry)
-		_, _, b := s.sendWake(nil, d, a.ev.Source, a.ev.Group)
-		b.ev.Client, b.ev.User, b.ev.Retry = a.ev.Client, a.ev.User, true
-		again = append(again, b)
 	}
 	s.recordWakes(again...)
 }

@@ -507,6 +507,7 @@ func (s *Server) setGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
+	s.supersedeRetry(r.PathValue("id")) // keine Wiederholung mehr an ein gelöschtes Gerät
 	if err := s.store.Delete(r.PathValue("id")); err != nil {
 		s.storeError(w, r, err)
 		return
@@ -603,6 +604,7 @@ func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wa
 	if res, busy := s.alreadyWaking(r, d); busy {
 		return res, http.StatusOK
 	}
+	s.supersedeRetry(d.ID)
 	res, code, a := s.sendWake(r, d, source, group)
 	if !res.Success {
 		s.limiter.release(d.ID)
