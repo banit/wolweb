@@ -125,7 +125,7 @@ func (m *Monitor) CheckAll(ctx context.Context) {
 		}()
 	}
 	wg.Wait()
-	m.prune(devices)
+	m.prune()
 }
 
 // Check prüft ein Gerät sofort und speichert das Ergebnis.
@@ -210,15 +210,21 @@ func (m *Monitor) set(d store.Device, st State) {
 	m.mu.Unlock()
 }
 
-func (m *Monitor) prune(devices []store.Device) {
+// prune vergisst den Status gelöschter Geräte. Maßgeblich ist die Geräteliste von jetzt, nicht die
+// vom Beginn der Runde: Ein Gerät, das währenddessen angelegt und gleich geprüft wurde, verlöre
+// sonst seinen Status bis zur nächsten Runde. Prüfungen, die erst nach dem Lesen der Liste
+// begonnen haben, bleiben ohnehin stehen.
+func (m *Monitor) prune() {
+	since := time.Now()
+	devices, _ := m.store.Devices()
 	keep := map[string]bool{}
 	for _, d := range devices {
 		keep[d.ID] = true
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for id := range m.states {
-		if !keep[id] {
+	for id, st := range m.states {
+		if !keep[id] && st.started.Before(since) {
 			delete(m.states, id)
 		}
 	}

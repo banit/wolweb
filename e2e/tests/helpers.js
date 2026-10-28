@@ -22,8 +22,9 @@ async function addDevice(request, data) {
 
 // Antwortet: wolweb selbst lauscht auf 127.0.0.1:PORT.
 const onlineDevice = (request, name, extra) => addDevice(request, { name, ip: "127.0.0.1", ports: [PORT], ...extra });
-// Antwortet nie: 192.0.2.0/24 ist ein Dokumentationsnetz (TEST-NET-1).
-const offlineDevice = (request, name, extra) => addDevice(request, { name, ip: "192.0.2.1", ports: [9], ...extra });
+// Antwortet nie: 198.51.100.0/24 ist ein Dokumentationsnetz (TEST-NET-2). Nicht 192.0.2.1 – das ist in
+// manchen Containern das Gateway und lehnt sofort ab, dann liefe die Prüfung anders als in der CI.
+const offlineDevice = (request, name, extra) => addDevice(request, { name, ip: "198.51.100.1", ports: [9], ...extra });
 
 // settled wartet, bis Einblend-Animationen (Dialog, Leiste) durch sind – sonst misst man sie mitten
 // im Skalieren. Endlose Animationen zählen nicht.
