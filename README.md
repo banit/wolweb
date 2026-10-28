@@ -66,7 +66,7 @@ Die `legacy-devices.json` wird beim ersten Start übernommen.
 ### Direkt / Proxmox-LXC
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.0.0" -o wolweb .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.0.2" -o wolweb .
 ```
 
 Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `deploy/wolweb.service` nach
