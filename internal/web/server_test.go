@@ -899,3 +899,44 @@ func TestLocalZone(t *testing.T) {
 		t.Errorf("TZ als Pfad: %q", z)
 	}
 }
+
+// Mehrfachauswahl: mehrere Geräte auf einmal in eine (vorhandene) Gruppe – deren Schreibweise gilt –
+// und wieder heraus.
+func TestSetGroupForSeveral(t *testing.T) {
+	h, st := newTestServer(t, nil)
+	a, _ := st.Create(store.Input{Name: "NAS", MAC: "02:00:00:00:00:01", Group: "Homelab"})
+	b, _ := st.Create(store.Input{Name: "Proxmox", MAC: "02:00:00:00:00:02"})
+	c, _ := st.Create(store.Input{Name: "Drucker", MAC: "02:00:00:00:00:03"})
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/api/v1/devices/group", strings.NewReader(body))
+		req.Header.Set("X-WolWeb", "1")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := post(`{"ids":["` + b.ID + `","` + c.ID + `"],"group":"homelab"}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"group":"Homelab"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if n := len(st.GroupMembers("Homelab")); n != 3 {
+		t.Errorf("%d Mitglieder statt 3", n)
+	}
+	if rec := post(`{"ids":["` + a.ID + `"],"group":""}`); rec.Code != http.StatusOK {
+		t.Fatalf("herausnehmen: %d %s", rec.Code, rec.Body)
+	}
+	if d, _ := st.Get(a.ID); d.Group != "" {
+		t.Errorf("noch in %q", d.Group)
+	}
+	// Unbekanntes Gerät oder ungültiger Name: nichts ändert sich.
+	if rec := post(`{"ids":["` + b.ID + `","gibtsnicht"],"group":"Büro"}`); rec.Code != http.StatusNotFound {
+		t.Errorf("unbekannte ID: %d", rec.Code)
+	}
+	if rec := post(`{"ids":["` + b.ID + `"],"group":"a/b"}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"field":"group"`) {
+		t.Errorf("ungültige Gruppe: %d %s", rec.Code, rec.Body)
+	}
+	if rec := post(`{"ids":[],"group":"Büro"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("keine Auswahl: %d", rec.Code)
+	}
+	if d, _ := st.Get(b.ID); d.Group != "Homelab" {
+		t.Errorf("Proxmox jetzt in %q", d.Group)
+	}
+}

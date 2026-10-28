@@ -125,6 +125,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+api+"events", s.events)
 	mux.HandleFunc("GET "+api+"devices", s.listDevices)
 	mux.HandleFunc("POST "+api+"devices", s.writable(s.createDevice))
+	mux.HandleFunc("POST "+api+"devices/group", s.writable(s.setGroup))
 	mux.HandleFunc("PUT "+api+"devices/{id}", s.writable(s.updateDevice))
 	mux.HandleFunc("DELETE "+api+"devices/{id}", s.writable(s.deleteDevice))
 	mux.HandleFunc("POST "+api+"devices/{id}/wake", s.wakeDevice)
@@ -463,6 +464,39 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
 	writeJSON(w, http.StatusOK, s.view(d))
+}
+
+// setGroup ordnet mehrere Geräte auf einmal einer Gruppe zu (Mehrfachauswahl in der Übersicht);
+// eine leere Gruppe nimmt sie aus ihrer Gruppe.
+func (s *Server) setGroup(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		IDs   []string `json:"ids"`
+		Group string   `json:"group"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	if len(in.IDs) == 0 {
+		s.storeError(w, r, store.Invalid("err.none_selected"))
+		return
+	}
+	devs, err := s.store.SetGroup(in.IDs, in.Group)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	group := in.Group
+	if len(devs) > 0 {
+		group = devs[0].Group // Schreibweise einer schon vorhandenen Gruppe
+	}
+	log.Printf("Gruppe %q für %d Geräte gesetzt", group, len(devs))
+	s.devicesChanged()
+	out := make([]deviceView, 0, len(devs))
+	for _, d := range devs {
+		out = append(out, s.view(d))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"group": group, "devices": out})
 }
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {

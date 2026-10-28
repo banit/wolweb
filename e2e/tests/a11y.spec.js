@@ -54,6 +54,14 @@ for (const colorScheme of ["light", "dark"]) {
       await expectAccessible(page);
     });
 
+    test("Mehrfachauswahl", async ({ page }) => {
+      await overview(page);
+      await page.click("#select-toggle");
+      await page.getByRole("checkbox", { name: "NAS auswählen" }).check();
+      await expect(page.locator("#select-bar")).toBeVisible();
+      await expectAccessible(page);
+    });
+
     test("einfache Ansicht", async ({ page }) => {
       await overview(page, "./?view=simple");
       await expectAccessible(page);
@@ -131,6 +139,9 @@ test.describe("Touch", () => {
   test("alle Ziele mindestens 44 × 44 px", async ({ page }) => {
     await overview(page);
     expect(await smallTargets(page), "Übersicht").toEqual([]);
+    await page.click("#select-toggle");
+    expect(await smallTargets(page), "Mehrfachauswahl").toEqual([]);
+    await page.click("#sel-done");
     await page.evaluate(() => document.querySelector("#add-device").click());
     await page.evaluate(() => { document.querySelector(".advanced").open = true; });
     expect(await smallTargets(page), "Gerätedialog").toEqual([]);

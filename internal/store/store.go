@@ -520,11 +520,8 @@ func (in *Input) validate() (Device, error) {
 	if pass != nil {
 		d.SecureOn = wol.FormatMAC(pass)
 	}
-	d.Group = strings.TrimSpace(in.Group)
-	// "." und ".." würde der Browser im Gruppen-Wecklink als Pfad auflösen (wie beim Namen).
-	if utf8.RuneCountInString(d.Group) > 32 || strings.ContainsAny(d.Group, `/\?#%`) || hasControl(d.Group) ||
-		d.Group == "." || d.Group == ".." {
-		return d, invalid("group", "val.group")
+	if d.Group, err = validGroup(in.Group); err != nil {
+		return d, err
 	}
 	entries, err := schedule.ParseList(in.Schedule)
 	if err != nil {
@@ -538,6 +535,54 @@ func (in *Input) validate() (Device, error) {
 }
 
 func hasControl(s string) bool { return strings.ContainsFunc(s, unicode.IsControl) }
+
+// validGroup prüft einen Gruppennamen (leer = keine Gruppe).
+func validGroup(g string) (string, error) {
+	g = strings.TrimSpace(g)
+	// "." und ".." würde der Browser im Gruppen-Wecklink als Pfad auflösen (wie beim Namen).
+	if utf8.RuneCountInString(g) > 32 || strings.ContainsAny(g, `/\?#%`) || hasControl(g) || g == "." || g == ".." {
+		return g, invalid("group", "val.group")
+	}
+	return g, nil
+}
+
+// SetGroup ordnet mehrere Geräte auf einmal einer Gruppe zu (leer: aus ihrer Gruppe nehmen). Ist
+// eine ID unbekannt, ändert sich nichts. Gibt es die Gruppe schon, gilt ihre Schreibweise.
+func (s *Store) SetGroup(ids []string, group string) ([]Device, error) {
+	group, err := validGroup(group)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range s.devices {
+		if group != "" && strings.EqualFold(d.Group, group) {
+			group = d.Group
+			break
+		}
+	}
+	next := slices.Clone(s.devices)
+	var changed []Device
+	now := time.Now().UTC()
+	for _, id := range ids {
+		i := slices.IndexFunc(next, func(x Device) bool { return x.ID == id })
+		if i < 0 {
+			return nil, ErrNotFound
+		}
+		if next[i].Group != group {
+			next[i].Group, next[i].UpdatedAt = group, now
+		}
+		changed = append(changed, next[i])
+	}
+	prev := s.devices
+	s.devices = next
+	if err := s.saveDevices(); err != nil {
+		s.devices = prev
+		return nil, err
+	}
+	s.revision++
+	return changed, nil
+}
 
 // Groups liefert die Gruppennamen (ohne Rücksicht auf Groß-/Kleinschreibung zusammengefasst,
 // in der Schreibweise des ersten Geräts), sortiert.

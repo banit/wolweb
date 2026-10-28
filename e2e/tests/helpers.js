@@ -40,7 +40,7 @@ async function smallTargets(page) {
     const out = [];
     for (let n of document.querySelectorAll("button, a[href], input, textarea, select, summary, .icon-picker span")) {
       if (n.matches(".icon-picker input")) continue; // unsichtbar, das Symbol daneben ist das Ziel
-      if (n.matches(".check input")) n = n.closest(".check"); // die ganze Zeile ist anklickbar
+      if (n.matches(".check input, .select-box input")) n = n.closest(".check, .select-box"); // die ganze Zeile/Fläche ist anklickbar
       const r = n.getBoundingClientRect();
       if (!r.width || !r.height || getComputedStyle(n).visibility === "hidden") continue;
       if (r.width < 44 || r.height < 44) {

@@ -16,6 +16,8 @@
     search: "",
     waking: new Map(), // id -> { start }
     editing: null,
+    selecting: false, // Mehrfachauswahl für Gruppen
+    selected: new Set(),
     live: false, // Live-Verbindung (Server-Sent Events) steht – dann kaum noch Abfragen
   };
 
@@ -153,6 +155,8 @@
       b.replaceChildren(b.dataset.label || (b.dataset.label = b.textContent), el("span", { class: "count", text: n }));
     }
     const list = state.devices.filter(matches);
+    $("#select-toggle").hidden = state.info.read_only || total < 2;
+    for (const id of state.selected) if (!state.devices.some((d) => d.id === id)) state.selected.delete(id);
     $("#empty").hidden = total !== 0;
     $("#empty-filter").hidden = total === 0 || list.length !== 0;
     const existing = new Map([...grid.querySelectorAll(".card")].map((c) => [c.dataset.id, c]));
@@ -189,7 +193,8 @@
       el("h2", { id: nameID, text: g.name }),
       el("span", { class: "muted", text: t("ui.x_of_y_online", online, members.length) }),
       el("span", { class: "spacer" }),
-      el("button", { class: "btn btn-secondary btn-sm", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: t("ui.wake_group") })),
+      // Die Reichweite steht auf dem Knopf – alle Mitglieder, auch wenn die Suche gerade einige ausblendet.
+      el("button", { class: "btn btn-secondary btn-sm", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: tn("ui.wake_all", members.length) })),
       state.simple ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.copy_group_link"), "aria-label": t("ui.copy_group_link"), "aria-describedby": nameID, "data-focus": "copy", onclick: () => copyURL(groupURL(g), t("ui.group_link_copied"), t("ui.copy_group_link")) }, icon("link")));
   }
 
@@ -246,6 +251,9 @@
     const nameID = "dn-" + d.id;
     const card = el("article", { class: "card", "data-id": d.id, "data-state": s, "aria-labelledby": nameID },
       el("div", { class: "card-top" },
+        state.selecting && !ro ? el("label", { class: "select-box" },
+          el("input", { type: "checkbox", "aria-label": t("ui.sel.select", d.name), "data-focus": "select", checked: state.selected.has(d.id),
+            onchange: (ev) => { if (ev.target.checked) state.selected.add(d.id); else state.selected.delete(d.id); updateSelectBar(); } })) : null,
         el("div", { class: "dev-icon", title: vendorText(d.vendor) }, icon(d.icon || "desktop")),
         el("div", { class: "card-title" },
           el("h3", { id: nameID, text: d.name, title: d.name }),
@@ -357,6 +365,50 @@
       if (bar) bar.style.width = Math.min(100, ((Date.now() - w.start) / (state.info.wake_timeout * 1000)) * 100) + "%";
     }
   }, 500);
+
+  // ---------- Mehrfachauswahl: Geräte gemeinsam einer Gruppe zuordnen ----------
+  function fillGroupList() {
+    $("#group-list").replaceChildren(...state.groups.map((g) => el("option", { value: g.name })));
+  }
+  function setSelecting(on) {
+    state.selecting = on;
+    state.selected.clear();
+    $("#select-toggle").setAttribute("aria-pressed", String(on));
+    $("#select-bar").hidden = !on;
+    document.body.classList.toggle("selecting", on);
+    $("#sel-group").value = "";
+    if (on) fillGroupList();
+    renderDevices();
+    updateSelectBar();
+  }
+  function updateSelectBar() {
+    const n = state.selected.size;
+    const g = $("#sel-group").value.trim();
+    const grouped = state.devices.some((d) => state.selected.has(d.id) && d.group);
+    $("#sel-count").textContent = tn("ui.sel.count", n);
+    $("#sel-apply-text").textContent = g ? t("ui.sel.apply", g) : grouped ? t("ui.sel.ungroup") : t("ui.sel.pick");
+    $("#sel-apply").disabled = !n || (!g && !grouped);
+  }
+  async function applyGroup() {
+    const ids = [...state.selected];
+    try {
+      const res = await api("POST", "devices/group", { ids, group: $("#sel-group").value.trim() });
+      toast("ok", res.group ? tn("ui.sel.moved", ids.length, res.group) : tn("ui.sel.removed", ids.length));
+      setSelecting(false);
+      $("#select-toggle").focus();
+      await loadDevices();
+    } catch (e) {
+      toast("err", t("ui.not_possible"), e.message);
+    }
+  }
+  $("#select-toggle").addEventListener("click", () => setSelecting(!state.selecting));
+  $("#sel-done").addEventListener("click", () => { setSelecting(false); $("#select-toggle").focus(); });
+  $("#sel-group").addEventListener("input", updateSelectBar);
+  $("#sel-group").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && !$("#sel-apply").disabled) applyGroup(); });
+  $("#sel-apply").addEventListener("click", applyGroup);
+  $("#select-bar").addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { setSelecting(false); $("#select-toggle").focus(); }
+  });
 
   // ---------- Dialog Gerät ----------
   const dlg = $("#device-dialog");
@@ -500,6 +552,18 @@
   form.schedule.addEventListener("input", () => previewSchedule(400));
   form.schedule.addEventListener("change", () => previewSchedule(0)); // nach dem Tippen die Schalter angleichen
 
+  // Vorhandene Gruppen zum Antippen unter dem Gruppenfeld (eine Datenliste ist auf dem Handy umständlich).
+  function renderGroupChips() {
+    const box = $("#group-chips");
+    const cur = form.group.value.trim().toLowerCase();
+    box.replaceChildren(...state.groups.map((g) => el("button", {
+      type: "button", class: "btn btn-secondary btn-sm chip", "aria-pressed": String(cur === g.name.toLowerCase()),
+      onclick: () => { form.group.value = cur === g.name.toLowerCase() ? "" : g.name; renderGroupChips(); },
+    }, g.name)));
+    box.hidden = !state.groups.length;
+  }
+  form.group.addEventListener("input", renderGroupChips);
+
   function buildIconPicker() {
     const box = $("#icon-picker");
     for (const key of ICONS) {
@@ -527,7 +591,8 @@
     form.secureon.value = v.secureon || "";
     form.group.value = v.group || "";
     setSchedule(v.schedule || [], v.schedule_paused);
-    $("#group-list").replaceChildren(...[...new Set(state.devices.map((x) => x.group).filter(Boolean))].map((g) => el("option", { value: g })));
+    fillGroupList();
+    renderGroupChips();
     form.ports.placeholder = state.info.ports && state.info.ports.length ? t("ui.default_ports", state.info.ports.slice(0, 5).join(", ") + (state.info.ports.length > 5 ? " …" : "")) : t("ui.default");
     const ic = form.querySelector('input[name="icon"][value="' + (v.icon || "desktop") + '"]');
     if (ic) ic.checked = true;

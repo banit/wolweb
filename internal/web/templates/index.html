@@ -60,9 +60,23 @@
       <button type="button" data-filter="online" aria-pressed="false">{{.T "ui.online"}}</button>
       <button type="button" data-filter="offline" aria-pressed="false">{{.T "ui.offline"}}</button>
     </div>
+    <button type="button" class="btn btn-ghost not-simple" id="select-toggle" aria-pressed="false" hidden>
+      <svg aria-hidden="true" class="ico"><use href="#i-check"/></svg><span>{{.T "page.sel.toggle"}}</span>
+    </button>
   </div>
 
   <section id="devices" aria-label="{{.T "page.devices"}}" tabindex="-1"></section>
+
+  <!-- Mehrfachauswahl: mehrere Geräte auf einmal einer Gruppe zuordnen -->
+  <div class="select-bar" id="select-bar" role="region" aria-label="{{.T "page.sel.title"}}" hidden>
+    <strong id="sel-count" aria-live="polite"></strong>
+    <label class="sel-group">
+      <span class="sr-only">{{.T "page.f.group"}}</span>
+      <input id="sel-group" list="group-list" placeholder="{{.T "page.sel.group_ph"}}" maxlength="32" autocomplete="off">
+    </label>
+    <button type="button" class="btn btn-primary" id="sel-apply" disabled><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg><span id="sel-apply-text"></span></button>
+    <button type="button" class="btn btn-ghost" id="sel-done">{{.T "page.sel.done"}}</button>
+  </div>
 
   <div class="empty" id="empty" hidden>
     <div class="empty-art"><svg aria-hidden="true" class="ico"><use href="#i-power"/></svg></div>
@@ -151,10 +165,11 @@
       </div>
       <label class="field">
         <span>{{.T "page.f.group"}}</span>
-        <input name="group" list="group-list" placeholder="{{.T "page.f.group_ph"}}" autocomplete="off" maxlength="32">
+        <input name="group" list="group-list" placeholder="{{.T "page.f.group_ph"}}" autocomplete="off" maxlength="32" aria-describedby="group-hint">
         <datalist id="group-list"></datalist>
-        <small class="muted">{{.T "page.f.group_hint"}}</small>
+        <small class="muted" id="group-hint">{{.T "page.f.group_hint"}}</small>
       </label>
+      <div class="group-chips" id="group-chips" role="group" aria-label="{{.T "page.f.group_existing"}}" hidden></div>
       <!-- Zeitplan: Schalter, Wochentage und Uhrzeit; die Textform steht unter „Weitere Möglichkeiten“ -->
       <fieldset class="sched-box">
         <legend>{{.T "page.f.schedule"}}</legend>

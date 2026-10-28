@@ -167,3 +167,36 @@ test.describe("Browser in anderer Zeitzone als der Server", () => {
     await expect(summary).toContainText("TZ=Europe/Berlin");
   });
 });
+
+test("Gruppen: mehrere Geräte auf einmal zuordnen, Reichweite auf dem Knopf", async ({ page, request }) => {
+  await addDevice(request, { name: "NAS", group: "Homelab" });
+  await addDevice(request, { name: "Proxmox" });
+  await addDevice(request, { name: "Switch" });
+  await addDevice(request, { name: "Drucker" });
+  await page.goto("./");
+  await page.getByRole("button", { name: "Auswählen" }).click();
+  await page.getByRole("checkbox", { name: "Proxmox auswählen" }).check();
+  await page.getByRole("checkbox", { name: "Switch auswählen" }).check();
+  const bar = page.getByRole("region", { name: "Auswahl" });
+  await expect(bar).toContainText("2 Geräte ausgewählt");
+  await bar.getByPlaceholder("Gruppenname").fill("homelab"); // vorhandene Gruppe, andere Schreibweise
+  await bar.getByRole("button", { name: "Zur Gruppe „homelab“" }).click();
+  await expect(page.locator("#toasts")).toContainText("2 Geräte sind jetzt in „Homelab“");
+  await expect(bar).toBeHidden();
+  const wakeAll = page.locator(".group-head", { hasText: "Homelab" }).getByRole("button", { name: /wecken/ });
+  await expect(wakeAll).toHaveText("Alle 3 Geräte wecken");
+  // Auch wenn die Suche Mitglieder ausblendet, nennt der Knopf alle, die er weckt.
+  await page.fill("#search", "nas");
+  await expect(page.locator(".card")).toHaveCount(1);
+  await expect(wakeAll).toHaveText("Alle 3 Geräte wecken");
+
+  // Im Gerätedialog: vorhandene Gruppe antippen statt tippen
+  await page.fill("#search", "");
+  await page.locator(".card", { hasText: "Drucker" }).locator('[data-focus="edit"]').click();
+  const dlg = page.locator("#device-dialog");
+  await expect(dlg).toContainText("Vorhandene Gruppe auswählen oder einen neuen Gruppennamen eingeben.");
+  await dlg.getByRole("group", { name: "Vorhandene Gruppen" }).getByRole("button", { name: "Homelab" }).click();
+  await expect(dlg.locator('input[name="group"]')).toHaveValue("Homelab");
+  await dlg.locator("#save-device").click();
+  await expect(wakeAll).toHaveText("Alle 4 Geräte wecken");
+});

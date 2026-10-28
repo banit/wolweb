@@ -384,6 +384,21 @@ textarea { resize: vertical; }
 .icon-picker span:hover { border-color: var(--border-strong); color: var(--text); }
 .icon-picker input:checked + span { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .icon-picker input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Gruppen: vorhandene zum Antippen, Mehrfachauswahl */
+.group-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -.3rem; }
+.group-chips[hidden] { display: none; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.select-box { display: grid; place-items: center; width: 32px; height: 40px; flex: none; cursor: pointer; }
+.select-box input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.select-bar {
+  position: sticky; bottom: 16px; z-index: 20; margin-top: 1rem;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .6rem;
+  padding: .7rem .9rem; border: 1px solid var(--border); border-radius: 14px;
+  background: var(--surface); box-shadow: 0 12px 32px -12px rgba(0, 0, 0, .35);
+}
+.select-bar[hidden] { display: none; }
+.sel-group { flex: 1 1 160px; min-width: 0; }
+.sel-group input { width: 100%; }
 /* Zeitplan im Gerätedialog */
 .sched-box { border: 1px solid var(--border); border-radius: 12px; padding: .7rem 1rem .9rem; margin: 0; display: grid; gap: .8rem; min-width: 0; }
 .sched-box > legend { font-size: .85rem; font-weight: 600; padding: 0 .35rem; }
@@ -557,6 +572,9 @@ textarea { resize: vertical; }
   .found { grid-template-columns: 34px 1fr; }
   .found-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .wake-card { padding: 1.6rem 1.1rem 1.2rem; }
+  .select-bar { display: grid; grid-template-columns: 1fr auto; }
+  .select-bar .sel-group, #sel-apply { grid-column: 1 / -1; }
+  #sel-done { grid-row: 1; grid-column: 2; }
 }
 @media (max-width: 400px) {
   .topbar .brand-mark { display: none; } /* Platz für alle Symbolknöpfe in einer Zeile */
@@ -641,6 +659,7 @@ input:disabled, textarea:disabled, select:disabled { background: var(--surface-2
   .icon-picker { gap: 8px; }
   .icon-picker span { width: 48px; height: 48px; }
   .day-picker span { min-width: 46px; height: 46px; }
+  .select-box { width: 44px; height: 44px; }
   .more summary { padding: .75rem 0; }
   input, textarea, select { min-height: 44px; }
   .check { min-height: 44px; align-items: center; }

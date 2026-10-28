@@ -56,7 +56,7 @@ aus der Netzwerksuche).
 
 | Feld | Wofür |
 |---|---|
-| Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken |
+| Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken; vorhandene Gruppen stehen unter dem Feld zum Antippen. Mehrere Geräte auf einmal zuordnen: in der Übersicht „Auswählen“, Geräte ankreuzen, Gruppenname eingeben. Der Gruppenknopf nennt, wie viele er weckt („Alle 4 Geräte wecken“) |
 | Zeitplan | „Automatisch wecken“ einschalten, Wochentage antippen, Uhrzeit wählen – der Dialog zeigt dazu „Montag bis Freitag um 07:30 Uhr“, das nächste Wecken und die Zeitzone. „Pausieren“ setzt den Zeitplan aus, ohne die Zeiten zu vergessen. Mehrere Zeiten gehen unter „Weitere Möglichkeiten“ als Text, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` (englisch wie `Mon-Fri 07:30` geht auch; gespeichert wird einheitlich die deutsche Form) |
 | *Erweitert:* Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
 | *Erweitert:* Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
@@ -390,6 +390,7 @@ Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site
 | GET | `/api/v1/info` | Einstellungen, lokale Netze |
 | GET | `/api/v1/events` | Live-Ereignisse (Server-Sent Events): `status`, `devices`, `scan` |
 | GET / POST | `/api/v1/devices` | Liste (mit Status) / anlegen |
+| POST | `/api/v1/devices/group` | mehrere Geräte einer Gruppe zuordnen: `{"ids": […], "group": "Homelab"}` (leer = aus der Gruppe nehmen) |
 | PUT / DELETE | `/api/v1/devices/{id}` | ändern (`updated_at` mitschicken schützt vor Überschreiben) / löschen |
 | POST | `/api/v1/devices/{id}/wake` | Magic Packet senden |
 | GET | `/api/v1/devices/{id}/status` | sofort prüfen |
@@ -455,7 +456,8 @@ in **English and German**; it follows the browser language and can be switched i
   on demand or periodically; add new devices with one click or ignore them
 - **Settings page** with an overview of networks and VLANs (which ones wolweb is connected to, devices per network);
   changes apply without a restart
-- **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`;
+- **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`; assign
+  several devices at once with "Select" in the overview, the group button says how many it wakes;
   **schedules** wake devices automatically: switch on "Wake automatically", tap the days, pick a time; the dialog
   sums it up ("Monday to Friday at 07:30"), shows the next wake-up and the server's time zone, and "Pause" suspends
   it without losing the times. Several times go under "More options" as text such as
