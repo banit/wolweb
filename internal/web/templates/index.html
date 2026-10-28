@@ -39,11 +39,12 @@
     <a class="btn btn-ghost icon-only not-simple" id="open-settings" href="settings" title="{{.T "page.settings"}}" aria-label="{{.T "page.settings"}}" hidden>
       <svg aria-hidden="true" class="ico"><use href="#i-settings"/></svg>
     </a>
-    <button class="btn btn-secondary not-simple" id="open-discovery">
-      <svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg><span>{{.T "page.network"}}</span><span class="badge" id="new-badge" hidden>0</span>
+    <!-- Immer mit Namen; schmal bleibt eine kurze Beschriftung sichtbar, die im Namen enthalten ist (WCAG 2.5.3). -->
+    <button class="btn btn-secondary not-simple main-action" id="open-discovery" aria-label="{{.T "page.find_devices"}}" data-label="{{.T "page.find_devices"}}">
+      <svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg><span class="lbl-long">{{.T "page.find_devices"}}</span><span class="lbl-short">{{.T "page.find_short"}}</span><span class="badge" id="new-badge" hidden>0</span>
     </button>
-    <button class="btn btn-primary not-simple" id="add-device">
-      <svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg><span>{{.T "page.device"}}</span>
+    <button class="btn btn-primary not-simple main-action" id="add-device" aria-label="{{.T "page.add_device"}}">
+      <svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg><span class="lbl-long">{{.T "page.add_device"}}</span><span class="lbl-short">{{.T "page.add_short"}}</span>
     </button>
   </div>
 </header>

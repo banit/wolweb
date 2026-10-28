@@ -62,7 +62,7 @@ test("Sprache umschalten", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("lang", "de");
   await page.click("#lang-toggle");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.locator("#add-device")).toContainText("Device");
+  await expect(page.locator("#add-device")).toHaveAccessibleName("Add device");
   await page.click("#lang-toggle");
   await expect(page.locator("html")).toHaveAttribute("lang", "de");
 });

@@ -144,4 +144,15 @@ test.describe("Touch", () => {
     await expect(page.locator("#wake")).toHaveAttribute("data-state", "sent");
     expect(await smallTargets(page), "Weckseite").toEqual([]);
   });
+
+  test("Hauptknöpfe: Name für Screenreader, kurze Beschriftung sichtbar", async ({ page }) => {
+    await overview(page);
+    // Der Suchknopf nennt neue Treffer mit („Geräte suchen – 1 neu“).
+    for (const [name, visible] of [[/^Geräte suchen( – \d+ neu)?$/, "Suchen"], [/^Gerät hinzufügen$/, "Hinzufügen"]]) {
+      const b = page.getByRole("button", { name });
+      await expect(b).toBeVisible();
+      await expect(b.getByText(visible, { exact: true })).toBeVisible();
+    }
+    await expectAccessible(page);
+  });
 });

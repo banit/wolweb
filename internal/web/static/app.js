@@ -571,6 +571,8 @@
     const badge = $("#new-badge");
     badge.textContent = counts.new;
     badge.hidden = counts.new === 0;
+    const opener = $("#open-discovery"); // der Name nennt die Zahl mit, die Plakette allein hört man nicht
+    opener.setAttribute("aria-label", counts.new ? t("ui.find_devices_new", counts.new) : opener.dataset.label);
 
     for (const b of $("#found-filter").children) {
       b.replaceChildren(b.dataset.label || (b.dataset.label = b.textContent), el("span", { class: "count", text: counts[b.dataset.filter] }));

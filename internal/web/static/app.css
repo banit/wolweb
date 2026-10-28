@@ -176,6 +176,7 @@ a { color: var(--accent); }
 }
 .brand-mark .ico { width: 22px; height: 22px; stroke-width: 2.2; }
 .topbar-actions { display: flex; gap: .5rem; align-items: center; }
+.main-action .lbl-short { display: none; }
 
 .container { max-width: 1180px; margin: 0 auto; padding: 1.25rem 16px 4rem; }
 
@@ -511,9 +512,18 @@ textarea { resize: vertical; }
 @media (max-width: 640px) {
   .topbar { padding: .7rem 16px; }
   .brand p { display: none; }
-  .topbar-actions .btn span:not(.badge) { display: none; }
-  .topbar-actions .btn { width: 38px; padding: 0; position: relative; }
-  .topbar-actions .badge { position: absolute; top: -6px; right: -6px; }
+  /* Zwei Zeilen: oben Marke und Symbolknöpfe, darunter die beiden Hauptknöpfe mit kurzer Beschriftung */
+  .topbar { flex-wrap: wrap; gap: .6rem .5rem; }
+  .topbar .brand { flex: 1 1 0; }
+  .brand > div { min-width: 0; }
+  .brand h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar-actions { display: contents; }
+  .topbar::after { content: ""; flex-basis: 100%; order: 1; }
+  .simple .topbar::after, .topbar:not(:has(.main-action:not([hidden])))::after { display: none; }
+  .topbar-actions .main-action { order: 2; flex: 1 1 0; }
+  .topbar-actions .btn:not(.main-action) { width: 38px; padding: 0; }
+  .main-action .lbl-long { display: none; }
+  .main-action .lbl-short { display: inline; }
   .toolbar .segmented { width: 100%; }
   .toolbar .segmented button { flex: 1; }
   .field-row { grid-template-columns: 1fr; }
@@ -521,6 +531,9 @@ textarea { resize: vertical; }
   .found { grid-template-columns: 34px 1fr; }
   .found-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .wake-card { padding: 1.6rem 1.1rem 1.2rem; }
+}
+@media (max-width: 400px) {
+  .topbar .brand-mark { display: none; } /* Platz für alle Symbolknöpfe in einer Zeile */
 }
 /* --- Einstellungen --- */
 .settings { max-width: 860px; display: grid; gap: 1rem; }
@@ -594,7 +607,7 @@ input:disabled, textarea:disabled, select:disabled { background: var(--surface-2
 /* --- Touch (auch Laptops mit Touchscreen): Ziele mindestens 44 × 44 px (WCAG 2.5.5), mehr Abstand --- */
 @media (any-pointer: coarse) {
   .btn, .btn-sm { height: auto; min-height: 44px; }
-  .btn.icon-only, .btn-sm.icon-only, .topbar-actions .btn { width: 44px; min-width: 44px; }
+  .btn.icon-only, .btn-sm.icon-only, .topbar-actions .btn:not(.main-action) { width: 44px; min-width: 44px; }
   .lang-toggle { min-width: 44px; }
   .segmented button, .segmented.small button { height: auto; min-height: 44px; }
   .card-actions, .found-actions, .topbar-actions, .wake-actions, .group-head { gap: .6rem; }
