@@ -163,23 +163,33 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	cfg, err := s.settings.Save(e)
-	if err != nil {
+	if err := s.commit(func() (config.Config, error) { return s.settings.Save(e) }); err != nil {
 		s.settingsError(w, r, err)
 		return
 	}
-	s.Apply(cfg)
 	writeJSON(w, http.StatusOK, s.settingsState())
 }
 
 func (s *Server) resetSettings(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.settings.Reset()
-	if err != nil {
+	if err := s.commit(s.settings.Reset); err != nil {
 		s.settingsError(w, r, err)
 		return
 	}
-	s.Apply(cfg)
 	writeJSON(w, http.StatusOK, s.settingsState())
+}
+
+// commit speichert (oder setzt zurück) und übernimmt in einem Schritt. Ohne gemeinsame Sperre könnte
+// eine ältere Anfrage ihren Stand nach einer neueren übernehmen – settings.json und der laufende
+// Betrieb (etwa erlaubte Hostnamen) liefen dann auseinander.
+func (s *Server) commit(change func() (config.Config, error)) error {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	cfg, err := change()
+	if err != nil {
+		return err
+	}
+	s.Apply(cfg)
+	return nil
 }
 
 // settingsError: Eingabefehler nennen das Feld (wie bei Geräten), alles andere ist ein Speicherfehler.
@@ -246,14 +256,15 @@ func (s *Server) chooseNetwork(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusConflict, "err.networks_locked")
 		return
 	}
-	e := s.settings.Config().Editable()
-	e.Discovery.Networks = []config.Network{{CIDR: in.CIDR, Scan: true}}
-	cfg, err := s.settings.Save(e)
+	err := s.commit(func() (config.Config, error) {
+		e := s.settings.Config().Editable() // unter der Sperre lesen, sonst ginge eine gleichzeitige Änderung verloren
+		e.Discovery.Networks = []config.Network{{CIDR: in.CIDR, Scan: true}}
+		return s.settings.Save(e)
+	})
 	if err != nil {
 		s.settingsError(w, r, err)
 		return
 	}
-	s.Apply(cfg)
 	writeJSON(w, http.StatusOK, map[string]any{"networks": s.scanner.Networks()})
 }
 

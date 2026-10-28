@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -127,6 +128,30 @@ func TestSettingsAPI(t *testing.T) {
 	// Die Seite selbst
 	if rec := call(h, "GET", "/settings", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), "settings.js") {
 		t.Errorf("Seite: %d", rec.Code)
+	}
+}
+
+// Gleichzeitige Änderungen: Was gespeichert ist, muss auch gelten. Ohne gemeinsame Sperre für
+// Speichern und Übernehmen konnte eine ältere Anfrage ihren Stand nach einer neueren übernehmen.
+func TestSettingsConcurrentSaves(t *testing.T) {
+	s, h, m := settingsServer(t, `{"status": {"wake_retry": "45s"}}`)
+	var wg sync.WaitGroup
+	for i := range 40 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e := m.Config().Editable()
+			e.Status.WakeRetry = []string{"10s", "20s", "30s", "40s"}[i%4]
+			b, _ := json.Marshal(e)
+			if rec := call(h, "PUT", "/api/v1/settings", string(b)); rec.Code != 200 {
+				t.Errorf("PUT: %d %s", rec.Code, rec.Body)
+			}
+		}()
+	}
+	wg.Wait()
+	_, _, _, want := m.Config().Durations()
+	if got := s.rt().wakeRetry; got != want {
+		t.Errorf("gilt %v, gespeichert %v", got, want)
 	}
 }
 

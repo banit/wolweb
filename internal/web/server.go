@@ -36,6 +36,7 @@ type Server struct {
 	cur      atomic.Pointer[live] // Einstellungen; die Einstellungsseite tauscht sie im Betrieb aus
 	settings *config.Manager      // nil: Einstellungen nur aus config.json (Tests)
 	applyMu  sync.Mutex           // nur eine Übernahme zur Zeit
+	saveMu   sync.Mutex           // Speichern und Übernehmen der Einstellungen als ein Schritt
 	store    *store.Store
 	monitor  *status.Monitor
 	scanner  *discovery.Scanner
