@@ -54,6 +54,20 @@ for (const colorScheme of ["light", "dark"]) {
       await expectAccessible(page);
     });
 
+    test("Neu angelegt: nächste Schritte und Handy-Anleitung", async ({ page }) => {
+      await overview(page);
+      await page.click("#add-device");
+      await page.fill('#device-form input[name="name"]', "Werkstatt");
+      await page.fill('#device-form input[name="mac"]', "02:00:00:00:00:c1");
+      await page.click("#save-device");
+      const next = page.locator(".card-next");
+      await expect(next).toBeVisible();
+      await expectAccessible(page);
+      await next.getByRole("button", { name: "Auf dem Handy einrichten" }).click();
+      await expect(page.locator("#phone-dialog")).toBeVisible();
+      await expectAccessible(page);
+    });
+
     test("Mehrfachauswahl", async ({ page }) => {
       await overview(page);
       await page.click("#select-toggle");

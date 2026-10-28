@@ -149,8 +149,8 @@
       </fieldset>
       <label class="field">
         <span>{{.T "page.f.name"}}</span>
-        <input name="name" required maxlength="64" placeholder="{{.T "page.f.name_ph"}}" autocomplete="off">
-        <small class="muted">{{.T "page.f.name_hint"}}</small>
+        <input name="name" required maxlength="64" placeholder="{{.T "page.f.name_ph"}}" autocomplete="off" aria-describedby="name-hint">
+        <small class="muted" id="name-hint" aria-live="polite">{{.T "page.f.name_hint"}}</small>
       </label>
       <div class="field-row">
         <label class="field">
@@ -257,6 +257,39 @@
     <ul class="history" id="history-list" tabindex="0" aria-labelledby="history-title"></ul>
     <p class="muted small center" id="history-empty" hidden>{{.T "page.history_empty"}}</p>
   </div>
+</dialog>
+
+<!-- Wecklink auf dem Handy einrichten -->
+<dialog class="modal modal-small" id="phone-dialog" aria-labelledby="phone-title" aria-describedby="phone-intro">
+  <header class="modal-head">
+    <h2 id="phone-title">{{.T "page.phone.title"}}</h2>
+    <button type="button" class="btn btn-ghost icon-only" data-close aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
+  </header>
+  <div class="modal-body">
+    <p id="phone-intro"></p>
+    <ol class="phone-steps">
+      <li>
+        <span>{{.T "page.phone.step1"}}</span>
+        <code class="mono phone-link" id="phone-link"></code>
+        <span class="row gap-start">
+          <button type="button" class="btn btn-secondary btn-sm" id="phone-copy"><svg aria-hidden="true" class="ico"><use href="#i-link"/></svg>{{.T "ui.copy_link"}}</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="phone-share" hidden><svg aria-hidden="true" class="ico"><use href="#i-send"/></svg>{{.T "page.phone.share"}}</button>
+        </span>
+      </li>
+      <li>
+        <span>{{.T "page.phone.step2"}}</span>
+        <ul>
+          <li>{{.T "page.phone.ios"}}</li>
+          <li>{{.T "page.phone.android"}}</li>
+        </ul>
+      </li>
+      <li>{{.T "page.phone.step3"}}</li>
+    </ol>
+  </div>
+  <footer class="modal-foot">
+    <span class="spacer"></span>
+    <button type="button" class="btn btn-primary" data-close>{{.T "page.sel.done"}}</button>
+  </footer>
 </dialog>
 
 <!-- Bestätigen -->

@@ -389,6 +389,11 @@ textarea { resize: vertical; }
 .card-next p { display: flex; align-items: center; gap: .4rem; font-weight: 600; }
 .card-next p .ico { color: var(--ok); flex: none; }
 .card-next-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+/* Auf dem Handy einrichten */
+.phone-steps { margin: .6rem 0 0; padding-left: 1.3rem; display: grid; gap: .8rem; }
+.phone-steps > li { display: grid; gap: .4rem; }
+.phone-steps ul { margin: 0; padding-left: 1.1rem; color: var(--muted); font-size: .9rem; display: grid; gap: .2rem; }
+.phone-link { display: block; padding: .5rem .65rem; border-radius: 8px; background: var(--surface-2); font-size: .85rem; overflow-wrap: anywhere; user-select: all; }
 /* Suchtreffer ohne Namen: nur den Namen fragen */
 .found-name { grid-column: 1 / -1; display: grid; gap: .5rem; }
 .found-name .found-actions { justify-content: flex-end; }

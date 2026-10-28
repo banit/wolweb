@@ -940,3 +940,54 @@ func TestSetGroupForSeveral(t *testing.T) {
 		t.Errorf("Proxmox jetzt in %q", d.Group)
 	}
 }
+
+// Nach dem Umbenennen gelten alte Wecklinks weiter: Browser werden zur neuen Adresse geleitet,
+// Automationen wecken direkt. Wird der alte Name neu vergeben, gehört er dem neuen Gerät.
+func TestRenameKeepsOldLinks(t *testing.T) {
+	h, st := newTestServer(t, nil)
+	d, _ := st.Create(store.Input{Name: "Büro-PC", MAC: "02:00:00:00:00:01", Broadcast: udpSink(t)})
+	d, err := st.Update(d.ID, store.Input{Name: "Arbeitszimmer", MAC: d.MAC, Broadcast: d.Broadcast}, nil)
+	if err != nil || len(d.Aliases) != 1 || d.Aliases[0] != "Büro-PC" {
+		t.Fatalf("%v %v", d.Aliases, err)
+	}
+	old := "/wake/" + pathEscape("Büro-PC")
+
+	req := httptest.NewRequest("GET", old+"?key=abc", nil)
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTemporaryRedirect || rec.Header().Get("Location") != "/wake/Arbeitszimmer?key=abc" {
+		t.Errorf("Seite: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if !st.LastWake(d.ID).IsZero() {
+		t.Error("Weiterleitung hat geweckt")
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", old+"?format=json", nil))
+	if rec.Code != http.StatusOK || st.LastWake(d.ID).IsZero() {
+		t.Errorf("Automation mit altem Namen: %d %s", rec.Code, rec.Body)
+	}
+
+	// Groß-/Kleinschreibung ist kein Umbenennen; zurück zum alten Namen tauscht die Rollen.
+	d, _ = st.Update(d.ID, store.Input{Name: "ARBEITSZIMMER", MAC: d.MAC, Broadcast: d.Broadcast}, nil)
+	if len(d.Aliases) != 1 {
+		t.Errorf("nur Schreibweise geändert: %v", d.Aliases)
+	}
+	d, _ = st.Update(d.ID, store.Input{Name: "Büro-PC", MAC: d.MAC, Broadcast: d.Broadcast}, nil)
+	if len(d.Aliases) != 1 || d.Aliases[0] != "ARBEITSZIMMER" {
+		t.Errorf("zurückbenannt: %v", d.Aliases)
+	}
+
+	// Ein neues Gerät mit dem alten Namen übernimmt den Link.
+	n, err := st.Create(store.Input{Name: "Arbeitszimmer", MAC: "02:00:00:00:00:02"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.FindByName("Arbeitszimmer"); got.ID != n.ID {
+		t.Error("alter Name zeigt noch aufs alte Gerät")
+	}
+	if got, _ := st.Get(d.ID); len(got.Aliases) != 0 {
+		t.Errorf("Alias nicht freigegeben: %v", got.Aliases)
+	}
+}

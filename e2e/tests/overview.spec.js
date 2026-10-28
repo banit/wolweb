@@ -244,3 +244,37 @@ test("Gerät von Hand: Hinweis, wo es die MAC-Adresse gibt", async ({ page }) =>
   const mac = page.locator('#device-form input[name="mac"]');
   await expect(mac).toHaveAccessibleDescription(/Netzwerkeinstellungen des Rechners.*Geräte suchen/);
 });
+
+test("Wecklink im Ablauf: nach dem Anlegen anbieten, Umbenennen hält alte Links", async ({ page, request }) => {
+  await page.goto("./");
+  await page.click("#add-device");
+  const dlg = page.locator("#device-dialog");
+  await dlg.locator('input[name="name"]').fill("Büro-PC");
+  await dlg.locator('input[name="mac"]').fill("02:00:00:00:00:b1");
+  await dlg.locator("#save-device").click();
+  const card = page.locator(".card", { hasText: "Büro-PC" });
+  const next = card.getByRole("group", { name: "Nächste Schritte für Büro-PC" });
+  await expect(next).toContainText("Angelegt");
+  await expect(next.getByRole("button", { name: "Wecklink kopieren" })).toBeVisible();
+  await next.getByRole("button", { name: "Auf dem Handy einrichten" }).click();
+  const phone = page.locator("#phone-dialog");
+  await expect(phone).toBeVisible();
+  await expect(phone.locator("#phone-link")).toHaveText(/\/wake\/Büro-PC$/); // lesbar angezeigt
+  await expect(phone).toContainText("Zum Home-Bildschirm");
+  await expect(phone).toContainText("Zum Startbildschirm hinzufügen");
+  await phone.getByRole("button", { name: "Fertig" }).click();
+  await expect(phone).toBeHidden();
+
+  // Umbenennen: der Dialog nennt den neuen Link, der alte leitet weiter
+  await card.locator('[data-focus="edit"]').click();
+  await dlg.locator('input[name="name"]').fill("Arbeitszimmer");
+  await expect(dlg.locator("#name-hint")).toContainText("/wake/Arbeitszimmer – der bisherige funktioniert weiter.");
+  await dlg.locator("#save-device").click();
+  await expect(page.locator(".card", { hasText: "Arbeitszimmer" })).toBeVisible();
+  const res = await request.get("wake/" + encodeURIComponent("Büro-PC") + "?format=json");
+  expect(res.ok()).toBeTruthy();
+  expect((await res.json()).device).toBe("Arbeitszimmer");
+  await page.goto("wake/" + encodeURIComponent("Büro-PC"));
+  await expect(page).toHaveURL(/\/wake\/Arbeitszimmer$/);
+  await expect(page.locator("#wake-title")).toContainText("Arbeitszimmer");
+});

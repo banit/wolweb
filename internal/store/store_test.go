@@ -1,9 +1,12 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -422,5 +425,36 @@ func TestRecordWakeRetriedAfterSaveError(t *testing.T) {
 	}
 	if h := s2.History(0); len(h) != 1 || h[0].Device != "PC" || s2.LastWake(d.ID).IsZero() {
 		t.Errorf("Verlauf verloren: %+v", h)
+	}
+}
+
+// Frühere Namen: höchstens maxAliases, und Export/Import behält sie (nicht aber fremde).
+func TestAliasesCappedAndImported(t *testing.T) {
+	st, _, _ := Open(t.TempDir(), "")
+	d, _ := st.Create(Input{Name: "PC0", MAC: "02:00:00:00:00:01"})
+	for i := 1; i <= maxAliases+3; i++ {
+		var err error
+		if d, err = st.Update(d.ID, Input{Name: fmt.Sprintf("PC%d", i), MAC: d.MAC}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(d.Aliases) != maxAliases || d.Aliases[len(d.Aliases)-1] != fmt.Sprintf("PC%d", maxAliases+2) {
+		t.Fatalf("%v", d.Aliases)
+	}
+	if got, ok := st.FindByName("PC5"); !ok || got.ID != d.ID {
+		t.Error("alter Name nicht gefunden")
+	}
+	b, err := json.Marshal(map[string]any{"version": 2, "devices": []Device{d}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, _ := Open(t.TempDir(), "")
+	other.Create(Input{Name: "PC5", MAC: "02:00:00:00:00:09"}) // trägt einen der alten Namen schon
+	if _, err := other.Import(b, i18n.DE); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := other.FindByName(d.Name)
+	if len(got.Aliases) != maxAliases-1 || slices.Contains(got.Aliases, "PC5") {
+		t.Errorf("importiert: %v", got.Aliases)
 	}
 }

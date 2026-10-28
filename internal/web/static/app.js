@@ -289,7 +289,9 @@
     return el("div", { class: "card-next", role: "group", "aria-label": t("ui.next.title", d.name) },
       el("p", {}, icon("check"), el("span", { text: state.fresh.adopted ? t("ui.next.adopted") : t("ui.next.added") })),
       el("div", { class: "card-next-actions" },
-        el("button", { class: "btn btn-secondary btn-sm", "data-focus": "details", onclick: () => openDialog(d) }, icon("edit"), el("span", { text: t("ui.next.details") })),
+        el("button", { class: "btn btn-secondary btn-sm", "data-focus": "next-copy", onclick: () => copyLink(d) }, icon("link"), el("span", { text: t("ui.copy_link") })),
+        el("button", { class: "btn btn-secondary btn-sm", "data-focus": "next-phone", onclick: () => phoneSetup(d) }, icon("phone"), el("span", { text: t("page.phone.title") })),
+        state.fresh.adopted ? el("button", { class: "btn btn-secondary btn-sm", "data-focus": "details", onclick: () => openDialog(d) }, icon("edit"), el("span", { text: t("ui.next.details") })) : null,
         el("span", { class: "spacer" }),
         el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.next.dismiss"), "aria-label": t("ui.next.dismiss"), "data-focus": "dismiss",
           onclick: () => { state.fresh = null; renderDevices(); focusCard(d.id); } }, icon("x"))));
@@ -305,6 +307,20 @@
   }
 
   function copyLink(d) { return copyURL(wakeURL(d), t("ui.link_copied"), t("ui.copy_link")); }
+
+  // phoneSetup erklärt in drei Schritten, wie der Wecklink als Symbol auf den Startbildschirm kommt.
+  const phoneDlg = $("#phone-dialog");
+  function phoneSetup(d) {
+    const url = wakeURL(d);
+    $("#phone-intro").textContent = t("ui.phone.intro", d.name);
+    $("#phone-link").textContent = decodeURI(url); // lesbar ("Büro-PC"); kopiert wird die echte Adresse
+    $("#phone-copy").onclick = () => copyURL(url, t("ui.link_copied"), t("ui.copy_link"));
+    const share = $("#phone-share");
+    share.hidden = !navigator.share; // Teilen schickt den Link z. B. per Messenger ans Handy
+    share.onclick = () => navigator.share({ title: d.name, url }).catch(() => { /* abgebrochen */ });
+    phoneDlg.showModal();
+  }
+  for (const b of phoneDlg.querySelectorAll("[data-close]")) b.addEventListener("click", () => phoneDlg.close());
   async function copyURL(url, done, ask) {
     try {
       await navigator.clipboard.writeText(url);
@@ -588,6 +604,16 @@
   }
   form.group.addEventListener("input", renderGroupChips);
 
+  // Umbenennen: neuen Wecklink zeigen – der alte leitet weiter (der Server merkt sich frühere Namen).
+  function renderNameHint() {
+    const d = state.editing, name = form.name.value.trim();
+    const renamed = d && name && name.toLowerCase() !== d.name.toLowerCase();
+    $("#name-hint").textContent = renamed
+      ? t("ui.rename_hint", wakeURL(Object.assign({}, d, { wake_path: "wake/" + encodeURIComponent(name) })))
+      : t("page.f.name_hint");
+  }
+  form.name.addEventListener("input", renderNameHint);
+
   function buildIconPicker() {
     const box = $("#icon-picker");
     for (const key of ICONS) {
@@ -616,6 +642,7 @@
     form.secureon.value = v.secureon || "";
     form.group.value = v.group || "";
     setSchedule(v.schedule || [], v.schedule_paused);
+    renderNameHint();
     fillGroupList();
     renderGroupChips();
     form.ports.placeholder = state.info.ports && state.info.ports.length ? t("ui.default_ports", state.info.ports.slice(0, 5).join(", ") + (state.info.ports.length > 5 ? " …" : "")) : t("ui.default");

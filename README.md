@@ -79,12 +79,15 @@ nächste geplante Weckzeit oder „Zeitplan pausiert“.
 | `…/wake/NAS?format=html` / `?format=json` | Ausgabe erzwingen |
 | `http://host:8089/wake-group/Homelab` | ganze Gruppe: im Browser eine Seite mit dem Start jedes Geräts, sonst JSON (auch `?wait=`) |
 
-Der Name ist nicht von Groß-/Kleinschreibung abhängig. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
+Der Name ist nicht von Groß-/Kleinschreibung abhängig. Nach dem Umbenennen gelten alte Links weiter: Browser
+werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich bis zu zehn frühere Namen; vergibt man
+einen davon neu, gehört der Link ab dann dem neuen Gerät). Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
 ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts.
 `HEAD`-Anfragen (Linkprüfer, Vorschauen in Messengern) wecken nie.
 
 Tipp: Die Weckseite auf dem Handy „Zum Home-Bildschirm“ hinzufügen – dann weckt ein Tipp aufs Symbol das Gerät.
-Die Übersicht selbst lässt sich ebenso als App ablegen.
+Nach dem Anlegen bietet die Karte dafür „Wecklink kopieren“ und „Auf dem Handy einrichten“ (kurze Anleitung für
+iPhone und Android). Die Übersicht selbst lässt sich ebenso als App ablegen.
 
 Online gilt ein Gerät, wenn es auf Ping antwortet oder einer der Ports (`status.ports`) eine Verbindung annimmt **oder
 ablehnt** – eine Ablehnung kommt nur von einem laufenden Betriebssystem. Das gilt für Geräte im eigenen Netzsegment;
@@ -449,7 +452,8 @@ in **English and German**; it follows the browser language and can be switched i
   changes appear instantly in every open window (Server-Sent Events)
 - **Fixed wake links** `/wake/<name>`: in a browser a confirmation page that checks the device, sends the magic
   packet and follows the start until the device is really online; `curl` and Home Assistant get JSON
-  (`?wait=120` waits until the device responds)
+  (`?wait=120` waits until the device responds). After renaming, old links keep working (browsers are redirected,
+  `curl` wakes directly). Right after adding a device, its card offers "Copy wake link" and "Set up on your phone"
 - **Reliable waking**: the magic packet goes out three times within one second to ports 9 and 7; if a device with an
   IP address still does not respond after 45 seconds (`status.wake_retry`), wolweb sends it once more by itself –
   for wake links, groups and schedules too, when nobody is watching

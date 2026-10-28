@@ -40,10 +40,12 @@ type Device struct {
 	Group     string   `json:"group,omitempty"`
 	Schedule  []string `json:"schedule,omitempty"` // Weckzeiten, z. B. "Mo-Fr 07:30"
 	// SchedulePaused setzt den Zeitplan aus, ohne die Zeiten zu vergessen.
-	SchedulePaused bool      `json:"schedule_paused,omitempty"`
-	Vendor         string    `json:"vendor,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	SchedulePaused bool   `json:"schedule_paused,omitempty"`
+	Vendor         string `json:"vendor,omitempty"`
+	// Aliases sind frühere Namen: Wecklinks mit dem alten Namen gelten nach dem Umbenennen weiter.
+	Aliases   []string  `json:"aliases,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Found ist ein Gerät, das die Netzwerksuche gesehen hat.
@@ -440,7 +442,52 @@ func (s *Store) FindByName(name string) (Device, bool) {
 			return d, true
 		}
 	}
+	for _, d := range s.devices {
+		if slices.ContainsFunc(d.Aliases, func(a string) bool { return strings.EqualFold(a, name) }) {
+			return d, true
+		}
+	}
 	return Device{}, false
+}
+
+// IsAlias sagt, ob name nur ein früherer Name von d ist (nicht der aktuelle, nicht die ID).
+func IsAlias(d Device, name string) bool {
+	return !strings.EqualFold(d.Name, name) && d.ID != name &&
+		slices.ContainsFunc(d.Aliases, func(a string) bool { return strings.EqualFold(a, name) })
+}
+
+const maxAliases = 10
+
+// renamed führt die früheren Namen fort: Der bisherige Name kommt dazu, der neue fällt heraus.
+// Groß-/Kleinschreibung zählt nicht als Umbenennen – Links finden das Gerät ohnehin.
+func renamed(old Device, name string) []string {
+	out := slices.DeleteFunc(slices.Clone(old.Aliases), func(a string) bool {
+		return strings.EqualFold(a, name) || strings.EqualFold(a, old.Name)
+	})
+	if !strings.EqualFold(old.Name, name) {
+		out = append(out, old.Name)
+	}
+	if len(out) > maxAliases {
+		out = out[len(out)-maxAliases:]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// releaseAlias nimmt name aus den früheren Namen anderer Geräte: Wer einen Namen neu vergibt, meint
+// mit dem Link ab jetzt dieses Gerät.
+func releaseAlias(list []Device, name, exceptID string) {
+	for i := range list {
+		if list[i].ID == exceptID || !slices.ContainsFunc(list[i].Aliases, func(a string) bool { return strings.EqualFold(a, name) }) {
+			continue
+		}
+		list[i].Aliases = slices.DeleteFunc(slices.Clone(list[i].Aliases), func(a string) bool { return strings.EqualFold(a, name) })
+		if len(list[i].Aliases) == 0 {
+			list[i].Aliases = nil
+		}
+	}
 }
 
 // Input sind die Felder, die die Oberfläche setzen darf.
@@ -631,6 +678,7 @@ func (s *Store) Create(in Input) (Device, error) {
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
 	prev := s.devices
 	s.devices = append(slices.Clone(s.devices), d)
+	releaseAlias(s.devices, d.Name, d.ID)
 	if err := s.saveDevices(); err != nil {
 		s.devices = prev
 		return d, err
@@ -660,9 +708,11 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 		return d, invalid("name", "val.name_taken", d.Name)
 	}
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = old.ID, old.CreatedAt, time.Now().UTC(), old.WakeKey
+	d.Aliases = renamed(old, d.Name)
 	prev := s.devices
 	s.devices = slices.Clone(s.devices)
 	s.devices[i] = d
+	releaseAlias(s.devices, d.Name, d.ID)
 	if err := s.saveDevices(); err != nil {
 		s.devices = prev
 		return d, err
@@ -786,6 +836,14 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 		if validWakeKey(src.WakeKey) && !slices.ContainsFunc(next, func(x Device) bool { return x.WakeKey == src.WakeKey }) {
 			d.WakeKey = src.WakeKey
 		}
+		// Frühere Namen ebenso, soweit kein anderes Gerät sie trägt.
+		for _, a := range src.Aliases {
+			if a = cleanName(a); a != "" && !strings.EqualFold(a, d.Name) && !nameTakenIn(next, a, "") && len(d.Aliases) < maxAliases &&
+				!slices.ContainsFunc(next, func(x Device) bool { return IsAlias(x, a) }) {
+				d.Aliases = append(d.Aliases, a)
+			}
+		}
+		releaseAlias(next, d.Name, "")
 		next = append(next, d)
 		res.Added++
 	}

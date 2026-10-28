@@ -714,6 +714,16 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 			s.render(w, r, http.StatusNotFound, "wake.html", pageData{Missing: name})
 			return
 		}
+		// Alter Name nach dem Umbenennen: zur neuen Adresse weiterleiten (Schlüssel & Co. bleiben dran),
+		// damit das Lesezeichen sichtbar die neue Adresse zeigt. Ohne Browser gilt der alte Name direkt.
+		if store.IsAlias(d, name) {
+			to := s.conf().VDir + "wake/" + pathEscape(d.Name)
+			if r.URL.RawQuery != "" {
+				to += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, to, http.StatusTemporaryRedirect) // nicht dauerhaft: der Name kann neu vergeben werden
+			return
+		}
 		v := s.view(d)
 		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds())}
 		if s.needsKey(r) {
