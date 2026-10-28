@@ -1,9 +1,12 @@
 services:
   wolweb:
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: "1.2.0" # steht unten in der Übersicht und benennt die Sicherung beim nächsten Update
     image: wolweb:latest
     # Statt selbst zu bauen das fertige Image (amd64, arm64, armv7) eines Releases nehmen:
-    # image: ghcr.io/banit/wolweb:latest   – und die Zeile "build: ." entfernen
+    # image: ghcr.io/banit/wolweb:latest   – und den Block "build:" entfernen
     container_name: wolweb
     restart: unless-stopped
     # Magic Packets (Broadcast) und ARP-Scan brauchen das Netz des Hosts – Port-Mappings gibt es dann nicht.

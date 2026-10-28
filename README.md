@@ -182,7 +182,7 @@ Fertige Images für amd64, arm64 (Raspberry Pi 4/5) und armv7 baut GitHub bei je
 ### Direkt / Proxmox-LXC
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.1.0" -o wolweb .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.2.0" -o wolweb .
 ```
 
 Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `deploy/wolweb.service` nach
@@ -208,6 +208,26 @@ bereit. Alternativ in `config.json` `"allowed_hosts": ["wol.example.com"]` bzw. 
 Dateien aus dem Sicherungsordner nach `data/` kopieren, Dateien, die in der Sicherung fehlen (bei 1.0.x
 `state.json` und `settings.json`), aus `data/` löschen, dann die alte Version starten. Was seit dem Update
 geändert wurde, fehlt danach.
+
+**Was sich mit 1.2 ändert – und ob du etwas tun musst:**
+
+- *Netzwerksuche ohne eingetragenes Netz:* Bisher war sie dann aus. Jetzt nimmt wolweb das eine direkt
+  angeschlossene Heimnetz von selbst und sucht dort alle 30 Minuten (`discovery.interval`). Soll das nicht sein:
+  `discovery.interval` auf `0` setzen (Einstellungsseite oder `WOLWEB_SCAN_INTERVAL=0`). Mit mehreren Netzen bietet
+  die Suchleiste eine Auswahl an; ein eingetragenes Netz geht wie bisher vor.
+- *Benachrichtigungen folgen keinen Weiterleitungen mehr:* Leitet die Webhook- oder ntfy-Adresse weiter (etwa
+  `http://` → `https://`), trage die endgültige Adresse ein – „Testnachricht senden“ zeigt, ob es klappt.
+- *Kein doppeltes Wecken:* Ein zweiter Weckruf für dasselbe Gerät innerhalb von 10 Sekunden wird nicht gesendet,
+  sondern mit `"already": true` beantwortet – auf allen Wegen. Automationen, die absichtlich kurz hintereinander
+  zweimal wecken, brauchen das nicht mehr (wolweb sendet jeden Weckruf ohnehin dreimal und wiederholt ihn bei
+  Bedarf selbst).
+- *Neue Felder in den Daten:* `schedule_paused` und `aliases` (frühere Namen) bei Geräten, dazu Angaben zum
+  Ergebnis im Verlauf. Eine ältere Version verwirft sie beim Speichern – Pausen, alte Wecklinks und die Sätze im
+  Verlauf gingen dann verloren; die Sicherung (siehe oben) enthält den Stand vor dem Update.
+- *Meldungen der API:* sagen jetzt „Weckruf“ statt „Magic Packet“ (z. B. `"message": "Weckruf an NAS gesendet."`).
+  Wer in einer Automation auf den genauen Text prüft, sollte auf `"success"` umstellen.
+- *Docker:* Zeitpläne laufen in der Zeitzone des Containers (`TZ`, in `docker-compose.yml` voreingestellt); weicht
+  sie vom Browser ab, sagt das der Gerätedialog.
 
 ## Einstellungen
 
@@ -586,6 +606,25 @@ version can read the new files but drops what it does not know (SecureOn, wake k
 ports, history) on its next save. To go back: stop wolweb, copy the files from the backup folder into `data/`,
 delete files from `data/` that the backup does not contain (for 1.0.x `state.json` and `settings.json`), and start
 the old version. Changes made since the update are lost.
+
+**What changes with 1.2 – and whether you need to act:**
+
+- *Network scan without a configured network:* it used to be off. Now wolweb picks the one directly connected home
+  network by itself and scans it every 30 minutes (`discovery.interval`). If you do not want that, set
+  `discovery.interval` to `0` (settings page or `WOLWEB_SCAN_INTERVAL=0`). With several networks the scan panel
+  offers a choice; a configured network still takes precedence.
+- *Notifications no longer follow redirects:* if your webhook or ntfy address redirects (e.g. `http://` →
+  `https://`), enter the final address – “Send test message” shows whether it works.
+- *No double waking:* a second wake-up call for the same device within 10 seconds is not sent but answered with
+  `"already": true` – on every path. Automations that deliberately wake twice in a row no longer need to (wolweb
+  sends every wake-up call three times and repeats it by itself if needed).
+- *New fields in the data:* `schedule_paused` and `aliases` (former names) on devices, plus outcome details in the
+  history. An older version drops them on save – pauses, old wake links and the history sentences would be lost;
+  the backup (see above) holds the state from before the update.
+- *API messages* now say “wake-up call” instead of “magic packet” (e.g. `"message": "Wake-up call sent to NAS."`).
+  If an automation checks the exact text, switch it to `"success"`.
+- *Docker:* schedules run in the container's time zone (`TZ`, preset in `docker-compose.yml`); if it differs from
+  the browser, the device dialog says so.
 
 ### Settings page
 
