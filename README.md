@@ -38,6 +38,8 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
   Gruppen und Zeitplänen, wenn niemand mehr zuschaut
 - **Netzwerksuche**: findet eingeschaltete Geräte in freigegebenen Segmenten (IP, MAC, Hostname, Hersteller) –
   per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen oder ignorieren
+- **Einstellungsseite** mit Übersicht der Netze und VLANs (an welchen wolweb hängt, Geräte je Netz); Änderungen
+  gelten ohne Neustart
 - **Gruppen** („Homelab“, „Büro“) gemeinsam wecken, auch per festem Gruppen-Wecklink; **Zeitpläne** wie
   `Mo-Fr 07:30` wecken Geräte automatisch
 - **Benachrichtigungen** per Webhook (JSON) oder ntfy aufs Handy, wenn ein Gerät online/offline geht oder
@@ -93,9 +95,9 @@ SSH-Log). Pro Gerät lassen sich unter „Erweitert“ eigene Ports eintragen, z
 
 ## Netzwerksuche
 
-In `discovery.networks` (oder `WOLWEB_NETWORKS`) die Segmente eintragen, z. B. `192.168.1.0/24`. Gesucht wird nur
-in Netzen, an denen der Rechner direkt hängt – ARP und Wake on LAN gehen nicht über Router. Für mehrere VLANs braucht
-wolweb eine Schnittstelle in jedem VLAN (oder je VLAN eine eigene Instanz).
+Die Netze stehen in den [Einstellungen](#einstellungen) unter „Netze und VLANs“ (oder in `discovery.networks` bzw.
+`WOLWEB_NETWORKS`), z. B. `192.168.1.0/24`. Gesucht wird nur in Netzen, an denen der Rechner direkt hängt – ARP und
+Wake on LAN gehen nicht über Router. Für weitere VLANs siehe [Mehrere Netze und VLANs](#mehrere-netze-und-vlans).
 
 - **Linux mit `CAP_NET_RAW`**: aktiver ARP-Scan – findet auch Geräte, die Ping und alle Ports blocken.
 - **Sonst**: jede Adresse bekommt ein UDP-Paket, danach wird die Nachbartabelle gelesen (etwas ungenauer).
@@ -141,10 +143,103 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 `/etc/systemd/system/` (Benutzer `wolweb` anlegen, `data/` beschreibbar machen), dann
 `systemctl enable --now wolweb`.
 
+## Einstellungen
+
+Das Zahnrad oben rechts öffnet die Einstellungsseite (`/settings`). Dort lassen sich die Netze und VLANs,
+Netzwerksuche, Online-Prüfung, Wartezeiten, Benachrichtigungen (mit „Testnachricht senden“), öffentliche Wecklinks,
+erlaubte Hostnamen und die Standardsprache ändern. Änderungen gelten sofort, ohne Neustart.
+
+- **Reihenfolge** (das Spätere gewinnt): Standardwerte, `config.json`, die Einstellungsseite, Umgebungsvariablen.
+- **Gespeichert** wird in `data/settings.json` – im Datenverzeichnis, weil das immer beschreibbar ist (`config.json`
+  ist in Docker oft schreibgeschützt eingebunden). Dort steht nur, was von `config.json` abweicht; spätere
+  Änderungen an `config.json` wirken also weiter, solange man denselben Wert nicht auch auf der Seite geändert hat.
+  „Auf config.json zurücksetzen“ löscht die Datei wieder.
+- **Gesperrt**: Was per Umgebungsvariable gesetzt ist (in Docker etwa `WOLWEB_NETWORKS`), zeigt die Seite
+  ausgegraut mit dem Namen der Variable. Wer es lieber auf der Seite pflegt, nimmt die Variable heraus.
+- **Nicht auf der Seite**: Adresse, Port, Pfad, Datenverzeichnis, Nur-Lesen und die Zugangsdaten. Über die Seite
+  könnte man sich sonst aussperren – oder ohne Anmeldung einfach eine setzen.
+- Ohne Anmeldung kann jeder im Netz die Einstellungen sehen und ändern; die Seite weist darauf hin. Im
+  Nur-Lesen-Modus lässt sie sich nur ansehen.
+
+![Einstellungen: Netze und VLANs mit Schnittstellen des Rechners](docs/screenshots/settings.png)
+
+## Mehrere Netze und VLANs
+
+Magic Packets sind Broadcasts, und die Netzwerksuche fragt per ARP – beides geht nicht über Router. wolweb braucht
+deshalb in jedem Netz, in dem es wecken und suchen soll, **eine eigene Schnittstelle**: meist ein zusätzliches
+Interface mit VLAN-Tag auf dem Rechner, auf dem wolweb läuft. Ist es angelegt, erscheint es in den Einstellungen
+unter „Schnittstellen dieses Rechners“; „Übernehmen“ trägt das Netz ein, dazu ein Name („IoT“) und die VLAN-ID.
+Geräte darin weckt wolweb über die richtige Schnittstelle (die Broadcast-Adresse folgt aus der IP des Geräts), und
+die Suche findet sie. Für Geräte ohne IP schlägt der Gerätedialog unter „Erweitert → Broadcast-Adresse“ die
+Broadcasts der eingetragenen Netze vor.
+
+Voraussetzung: Der Switch-Port bzw. die Bridge des Rechners reicht das VLAN getaggt durch (Trunk), und wolweb hat im
+VLAN eine eigene, feste Adresse (außerhalb des DHCP-Bereichs oder per DHCP-Reservierung). **Kein Gateway** auf den
+zusätzlichen Schnittstellen eintragen – die Standardroute bleibt im Hauptnetz.
+
+**Proxmox (LXC):** Dem Container eine zweite Netzwerkkarte mit VLAN-Tag geben – in der Oberfläche unter
+*Container → Netzwerk → Hinzufügen* (Bridge `vmbr0`, VLAN-Tag `20`, IPv4 statisch, Gateway leer) oder auf dem Host:
+
+```sh
+pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=192.168.20.5/24
+```
+
+Die Bridge muss „VLAN aware“ sein (*Host → System → Netzwerk → vmbr0 → VLAN aware*, bzw. `bridge-vlan-aware yes` in
+`/etc/network/interfaces`). Bei einer VM entsprechend eine weitere Netzwerkkarte mit VLAN-Tag hinzufügen.
+
+**Debian, Raspberry Pi OS, Ubuntu (direkt oder als Docker-Host):** VLAN-Interface anlegen. Zum Ausprobieren:
+
+```sh
+sudo ip link add link eth0 name eth0.20 type vlan id 20
+sudo ip addr add 192.168.20.5/24 dev eth0.20
+sudo ip link set eth0.20 up
+```
+
+Dauerhaft mit NetworkManager (Raspberry Pi OS ab Bookworm, Ubuntu Desktop):
+
+```sh
+sudo nmcli con add type vlan con-name vlan20 dev eth0 id 20 \
+  ipv4.method manual ipv4.addresses 192.168.20.5/24 ipv4.never-default yes ipv6.method disabled
+```
+
+mit ifupdown (Debian, Paket `vlan`) in `/etc/network/interfaces.d/vlan20`:
+
+```
+auto eth0.20
+iface eth0.20 inet static
+    address 192.168.20.5/24
+```
+
+mit netplan (Ubuntu Server) in `/etc/netplan/60-vlan20.yaml`, danach `sudo netplan apply`:
+
+```yaml
+network:
+  version: 2
+  vlans:
+    vlan20:
+      id: 20
+      link: eth0
+      addresses: [192.168.20.5/24]
+```
+
+**Docker:** Mit `network_mode: host` (wie in `docker-compose.yml`) sieht wolweb alle Schnittstellen des Hosts –
+das VLAN-Interface also wie oben auf dem Host anlegen, am Container ändert sich nichts. Ohne Host-Netz geht es mit
+je einem macvlan-Netz pro VLAN (`docker network create -d macvlan -o parent=eth0.20 --subnet 192.168.20.0/24 vlan20`),
+das ist aber umständlicher. Docker Desktop (Windows, macOS) kann beides nicht.
+
+**Absichern:** Eine Schnittstelle in einem abgeschotteten Netz (IoT, Gäste) macht wolweb auch von dort erreichbar.
+Mit `host` in `config.json` (bzw. `WOLWEB_HOST`) die Weboberfläche nur an die Adresse im Hauptnetz binden, z. B.
+`"host": "192.168.1.5"` – Wecken und Suche im VLAN funktionieren trotzdem.
+
+Geht keine eigene Schnittstelle, zeigt die Einstellungsseite das Netz als „nicht direkt angeschlossen“ und weckt
+Geräte darin per gerichtetem Broadcast (z. B. `192.168.20.255:9`). Ankommen wird er nur, wenn der Router ihn ins
+VLAN weiterleitet – bei OPNsense und pfSense etwa mit dem Plugin „UDP Broadcast Relay“; die meisten Heimrouter
+können das nicht, und suchen lässt sich dort ohnehin nicht.
+
 ## Konfiguration
 
-`config.json` (siehe `config.example.json`) – alles hat Standardwerte, die Datei darf fehlen. Umgebungsvariablen
-überschreiben die Datei.
+`config.json` (siehe `config.example.json`) – alles hat Standardwerte, die Datei darf fehlen. Was auf der
+[Einstellungsseite](#einstellungen) geändert wurde, gilt vor der Datei; Umgebungsvariablen gehen allem vor.
 
 | Schlüssel | Variable | Standard | Bedeutung |
 |---|---|---|---|
@@ -153,13 +248,13 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 | `bcastip` | `WOLWEBBCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
 | `read_only` | `WOLWEBREADONLY` | `false` | nur wecken, nichts ändern |
 | `language` | `WOLWEB_LANGUAGE` | `de` | `de` oder `en`: Sprache, wenn weder Umschalter noch Browser eine nennen (auch für Benachrichtigungen) |
-| `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`) und Suchergebnisse (`discovered.json`) |
-| `discovery.networks` | `WOLWEB_NETWORKS` | – | Segmente für die Suche (CIDR, kommagetrennt) |
-| `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus |
+| `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`), Suchergebnisse (`discovered.json`) und Änderungen der Einstellungsseite (`settings.json`) |
+| `discovery.networks` | `WOLWEB_NETWORKS` | – | Netze (CIDR, Variable kommagetrennt), auch mit Namen: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
+| `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus (mindestens `1m`) |
 | `discovery.max_hosts` | – | `1024` | größtes erlaubtes Segment |
-| `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | Online-Prüfung aller Geräte |
+| `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | Online-Prüfung aller Geräte, `0` = aus (mindestens `5s`) |
 | `status.ports` | – | 22, 80, 443, 445, … | Ports für die Online-Prüfung |
-| `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | so lange wartet die Weckseite |
+| `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | so lange wartet die Weckseite (`5s` bis `10m`) |
 | `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | antwortet ein geweckter Rechner so lange nicht, geht das Paket einmal erneut raus; `0` = nie |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | Anmeldung (HTTP Basic) |
 | `auth.api_token` | `WOLWEB_TOKEN` | – | `Authorization: Bearer …` für Automationen |
@@ -316,6 +411,8 @@ in **English and German**; it follows the browser language and can be switched i
   for wake links, groups and schedules too, when nobody is watching
 - **Network scan**: finds devices that are switched on in the configured segments (IP, MAC, host name, vendor) –
   on demand or periodically; add new devices with one click or ignore them
+- **Settings page** with an overview of networks and VLANs (which ones wolweb is connected to, devices per network);
+  changes apply without a restart
 - **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`;
   **schedules** such as `Mon-Fri 07:30; Sat,Sun 09:00` wake devices automatically (German spellings work too;
   devices.json always stores the canonical German form, the UI shows it in the chosen language)
@@ -347,15 +444,42 @@ network – waking and scanning do not work there.
 Without Docker: `CGO_ENABLED=0 go build -o wolweb .`, adapt `config.example.json` as `config.json`, and use
 `deploy/wolweb.service` for systemd (it grants `CAP_NET_RAW` for ping and ARP scans).
 
+### Settings page
+
+The gear at the top right opens the settings page (`/settings`): networks and VLANs, network scan, online check,
+wait times, notifications (with “Send test message”), public wake links, allowed host names and the default language.
+Changes apply immediately, without a restart. They are stored in `data/settings.json` (only what differs from
+`config.json`; “Reset to config.json” deletes it). Order, later wins: defaults, `config.json`, settings page,
+environment variables – settings set by an environment variable are shown locked with the variable's name. Address,
+port, path, data directory, read-only mode and credentials stay in `config.json`/environment on purpose.
+
+### Multiple networks and VLANs
+
+Magic packets and the ARP scan do not cross routers, so wolweb needs **its own interface in every network** it should
+wake and scan – usually an additional VLAN-tagged interface on the machine running wolweb (static address, no
+gateway; the switch port or bridge must carry the VLAN tagged). Once it exists, it appears in the settings under
+“Interfaces of this machine”; “Add” lists the network, and you can give it a name and VLAN ID.
+
+- **Proxmox LXC:** add a second NIC with a VLAN tag, e.g. `pct set 105 -net1 name=eth1,bridge=vmbr0,tag=20,ip=192.168.20.5/24`
+  (the bridge must be VLAN aware).
+- **Linux / Docker host:** `ip link add link eth0 name eth0.20 type vlan id 20` (persistently via NetworkManager,
+  ifupdown or netplan – examples in the German section [Mehrere Netze und VLANs](#mehrere-netze-und-vlans)); with
+  `network_mode: host` the container sees it automatically.
+- **Hardening:** bind the web interface to the main network with `host` (e.g. `"host": "192.168.1.5"`), otherwise wolweb
+  is also reachable from the VLAN.
+- Without an interface, wolweb uses the network's directed broadcast (e.g. `192.168.20.255:9`); it only arrives if the
+  router forwards it (OPNsense/pfSense: “UDP Broadcast Relay”), and scanning is not possible there.
+
 ### Configuration
 
-`config.json` is optional; environment variables override it. The most important settings:
+`config.json` is optional; the settings page overrides it, environment variables override everything. The most
+important settings:
 
 | Key | Variable | Default | Meaning |
 |---|---|---|---|
 | `port` | `WOLWEB_PORT` | `8089` | port of the web interface |
 | `language` | `WOLWEB_LANGUAGE` | `de` | `en` or `de`: language when neither the switch nor the browser name one (also used for notifications) |
-| `discovery.networks` | `WOLWEB_NETWORKS` | – | segments for the network scan, e.g. `192.168.1.0/24` (comma separated) |
+| `discovery.networks` | `WOLWEB_NETWORKS` | – | networks, e.g. `192.168.1.0/24` (variable: comma separated), also with name: `{"cidr": "192.168.20.0/24", "name": "IoT", "vlan": 20}` |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off |
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | online check of all devices |
 | `bcastip` | `WOLWEBBCASTIP` | automatic | fallback target when neither device nor network provide one |
