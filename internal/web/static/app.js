@@ -126,15 +126,32 @@
   }
 
   // ---------- Geräte ----------
-  async function loadDevices() {
-    try {
-      state.devices = await api("GET", "devices");
-      state.groups = state.devices.some((d) => d.group) ? await api("GET", "groups") : [];
-      renderDevices();
-    } catch (e) {
-      if (e.status === 401) location.reload();
-      $("#summary").textContent = t("ui.server_unreachable");
+  // loadDevices lädt die Geräteliste. Abrufe laufen nacheinander: Kommt während eines Abrufs ein
+  // weiterer Anlass (Live-Ereignis, eigene Änderung), folgt ein zweiter. Sonst könnte eine ältere
+  // Antwort eine neuere überschreiben – eine eben angelegte Karte verschwände kurz samt Fokus. Das
+  // Versprechen erfüllt sich, wenn der neueste Stand gezeichnet ist.
+  let devicesLoading = null, devicesAgain = false;
+  function loadDevices() {
+    if (devicesLoading) {
+      devicesAgain = true;
+      return devicesLoading;
     }
+    devicesLoading = (async () => {
+      do {
+        devicesAgain = false;
+        try {
+          const devices = await api("GET", "devices");
+          state.groups = devices.some((d) => d.group) ? await api("GET", "groups") : [];
+          state.devices = devices;
+          renderDevices();
+        } catch (e) {
+          if (e.status === 401) location.reload();
+          $("#summary").textContent = t("ui.server_unreachable");
+        }
+      } while (devicesAgain);
+      devicesLoading = null;
+    })();
+    return devicesLoading;
   }
 
   function deviceState(d) {
