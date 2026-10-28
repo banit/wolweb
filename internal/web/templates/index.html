@@ -68,9 +68,19 @@
     <button type="button" class="btn btn-ghost not-simple" id="select-toggle" aria-pressed="false" hidden>
       <svg aria-hidden="true" class="ico"><use href="#i-check"/></svg><span>{{.T "page.sel.toggle"}}</span>
     </button>
+    <button type="button" class="btn btn-ghost not-simple" id="sort-toggle" aria-pressed="false" hidden>
+      <svg aria-hidden="true" class="ico"><use href="#i-sort"/></svg><span>{{.T "page.sort.toggle"}}</span>
+    </button>
   </div>
 
   <section id="devices" aria-label="{{.T "page.devices"}}" tabindex="-1"></section>
+
+  <!-- Sortieren: Hinweis und „Fertig“; Ansagen für Screenreader -->
+  <div class="select-bar sort-bar" id="sort-bar" role="region" aria-label="{{.T "page.sort.title"}}" hidden>
+    <span class="sort-hint">{{.T "page.sort.hint"}}</span>
+    <button type="button" class="btn btn-primary" id="sort-done"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.sel.done"}}</button>
+  </div>
+  <p class="sr-only" id="sort-status" role="status"></p>
 
   <!-- Mehrfachauswahl: mehrere Geräte auf einmal einer Gruppe zuordnen -->
   <div class="select-bar" id="select-bar" role="region" aria-label="{{.T "page.sel.title"}}" hidden>

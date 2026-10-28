@@ -101,6 +101,12 @@ Schedules run in the local time of the machine or container (`TZ`, preset in `do
 from the browser's time zone, the dialog says so and shows the time in yours. The card shows the next scheduled
 wake-up or “Schedule paused”.
 
+**Order:** “Sort” in the overview shows groups and devices as a plain list. Drag them by the handle (mouse, pen or
+finger – only the handle, so the page still scrolls on a phone) or use the arrow buttons; at the edge of a group a
+device moves on into the next one, also into empty groups and out to “Other devices”. Every change is saved right
+away. Until you sort, devices appear by name and groups in the order they were created; new devices go to the end
+of their group. The settings page can reorder groups with arrows as well.
+
 ## Fixed wake links
 
 | Request | Result |
@@ -556,6 +562,7 @@ without it, the answer is 403 with a message for humans and the technical reason
 | GET | `/api/v1/groups` | groups in their order, also empty ones, with members (and the key of the group wake link) |
 | POST | `/api/v1/groups` | create a group: `{"name": "Office", "members": [ids]}` (members optional) |
 | PUT / DELETE | `/api/v1/groups/{name}` | rename and/or set members (`{"name": …, "members": […]}`, without `members` they stay) / delete (the devices stay, without group) |
+| PUT | `/api/v1/order` | order as in the overview: `{"groups": [names], "devices": [{"group": "Office", "ids": […]}, {"group": "", "ids": […]}]}` – a device listed under another group moves there |
 | POST | `/api/v1/groups/{name}/wake` | wake all devices of a group |
 | GET | `/api/v1/history` | wake history, newest first (`?limit=`) |
 | GET / POST | `/api/v1/export`, `/api/v1/import` | download devices as JSON / take them over from a file; the answer lists every entry (`items`: `added` – possibly with `new_name` –, `skipped`, `error` with the reason), the interface shows the complete list |

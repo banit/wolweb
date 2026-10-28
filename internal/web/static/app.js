@@ -21,6 +21,7 @@
     naming: null, // MAC eines Suchtreffers ohne Namen, für den gerade ein Name abgefragt wird
     namingValue: "",
     selecting: false, // Mehrfachauswahl für Gruppen
+    sorting: false, // Reihenfolge von Gruppen und Geräten ändern
     selected: new Set(),
     live: false, // Live-Verbindung (Server-Sent Events) steht – dann kaum noch Abfragen
   };
@@ -191,10 +192,12 @@
     }
     const list = state.devices.filter(matches);
     for (const d of state.devices) if (deviceState(d) === "online") state.unconfirmed.delete(d.id); // doch noch gestartet
-    $("#select-toggle").hidden = !editable() || total < 2;
+    $("#select-toggle").hidden = !editable() || total < 2 || state.sorting;
+    $("#sort-toggle").hidden = !editable() || (total < 2 && state.groups.length < 2);
     for (const id of state.selected) if (!state.devices.some((d) => d.id === id)) state.selected.delete(id);
     $("#empty").hidden = total !== 0;
-    $("#empty-filter").hidden = total === 0 || list.length !== 0;
+    $("#empty-filter").hidden = total === 0 || list.length !== 0 || state.sorting;
+    if (state.sorting) return renderSort();
     const existing = new Map([...grid.querySelectorAll(".card")].map((c) => [c.dataset.id, c]));
     const cards = (devs) => devs.map((d) => {
       const card = buildCard(d);
@@ -527,6 +530,240 @@
   $("#select-bar").addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") { setSelecting(false); $("#select-toggle").focus(); }
   });
+
+  // ---------- Sortieren: Gruppen und Geräte ziehen oder mit den Pfeilen verschieben ----------
+  // Im Sortiermodus zeigt die Übersicht alle Geräte (ohne Suche und Filter) als schlichte Einträge, je
+  // Gruppe ein Abschnitt – auch leere, damit man Geräte hineinziehen kann. Gezogen wird nur am Griff
+  // (auf dem Handy lässt sich so weiter blättern); für jede Bewegung gibt es auch Pfeilknöpfe, die am
+  // Rand einer Gruppe in die nächste wechseln (ohne Ziehen bedienbar, WCAG 2.5.7). Jede Änderung wird
+  // gleich gespeichert.
+  let layout = null; // [{ group, ids }] wie angezeigt; group "" = ohne Gruppe, steht zuletzt
+  let drag = null; // laufendes Ziehen
+  let sortSaving = null, sortAgain = false;
+
+  function layoutFromState() {
+    const lists = state.groups.map((g) => ({ group: g.name, ids: [] }));
+    const rest = { group: "", ids: [] };
+    for (const d of state.devices) {
+      const l = d.group ? lists.find((x) => x.group.toLowerCase() === d.group.toLowerCase()) : null;
+      (l || rest).ids.push(d.id);
+    }
+    return [...lists, rest];
+  }
+
+  function setSorting(on) {
+    if (on && state.selecting) setSelecting(false);
+    state.sorting = on;
+    layout = null;
+    $("#sort-toggle").setAttribute("aria-pressed", String(on));
+    $("#sort-bar").hidden = !on;
+    document.body.classList.toggle("sorting", on);
+    $("#search").disabled = on; // sortiert wird die ganze Liste
+    for (const b of $("#filter").children) b.disabled = on;
+    renderDevices();
+  }
+  $("#sort-toggle").addEventListener("click", () => setSorting(!state.sorting));
+  $("#sort-done").addEventListener("click", () => { setSorting(false); $("#sort-toggle").focus(); });
+  $("#sort-bar").addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { setSorting(false); $("#sort-toggle").focus(); }
+  });
+
+  function moveButtons(name, first, last, up, down, labels) {
+    return [
+      el("button", { class: "btn btn-ghost btn-sm icon-only", "data-focus": "up", disabled: first, title: t(labels[0], name), "aria-label": t(labels[0], name), onclick: up }, icon("arrow-up")),
+      el("button", { class: "btn btn-ghost btn-sm icon-only", "data-focus": "down", disabled: last, title: t(labels[1], name), "aria-label": t(labels[1], name), onclick: down }, icon("arrow-down")),
+    ];
+  }
+
+  function renderSort() {
+    if (drag) return; // nicht mitten im Ziehen neu zeichnen
+    if (!layout || !sortSaving) layout = layoutFromState();
+    const byId = new Map(state.devices.map((d) => [d.id, d]));
+    for (const l of layout) l.ids = l.ids.filter((id) => byId.has(id)); // inzwischen gelöscht
+    const grouped = layout.length > 1;
+    const groupCount = layout.length - 1;
+    const lastList = layout.length - 1;
+    const sections = layout.map((l, gi) => {
+      const rest = l.group === "";
+      const headID = "sg-" + gi;
+      const head = !grouped ? null : el("div", { class: "group-head sort-head" },
+        rest ? null : el("span", { class: "drag-handle", "data-drag": "group", title: t("ui.sort.drag_x", l.group), "aria-hidden": "true" }, icon("grip")),
+        el("h2", { id: headID, text: rest ? t("ui.other_devices") : l.group }),
+        el("span", { class: "muted", text: tn("ui.n_devices", l.ids.length) }),
+        el("span", { class: "spacer" }),
+        rest ? null : moveButtons(l.group, gi === 0, gi === groupCount - 1, () => moveGroup(gi, -1), () => moveGroup(gi, 1), ["ui.sort.group_up_x", "ui.sort.group_down_x"]));
+      const firstList = layout.findIndex((x) => x.ids.length);
+      const items = l.ids.map((id, i) => {
+        const d = byId.get(id);
+        return el("li", { class: "sort-item", "data-id": d.id },
+          el("span", { class: "drag-handle", "data-drag": "device", title: t("ui.sort.drag_x", d.name), "aria-hidden": "true" }, icon("grip")),
+          el("span", { class: "dev-icon" }, icon(d.icon || "desktop")),
+          el("strong", { text: d.name, title: d.name }),
+          el("span", { class: "spacer" }),
+          moveButtons(d.name, gi === firstList && i === 0, gi === lastList && i === l.ids.length - 1,
+            () => moveDevice(d.id, -1), () => moveDevice(d.id, 1), ["ui.sort.up_x", "ui.sort.down_x"]));
+      });
+      return el("section", { class: "sort-group" + (rest ? " rest" : ""), "data-id": rest ? "rest" : "gruppe:" + l.group, "data-group": l.group, "aria-labelledby": grouped ? headID : null },
+        head,
+        el("ul", { class: "sort-list", "aria-labelledby": grouped ? headID : null, "aria-label": grouped ? null : t("page.devices") },
+          items, items.length ? null : el("li", { class: "sort-empty muted", text: t("ui.sort.drop_here") })));
+    });
+    keepFocus($("#devices"), () => $("#devices").replaceChildren(...sections));
+    // Am Anfang oder Ende angekommen: Der Knopf ist jetzt aus – den anderen nehmen.
+    const a = document.activeElement;
+    if (a === document.body) {
+      const btn = lastMoved && $("#devices").querySelector('[data-id="' + CSS.escape(lastMoved) + '"] button:not(:disabled)');
+      if (btn) btn.focus({ preventScroll: true });
+    }
+  }
+  let lastMoved = null;
+
+  function position(id) {
+    for (const l of layout) {
+      const i = l.ids.indexOf(id);
+      if (i < 0) continue;
+      const d = state.devices.find((x) => x.id === id);
+      if (l.group) return t("ui.sort.pos", d.name, i + 1, l.ids.length, l.group);
+      return layout.length > 1 ? t("ui.sort.pos_rest", d.name, i + 1, l.ids.length) : t("ui.sort.pos_flat", d.name, i + 1, l.ids.length);
+    }
+    return "";
+  }
+  function announce(text) { $("#sort-status").textContent = text; }
+
+  // moveDevice verschiebt um einen Platz; am Rand geht es ans Ende der vorigen bzw. an den Anfang der
+  // nächsten Gruppe (auch in leere).
+  function moveDevice(id, dir) {
+    let li = layout.findIndex((l) => l.ids.includes(id));
+    let i = layout[li].ids.indexOf(id);
+    layout[li].ids.splice(i, 1);
+    if (dir < 0 && i === 0) {
+      li--;
+      i = layout[li].ids.length;
+    } else if (dir > 0 && i === layout[li].ids.length) {
+      li++;
+      i = 0;
+    } else {
+      i += dir;
+    }
+    layout[li].ids.splice(i, 0, id);
+    lastMoved = id;
+    changed(id);
+  }
+  function moveGroup(gi, dir) {
+    const [g] = layout.splice(gi, 1);
+    layout.splice(gi + dir, 0, g);
+    lastMoved = "gruppe:" + g.group;
+    renderAndSave();
+    announce(t("ui.sort.group_pos", g.group, gi + dir + 1, layout.length - 1));
+  }
+  function changed(id) {
+    renderAndSave();
+    announce(position(id));
+  }
+  function renderAndSave() {
+    const saving = saveLayout();
+    renderSort();
+    return saving;
+  }
+
+  // saveLayout speichert den angezeigten Stand; kommen währenddessen weitere Änderungen, folgt der neueste.
+  function saveLayout() {
+    if (sortSaving) {
+      sortAgain = true;
+      return sortSaving;
+    }
+    sortSaving = (async () => {
+      do {
+        sortAgain = false;
+        const body = { groups: layout.filter((l) => l.group).map((l) => l.group), devices: layout.map((l) => ({ group: l.group, ids: [...l.ids] })) };
+        try {
+          await api("PUT", "order", body);
+        } catch (e) {
+          toast("err", t("ui.sort.failed"), e.message);
+          break;
+        }
+      } while (sortAgain);
+      sortSaving = null;
+      await loadDevices();
+    })();
+    return sortSaving;
+  }
+
+  // Ziehen mit Maus, Stift oder Finger (Pointer Events) – nur am Griff.
+  function layoutFromDOM() {
+    return [...$("#devices").querySelectorAll(".sort-group")].map((sec) => ({
+      group: sec.dataset.group, ids: [...sec.querySelectorAll(".sort-item")].map((n) => n.dataset.id),
+    }));
+  }
+  $("#devices").addEventListener("pointerdown", (e) => {
+    const h = e.target.closest(".drag-handle");
+    if (!h || !state.sorting || e.button !== 0 || drag) return;
+    const kind = h.dataset.drag;
+    const item = h.closest(kind === "group" ? ".sort-group" : ".sort-item");
+    e.preventDefault();
+    item.classList.add("dragging"); // eine gezogene Gruppe zeigt nur ihren Kopf
+    const r = item.getBoundingClientRect();
+    const ph = el(kind === "group" ? "div" : "li", { class: "drop-placeholder" });
+    ph.style.height = r.height + "px";
+    item.after(ph);
+    item.style.width = r.width + "px";
+    item.style.left = r.left + "px";
+    item.style.top = r.top + "px";
+    drag = { item, kind, ph, dx: e.clientX - r.left, dy: e.clientY - r.top, before: JSON.stringify(layoutFromDOM()) };
+    h.setPointerCapture(e.pointerId);
+  });
+  function placeholderAt(x, y) {
+    const under = document.elementFromPoint(x, y);
+    if (!under) return;
+    const ph = drag.ph;
+    if (drag.kind === "group") {
+      const sec = under.closest(".sort-group");
+      if (!sec || sec === drag.item) return;
+      if (sec.classList.contains("rest")) return sec.before(ph); // „Weitere Geräte“ bleiben zuletzt
+      const r = sec.getBoundingClientRect();
+      if (y < r.top + Math.min(r.height / 2, 40)) sec.before(ph);
+      else sec.after(ph);
+      return;
+    }
+    const it = under.closest(".sort-item");
+    if (it && it !== drag.item) {
+      const r = it.getBoundingClientRect();
+      const across = r.width < it.parentElement.getBoundingClientRect().width * 0.6; // mehrere Spalten
+      const before = across ? x < r.left + r.width / 2 : y < r.top + r.height / 2;
+      it.parentElement.insertBefore(ph, before ? it : it.nextSibling);
+      return;
+    }
+    const sec = under.closest(".sort-group");
+    const list = sec && sec.querySelector(".sort-list");
+    if (list && ph.parentElement !== list) list.append(ph); // Kopf oder freie Fläche einer Gruppe: ans Ende
+  }
+  window.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    drag.item.style.left = e.clientX - drag.dx + "px";
+    drag.item.style.top = e.clientY - drag.dy + "px";
+    if (e.clientY < 70) window.scrollBy(0, -14);
+    else if (e.clientY > innerHeight - 70) window.scrollBy(0, 14);
+    placeholderAt(e.clientX, e.clientY);
+  });
+  function endDrag(apply) {
+    const { item, ph, kind, before } = drag;
+    item.classList.remove("dragging");
+    item.style.width = item.style.left = item.style.top = "";
+    if (apply) ph.replaceWith(item);
+    else ph.remove();
+    drag = null;
+    if (!apply) return renderSort();
+    const next = layoutFromDOM();
+    if (JSON.stringify(next) === before) return renderSort(); // nur angetippt
+    layout = next;
+    lastMoved = item.dataset.id;
+    renderAndSave();
+    if (kind === "group") announce(t("ui.sort.group_pos", item.dataset.group, layout.findIndex((l) => l.group === item.dataset.group) + 1, layout.length - 1));
+    else announce(position(item.dataset.id));
+  }
+  window.addEventListener("pointerup", () => { if (drag) endDrag(true); });
+  window.addEventListener("pointercancel", () => { if (drag) endDrag(false); });
+  document.addEventListener("keydown", (e) => { if (drag && e.key === "Escape") endDrag(false); });
 
   // ---------- Dialog Gerät ----------
   const dlg = $("#device-dialog");
@@ -1278,6 +1515,7 @@
     document.documentElement.classList.toggle("simple", state.simple);
     try { localStorage.setItem("wolweb-view", state.simple ? "simple" : "normal"); } catch (e) { /* egal */ }
     updateViewToggle();
+    if (state.sorting) setSorting(false);
     renderDevices();
   });
   updateViewToggle();
@@ -1369,6 +1607,7 @@
     if (!!state.info.locked === on) return;
     state.info.locked = on;
     if (on && state.selecting) setSelecting(false);
+    if (on && state.sorting) setSorting(false);
     if (on && dlg.open) dlg.close();
     applyLock();
     renderDevices();

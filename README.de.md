@@ -106,6 +106,13 @@ Zeitpläne gelten in der Ortszeit des Rechners bzw. Containers (`TZ`, in `docker
 Weicht sie von der Zeitzone des Browsers ab, sagt der Dialog das und nennt die Uhrzeit bei dir. Die Karte zeigt die
 nächste geplante Weckzeit oder „Zeitplan pausiert“.
 
+**Reihenfolge:** „Sortieren“ in der Übersicht zeigt Gruppen und Geräte als schlichte Liste. Ziehen geht am Griff (Maus,
+Stift oder Finger – nur am Griff, damit die Seite auf dem Handy weiter blättert), alternativ mit den Pfeilknöpfen;
+am Rand einer Gruppe wandert ein Gerät in die nächste, auch in leere Gruppen und zu „Weitere Geräte“. Jede Änderung
+wird sofort gespeichert. Solange nichts sortiert ist, stehen Geräte nach Namen und Gruppen in der Reihenfolge, in
+der sie angelegt wurden; neue Geräte kommen ans Ende ihrer Gruppe. Gruppen lassen sich auch auf der
+Einstellungsseite mit Pfeilen umstellen.
+
 ## Feste Wecklinks
 
 | Aufruf | Ergebnis |
@@ -573,6 +580,7 @@ fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in
 | GET | `/api/v1/groups` | Gruppen in ihrer Reihenfolge, auch leere, mit Mitgliedern (und Schlüssel des Gruppen-Wecklinks) |
 | POST | `/api/v1/groups` | Gruppe anlegen: `{"name": "Büro", "members": [IDs]}` (Mitglieder optional) |
 | PUT / DELETE | `/api/v1/groups/{name}` | umbenennen und/oder Mitglieder setzen (`{"name": …, "members": […]}`, ohne `members` bleiben sie) / löschen (die Geräte bleiben, ohne Gruppe) |
+| PUT | `/api/v1/order` | Reihenfolge wie in der Übersicht: `{"groups": [Namen], "devices": [{"group": "Büro", "ids": […]}, {"group": "", "ids": […]}]}` – steht ein Gerät bei einer anderen Gruppe, wechselt es dorthin |
 | POST | `/api/v1/groups/{name}/wake` | alle Geräte einer Gruppe wecken |
 | GET | `/api/v1/history` | Weckverlauf, neueste zuerst (`?limit=`) |
 | GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen; die Antwort nennt jeden Eintrag (`items`: `added` – ggf. mit `new_name` –, `skipped`, `error` mit Grund), die Oberfläche zeigt die vollständige Liste |

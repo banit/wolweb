@@ -56,6 +56,8 @@ test("Mit Passwort: ansehen und wecken frei, ändern erst nach dem Entsperren", 
   await expect(other.locator("#add-device")).toBeHidden();
   await expect(other.locator("#import-btn")).toBeHidden();
   await expect(other.locator("#export-link")).toBeHidden();
+  await expect(other.locator("#sort-toggle")).toBeHidden();
+  await expect(other.getByRole("button", { name: "Gruppe bearbeiten" })).toHaveCount(0);
   await expect(other.getByRole("button", { name: "Bearbeiten" })).toHaveCount(0);
   await other.getByRole("button", { name: "Wecken", exact: true }).click();
   await expect(other.locator(".card .pill.waking")).toBeVisible();
