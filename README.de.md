@@ -114,8 +114,9 @@ nächste geplante Weckzeit oder „Zeitplan pausiert“.
 | `http://host:8089/wake-group/Homelab` | ganze Gruppe: im Browser eine Seite mit dem Start jedes Geräts, sonst JSON (auch `?wait=`) |
 
 Der Name ist nicht von Groß-/Kleinschreibung abhängig. Nach dem Umbenennen gelten alte Links weiter: Browser
-werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich bis zu zehn frühere Namen; vergibt man
-einen davon neu, gehört der Link ab dann dem neuen Gerät). Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
+werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich je Gerät bis zu zehn frühere Namen;
+einen davon einem anderen Gerät zu geben, muss man bestätigen, danach gehört der Link dem neuen Gerät – ein Import
+wählt stattdessen einen freien Namen). Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
 ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts. Während
 des Wartens nennt sie, wie lange geprüft wird (`status.wake_timeout`) und ob automatisch erneut gesendet wird. Kommt
 keine Antwort, bleibt „Start nicht bestätigt“ mit dem Naheliegenden stehen (Strom, Netzwerkkabel, blockierte

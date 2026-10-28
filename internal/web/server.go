@@ -296,7 +296,11 @@ func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
 	var ve store.ValidationError
 	switch {
 	case errors.As(err, &ve):
-		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": ve.In(s.lang(r)), "field": ve.Field})
+		out := map[string]any{"success": false, "message": ve.In(s.lang(r)), "field": ve.Field}
+		if ve.Confirm != "" {
+			out["confirm"] = ve.Confirm // die Oberfläche fragt nach und schickt das Feld mit true erneut
+		}
+		writeJSON(w, http.StatusBadRequest, out)
 	case errors.Is(err, store.ErrNotFound):
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 	case errors.Is(err, store.ErrConflict):

@@ -74,6 +74,9 @@ var (
 type ValidationError struct {
 	i18n.Msg
 	Field string
+	// Confirm nennt ein Feld der Eingabe, mit dem der Aufrufer bewusst fortfahren kann (etwa
+	// "take_over_name"); leer bei gewöhnlichen Eingabefehlern.
+	Confirm string
 }
 
 func invalid(field, key string, args ...any) ValidationError {
@@ -476,8 +479,27 @@ func renamed(old Device, name string) []string {
 	return out
 }
 
-// releaseAlias nimmt name aus den früheren Namen anderer Geräte: Wer einen Namen neu vergibt, meint
-// mit dem Link ab jetzt dieses Gerät.
+// aliasOwner sucht das Gerät (außer exceptID), dessen früherer Name name ist.
+func aliasOwner(list []Device, name, exceptID string) (Device, bool) {
+	i := slices.IndexFunc(list, func(d Device) bool { return d.ID != exceptID && IsAlias(d, name) })
+	if i < 0 {
+		return Device{}, false
+	}
+	return list[i], true
+}
+
+// takeOverName prüft, ob name früher einem anderen Gerät gehörte. Dann wecken Lesezeichen und
+// Automationen mit diesem Namen bisher jenes Gerät – das neue bekommt den Namen nur auf ausdrückliche
+// Bestätigung (Input.TakeOverName), sonst wechselte das Ziel alter Links unbemerkt.
+func takeOverName(list []Device, in Input, name, exceptID string) error {
+	if o, ok := aliasOwner(list, name, exceptID); ok && !in.TakeOverName {
+		return ValidationError{Msg: i18n.M("val.name_was_alias", name, o.Name), Field: "name", Confirm: "take_over_name"}
+	}
+	return nil
+}
+
+// releaseAlias nimmt name aus den früheren Namen anderer Geräte: Wer einen Namen neu vergibt (und das
+// bestätigt hat, siehe takeOverName), meint mit dem Link ab jetzt dieses Gerät.
 func releaseAlias(list []Device, name, exceptID string) {
 	for i := range list {
 		if list[i].ID == exceptID || !slices.ContainsFunc(list[i].Aliases, func(a string) bool { return strings.EqualFold(a, name) }) {
@@ -505,6 +527,9 @@ type Input struct {
 	Schedule  []string `json:"schedule"`
 	// SchedulePaused fehlt bei älteren Aufrufern: dann läuft der Zeitplan (false).
 	SchedulePaused bool `json:"schedule_paused"`
+	// TakeOverName bestätigt, dass ein früherer Name eines anderen Geräts übernommen werden soll –
+	// dessen alte Wecklinks wecken danach dieses Gerät.
+	TakeOverName bool `json:"take_over_name"`
 }
 
 var icons = []string{"desktop", "laptop", "server", "nas", "tv", "console", "router", "printer", "other"}
@@ -674,6 +699,9 @@ func (s *Store) Create(in Input) (Device, error) {
 	if s.nameTaken(d.Name, "") {
 		return d, invalid("name", "val.name_taken", d.Name)
 	}
+	if err := takeOverName(s.devices, in, d.Name, ""); err != nil {
+		return d, err
+	}
 	now := time.Now().UTC()
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
 	prev := s.devices
@@ -706,6 +734,9 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 	}
 	if s.nameTaken(d.Name, id) {
 		return d, invalid("name", "val.name_taken", d.Name)
+	}
+	if err := takeOverName(s.devices, in, d.Name, id); err != nil {
+		return d, err
 	}
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = old.ID, old.CreatedAt, time.Now().UTC(), old.WakeKey
 	d.Aliases = renamed(old, d.Name)
@@ -842,7 +873,8 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 			continue
 		}
 		base := string([]rune(d.Name)[:min(utf8.RuneCountInString(d.Name), 60)])
-		for i := 2; nameTakenIn(next, d.Name, ""); i++ {
+		// Auch frühere Namen anderer Geräte gelten als vergeben: Der Import soll keine alten Links umlenken.
+		for i := 2; nameTakenIn(next, d.Name, "") || slices.ContainsFunc(next, func(x Device) bool { return IsAlias(x, d.Name) }); i++ {
 			d.Name = fmt.Sprintf("%s %d", base, i)
 		}
 		d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()

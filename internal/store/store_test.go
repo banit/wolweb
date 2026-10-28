@@ -459,6 +459,22 @@ func TestAliasesCappedAndImported(t *testing.T) {
 	}
 }
 
+// Ein importiertes Gerät mit dem früheren Namen eines vorhandenen bekommt einen freien Namen – sonst
+// lenkte der Import alte Wecklinks unbemerkt auf das neue Gerät um.
+func TestImportKeepsOldLinks(t *testing.T) {
+	st, _, _ := Open(t.TempDir(), "")
+	d, _ := st.Create(Input{Name: "NAS", MAC: "02:00:00:00:00:01"})
+	d, _ = st.Update(d.ID, Input{Name: "Archiv", MAC: d.MAC}, nil)
+	b, _ := json.Marshal(map[string]any{"version": 2, "devices": []Device{{Name: "NAS", MAC: "02:00:00:00:00:02"}}})
+	res, err := st.Import(b, i18n.DE)
+	if err != nil || res.Added != 1 || len(res.Items) != 1 || res.Items[0].NewName != "NAS 2" {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if got, _ := st.FindByName("NAS"); got.ID != d.ID {
+		t.Error("Import hat den alten Link umgelenkt")
+	}
+}
+
 // Das Importergebnis nennt jeden Eintrag: übernommen (ggf. umbenannt), schon vorhanden, fehlerhaft.
 func TestImportListsEveryEntry(t *testing.T) {
 	st, _, _ := Open(t.TempDir(), "")

@@ -109,8 +109,9 @@ wake-up or “Schedule paused”.
 | `http://host:8089/wake-group/Homelab` | whole group: in a browser a page with the start of every device, otherwise JSON (also `?wait=`) |
 
 The name is not case-sensitive. After renaming, old links keep working: browsers are redirected to the new address,
-curl & co. wake directly (wolweb remembers up to ten former names; if you give one of them to another device, the
-link belongs to that device from then on). The “online” confirmation needs a known IP (entered or from the network
+curl & co. wake directly (wolweb remembers up to ten former names per device; giving one of them to another device
+needs a confirmation, and from then on the link belongs to that device – an import picks a free name instead). The
+“online” confirmation needs a known IP (entered or from the network
 scan). If the device is already running, the page says so and sends nothing. While waiting, it tells you how long it
 keeps checking (`status.wake_timeout`) and whether it will resend automatically. Without an answer, “Start not
 confirmed” stays on the page with the obvious checks (power, network cable, a blocked answer), plus “Check again”

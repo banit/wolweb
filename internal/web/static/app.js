@@ -768,12 +768,22 @@
     if (body.ports.some((p) => !Number.isInteger(p))) return fieldError(form.ports, t("ui.ports_numbers"));
     const btn = $("#save-device");
     btn.disabled = true;
+    const send = (extra) => state.editing
+      ? api("PUT", "devices/" + encodeURIComponent(state.editing.id), Object.assign({}, body, { updated_at: state.editing.updated_at }, extra))
+      : api("POST", "devices", Object.assign({}, body, extra));
     try {
       let saved;
-      if (state.editing) {
-        saved = await api("PUT", "devices/" + encodeURIComponent(state.editing.id), Object.assign(body, { updated_at: state.editing.updated_at }));
-      } else {
-        saved = await api("POST", "devices", body);
+      try {
+        saved = await send({});
+      } catch (e) {
+        // Der Name gehörte früher einem anderen Gerät: Dessen alte Wecklinks wecken danach dieses –
+        // nur nach ausdrücklicher Bestätigung.
+        if (!(e.data && e.data.confirm === "take_over_name")) throw e;
+        if (!(await confirmDialog(t("ui.take_name.title", body.name.trim()), e.message, t("ui.take_name.ok")))) {
+          fieldError(form.name, e.message);
+          return;
+        }
+        saved = await send({ take_over_name: true });
       }
       dlg.close();
       toast("ok", state.editing ? t("ui.saved") : t("ui.device_added"), saved.name + " · " + saved.mac);
