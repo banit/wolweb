@@ -32,7 +32,10 @@ Netzwerkkarte).
 3. **Gerät übernehmen:** den Zielrechner einschalten, „Geräte suchen“ → „Übernehmen“. Das Heimnetz erkennt wolweb
    selbst; Name, IP- und MAC-Adresse kommen aus der Suche.
 4. **Wecklink kopieren:** Die neue Karte bietet „Wecklink kopieren“ und „Auf dem Handy einrichten“. Ab dann weckt
-   das Öffnen von `http://<Adresse>:8089/wake/<Name>` den Rechner, und die Seite zeigt, wann er wirklich läuft.
+   das Öffnen von `http://<Adresse>:8089/wake/<Name>` den Rechner, und die Seite zeigt, wann er im Netzwerk antwortet.
+5. **Richtig testen:** den Rechner herunterfahren (Strom und Netzwerkkabel bleiben dran), dann den Wecklink öffnen.
+   Erst wenn die Seite das Gerät als erreichbar meldet, funktioniert Wake on LAN – ein Test am noch eingeschalteten
+   Rechner beweist nichts.
 
 Alles Weitere – Dauerbetrieb mit systemd, Update, mehrere Netze und VLANs, Konfiguration, Benachrichtigungen,
 Metriken und die API – steht weiter unten.
@@ -220,14 +223,25 @@ wolweb übernimmt Konfiguration und Geräteliste des ursprünglichen
 
 ## Update von 1.0.x / 1.1.x
 
-Geräte und Einstellungen werden beim ersten Start automatisch übernommen. Selbst tun musst du nur dann etwas, wenn
-du wolweb **ohne Anmeldung über eine eigene Domain** aufrufst, etwa hinter einem Reverse-Proxy
-(`https://wol.example.com`): Seit 1.1 nimmt wolweb ohne Anmeldung nur IP-Adressen und lokale Namen (`nas`,
-`*.lan`, `*.local`, `*.fritz.box` …) an, als Schutz vor DNS-Rebinding. Unter der Domain erscheint dann eine Seite,
-die genau sagt, was einzutragen ist. Am einfachsten öffnest du wolweb einmal über seine IP-Adresse
-(`http://192.168.1.5:8089`) und erlaubst den Namen in den Einstellungen unter „Sicherheit“ – er steht dort schon
-bereit. Alternativ in `config.json` `"allowed_hosts": ["wol.example.com"]` bzw. in Docker
-`WOLWEB_ALLOWED_HOSTS=wol.example.com`. Beim Start steht ein entsprechender Hinweis im Log.
+Geräte und Einstellungen werden beim ersten Start automatisch übernommen.
+
+1. **Vor dem Update – nur wenn du wolweb ohne Anmeldung über eine eigene Domain aufrufst**, etwa hinter einem
+   Reverse-Proxy (`https://wol.example.com`): diesen Namen zuerst freigeben. Seit 1.1 nimmt wolweb ohne Anmeldung nur
+   IP-Adressen und lokale Namen (`nas`, `*.lan`, `*.local`, `*.fritz.box` …) an, als Schutz vor DNS-Rebinding; unter
+   anderen Namen erscheint eine Seite, die erklärt, was zu tun ist. In `config.json` `"allowed_hosts":
+   ["wol.example.com"]` eintragen (ältere Versionen übergehen den Schlüssel) bzw. in `docker-compose.yml`
+   `WOLWEB_ALLOWED_HOSTS: "wol.example.com"`. Merkst du es erst danach: wolweb über seine IP-Adresse öffnen
+   (`http://192.168.1.5:8089`) und den Namen in den Einstellungen unter „Sicherheit“ → „Weitere Hostnamen“ eintragen
+   (zuletzt abgewiesene Namen stehen dort zur Auswahl – nur einen übernehmen, den du selbst eingerichtet hast). Beim
+   Start steht außerdem ein Hinweis im Log.
+2. **Aktualisieren:**
+   - *Docker, aus dem Repository gebaut:* `git pull && docker compose up -d --build`. Wer `docker-compose.yml` selbst
+     angepasst hat, vergleicht sie mit der neuen (siehe „Docker“ unten), statt sie zu überschreiben.
+   - *Docker mit fertigem Image:* `docker compose pull && docker compose up -d`.
+   - *Programmdatei mit systemd:* wolweb stoppen (`systemctl stop wolweb`), die Datei in `/opt/wolweb` ersetzen, wieder
+     starten (`systemctl start wolweb`). `config.json` und `data/` bleiben, wie sie sind.
+3. **Prüfen:** die Übersicht öffnen – unten steht die Version – und im Log (`docker logs wolweb` bzw.
+   `journalctl -u wolweb`) nach der Zeile zur Sicherung und nach Hinweisen sehen.
 
 **Sicherung und Weg zurück:** Bevor eine neue Version die Daten zum ersten Mal schreibt, legt sie eine Kopie an:
 `data/backup-<alte Version>-<Datum>/` (etwa `backup-1.0.x-20261028-160512/` mit `devices.json`,
@@ -466,7 +480,8 @@ braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_
   Weckseite weckt dann. Mehr als Wecken ist so nicht möglich, und `HEAD` (Linkvorschauen in Messengern, Linkprüfer)
   weckt nie. Wer auch das verhindern will, schaltet die Anmeldung samt `auth.wake_keys` ein: Dann braucht jeder
   Link – Gerät wie Gruppe gleichermaßen – den Schlüssel, den „Wecklink kopieren“ anhängt, und Namen lassen sich
-  nicht erraten.
+  nicht erraten. Das ist eine bewusste Ausnahme vom Schutz gegen Cross-Site-Anfragen: Wecklinks sollen von überall
+  funktionieren, jede andere Änderung braucht die Seite von wolweb selbst oder ein Token.
 - **DNS-Rebinding**: Ohne Anmeldung nimmt wolweb nur Aufrufe unter IP-Adressen, Namen ohne Punkt (`nas`), lokalen
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus
   `allowed_hosts` an (`"wol.example.com"`, `"*.example.com"`, `"*"` schaltet die Prüfung ab). Sonst könnte eine

@@ -384,7 +384,9 @@
       return;
     }
     const failed = res.results.filter((r) => !r.success);
-    toast(failed.length ? "warn" : "ok", t("ui.group_x", g.name), res.message + (failed.length ? " " + t("ui.errors_for", failed.map((r) => r.device).join(", ")) : ""));
+    const checking = res.results.some((r) => r.success && (state.devices.find((x) => x.id === r.id) || {}).check_ip);
+    toast(failed.length ? "warn" : "sent", t("ui.group_x", g.name), res.message +
+      (failed.length ? " " + t("ui.errors_for", failed.map((r) => r.device).join(", ")) : checking ? " " + t("ui.group_checking") : ""));
     for (const r of res.results) {
       const d = state.devices.find((x) => x.id === r.id);
       if (r.success && d && d.check_ip) track(d, true);
