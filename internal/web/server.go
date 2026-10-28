@@ -430,7 +430,9 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 	// Browser schicken Sec-Fetch-Site mit. Kommt der Aufruf von einer fremden Seite (z. B. als
 	// eingebettetes Bild), wird nicht direkt geweckt, sondern nur die Weckseite ausgeliefert –
 	// sie weckt dann selbst per POST. curl, Home Assistant & Co. senden den Kopf nicht.
-	if sfs := r.Header.Get("Sec-Fetch-Site"); wantsHTML(r) || sfs == "cross-site" || sfs == "same-site" {
+	// HEAD (Linkprüfer, Vorschauen in Messengern, curl -I) darf nie wecken – Go beantwortet
+	// HEAD über die GET-Route, daher hier ausdrücklich nur die Seite.
+	if sfs := r.Header.Get("Sec-Fetch-Site"); r.Method == http.MethodHead || wantsHTML(r) || sfs == "cross-site" || sfs == "same-site" {
 		if !ok {
 			s.render(w, http.StatusNotFound, "wake.html", pageData{Missing: name})
 			return
@@ -445,12 +447,17 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 	}
 	res, code := s.wake(d)
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); res.Success && wait > 0 {
-		online := s.waitOnline(r.Context(), d, time.Duration(min(wait, 600))*time.Second)
-		res.Online = &online
-		if online {
-			res.Message = fmt.Sprintf("%s ist online.", d.Name)
+		if ip, _ := s.monitor.Target(d); !ip.IsValid() {
+			// Ohne IP lässt sich nichts prüfen – "online" bleibt weg statt eines falschen false.
+			res.Message = fmt.Sprintf("Magic Packet an %s gesendet. Ohne bekannte IP-Adresse lässt sich der Start nicht prüfen.", d.Name)
 		} else {
-			res.Message = fmt.Sprintf("Magic Packet an %s gesendet, das Gerät hat sich aber noch nicht gemeldet.", d.Name)
+			online := s.waitOnline(r.Context(), d, time.Duration(min(wait, 600))*time.Second)
+			res.Online = &online
+			if online {
+				res.Message = fmt.Sprintf("%s ist online.", d.Name)
+			} else {
+				res.Message = fmt.Sprintf("Magic Packet an %s gesendet, das Gerät hat sich aber noch nicht gemeldet.", d.Name)
+			}
 		}
 	}
 	writeJSON(w, code, res)
@@ -459,9 +466,6 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 func (s *Server) waitOnline(ctx context.Context, d store.Device, max time.Duration) bool {
 	ctx, cancel := context.WithTimeout(ctx, max)
 	defer cancel()
-	if ip, _ := s.monitor.Target(d); !ip.IsValid() {
-		return false
-	}
 	for {
 		if s.monitor.Check(ctx, d).State == "online" {
 			return true

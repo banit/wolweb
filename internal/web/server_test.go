@@ -1,6 +1,8 @@
 package web
 
 import (
+	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -122,5 +124,51 @@ func TestDefaultBroadcast(t *testing.T) {
 		if got := s.wakeTarget(store.Device{MAC: "00:11:22:33:44:55"}); got != tc.want {
 			t.Errorf("bcastip=%q Netze=%v: %s statt %s", tc.bcast, tc.nets, got, tc.want)
 		}
+	}
+}
+
+// udpSink nimmt Magic Packets entgegen, damit das Wecken im Test gelingt.
+func udpSink(t *testing.T) string {
+	t.Helper()
+	l, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	return l.LocalAddr().String()
+}
+
+func TestWakeLinkHeadDoesNotWake(t *testing.T) {
+	h, st := newTestServer(t, nil)
+	d, err := st.Create(store.Input{Name: "NAS", MAC: "00:11:22:33:44:55", Broadcast: udpSink(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("HEAD", "/wake/NAS", nil))
+	if got, _ := st.Get(d.ID); got.LastWake != nil || rec.Code != http.StatusOK {
+		t.Fatalf("HEAD hat geweckt (Status %d)", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/wake/NAS", nil))
+	if got, _ := st.Get(d.ID); got.LastWake == nil {
+		t.Fatalf("GET hat nicht geweckt: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestWakeWaitWithoutIP(t *testing.T) {
+	h, st := newTestServer(t, nil)
+	if _, err := st.Create(store.Input{Name: "NAS", MAC: "00:11:22:33:44:55", Broadcast: udpSink(t)}); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/wake/NAS?wait=30", nil))
+	var res map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil || res["success"] != true {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if _, ok := res["online"]; ok || time.Since(start) > 5*time.Second {
+		t.Errorf("ohne IP: online=%v nach %s", res["online"], time.Since(start))
 	}
 }

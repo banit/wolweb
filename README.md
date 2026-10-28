@@ -16,10 +16,10 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
 |---|---|
 | `http://host:8089/wake/NAS` im Browser | Weckseite mit Fortschritt: *Gerät prüfen → Magic Packet senden → Auf Start warten → Online* |
 | `curl http://host:8089/wake/NAS` | weckt sofort, Antwort JSON `{"success":true,"message":…}` (wie im Original) |
-| `curl "http://host:8089/wake/NAS?wait=120"` | weckt und wartet bis zu 120 s, bis das Gerät antwortet (`"online": true/false`) |
+| `curl "http://host:8089/wake/NAS?wait=120"` | weckt und wartet bis zu 120 s, bis das Gerät antwortet (`"online": true/false`; fehlt, wenn keine IP bekannt ist) |
 | `…/wake/NAS?format=html` / `?format=json` | Ausgabe erzwingen |
 
-Der Name ist nicht von Groß-/Kleinschreibung abhängig. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt ist
+`HEAD`-Anfragen (Linkprüfer, Vorschauen in Messengern) wecken nie. Der Name ist nicht von Groß-/Kleinschreibung abhängig. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt ist
 (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts.
 
 Online gilt ein Gerät, wenn es auf Ping antwortet oder einer der Ports (`status.ports`) eine Verbindung annimmt **oder
