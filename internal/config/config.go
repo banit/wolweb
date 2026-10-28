@@ -224,7 +224,9 @@ func (c *Config) normalize() error {
 			return fmt.Errorf("%s: %q ist keine http(s)-Adresse", u.name, u.val)
 		}
 	}
-	for _, e := range c.Notify.Events {
+	for i, e := range c.Notify.Events {
+		e = strings.TrimSpace(e)
+		c.Notify.Events[i] = e // so vergleicht notify.Send später auch " wake" richtig
 		if !notify.ValidKind(e) {
 			return fmt.Errorf("notify.events: unbekanntes Ereignis %q (online, offline, wake, wake_failed)", e)
 		}

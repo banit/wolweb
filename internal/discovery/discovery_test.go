@@ -3,9 +3,11 @@ package discovery
 import (
 	"net"
 	"net/netip"
+	"sync"
 	"testing"
 
 	"wolweb/internal/oui"
+	"wolweb/internal/store"
 )
 
 func TestHosts(t *testing.T) {
@@ -37,5 +39,34 @@ func TestOUI(t *testing.T) {
 	mac, _ = net.ParseMAC("02:11:32:01:02:03")
 	if v := oui.Lookup(mac); v != "Private/zufällige MAC" {
 		t.Errorf("lokale MAC: %q", v)
+	}
+}
+
+// Der Start muss vor dem Ende gemeldet werden – auch wenn die Suche sofort scheitert.
+func TestStartReportedBeforeFinish(t *testing.T) {
+	st, _, err := store.Open(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := New(st, []string{"203.0.113.0/30"}, 16) // kein lokales Netz: scheitert sofort
+	var mu sync.Mutex
+	var seen []bool
+	done := make(chan struct{})
+	sc.OnUpdate = func(j Job) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, j.Running)
+		if !j.Running {
+			close(done)
+		}
+	}
+	if err := sc.Start(false); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) == 0 || !seen[0] || seen[len(seen)-1] {
+		t.Errorf("Reihenfolge der Meldungen: %v", seen)
 	}
 }

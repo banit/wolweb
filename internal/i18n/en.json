@@ -159,6 +159,7 @@
  "ui.import.done": "Import finished",
  "ui.import.failed": "Import failed",
  "ui.import.faulty": "{0} faulty",
+ "ui.import.secret": "group wake link key restored",
  "ui.import.skipped": "{0} already present",
  "ui.ip_address": "IP address",
  "ui.ip_from_scan": "IP from the network scan",

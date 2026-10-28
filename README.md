@@ -52,7 +52,7 @@ aus der Netzwerksuche).
 | Feld | Wofür |
 |---|---|
 | Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken |
-| Zeitplan | automatische Weckzeiten, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` |
+| Zeitplan | automatische Weckzeiten, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` (englische Schreibweise wie `Mon-Fri 07:30` geht auch; gespeichert wird einheitlich die deutsche Form, angezeigt in der gewählten Sprache) |
 | *Erweitert:* Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
 | *Erweitert:* Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
 | *Erweitert:* Ports | eigene Ports für die Online-Prüfung statt der allgemeinen Liste |
@@ -269,7 +269,8 @@ in **English and German**; it follows the browser language and can be switched i
 - **Network scan**: finds devices that are switched on in the configured segments (IP, MAC, host name, vendor) –
   on demand or periodically; add new devices with one click or ignore them
 - **Groups** ("Homelab", "Office") wake together, also via a fixed group wake link `/wake-group/<name>`;
-  **schedules** such as `Mon-Fri 07:30; Sat,Sun 09:00` wake devices automatically
+  **schedules** such as `Mon-Fri 07:30; Sat,Sun 09:00` wake devices automatically (German spellings work too;
+  devices.json always stores the canonical German form, the UI shows it in the chosen language)
 - **Notifications** via webhook (JSON) or ntfy push when a device goes online/offline or is woken;
   **Prometheus metrics** at `/metrics`
 - **History** of every wake attempt (who, when, from where, result), **export/import** of devices as JSON

@@ -157,18 +157,19 @@ func (l *wakeLimiter) allow(id string) (time.Duration, bool) {
 }
 
 // limitPublic beantwortet zu schnell wiederholte öffentliche Weckaufrufe mit 429 und meldet das
-// mit true. Angemeldete Aufrufe sind nicht begrenzt.
-func (s *Server) limitPublic(w http.ResponseWriter, r *http.Request, d store.Device) bool {
+// mit true. key trennt Geräte und Gruppen, msgKey/name ergeben die Meldung. Angemeldete Aufrufe
+// sind nicht begrenzt.
+func (s *Server) limitPublic(w http.ResponseWriter, r *http.Request, key, msgKey, name string) bool {
 	if !isPublic(r) {
 		return false
 	}
-	wait, ok := s.limiter.allow(d.ID)
+	wait, ok := s.limiter.allow(key)
 	if ok {
 		return false
 	}
 	secs := int(math.Ceil(wait.Seconds()))
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
-	writeJSON(w, http.StatusTooManyRequests, wakeResult{Device: d.Name, Error: "rate limited",
-		Message: i18n.T(s.lang(r), "err.rate_limited", d.Name, secs)})
+	writeJSON(w, http.StatusTooManyRequests, wakeResult{Device: name, Error: "rate limited",
+		Message: i18n.T(s.lang(r), msgKey, name, secs)})
 	return true
 }

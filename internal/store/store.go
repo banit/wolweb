@@ -482,7 +482,9 @@ func (in *Input) validate() (Device, error) {
 		d.SecureOn = wol.FormatMAC(pass)
 	}
 	d.Group = strings.TrimSpace(in.Group)
-	if utf8.RuneCountInString(d.Group) > 32 || strings.ContainsAny(d.Group, `/\?#%`) || hasControl(d.Group) {
+	// "." und ".." würde der Browser im Gruppen-Wecklink als Pfad auflösen (wie beim Namen).
+	if utf8.RuneCountInString(d.Group) > 32 || strings.ContainsAny(d.Group, `/\?#%`) || hasControl(d.Group) ||
+		d.Group == "." || d.Group == ".." {
 		return d, invalid("group", "val.group")
 	}
 	entries, err := schedule.ParseList(in.Schedule)
@@ -624,17 +626,35 @@ func (s *Store) RotateWakeKey(id string) (Device, error) {
 }
 
 // Export liefert alle Geräte im Format von devices.json (zum Sichern oder Umziehen).
+// Mit dabei ist das Geheimnis der Installation: Bei einer Wiederherstellung in eine leere
+// Installation bleiben so auch die Gruppen-Wecklinks gültig (die Weckschlüssel der Geräte stehen
+// ohnehin am Gerät). Der Export ist damit so vertraulich wie devices.json und state.json.
 func (s *Store) Export() ([]byte, error) {
 	devs, _ := s.Devices()
-	b, err := json.MarshalIndent(devicesFile{Version: 2, Devices: devs}, "", "  ")
+	s.mu.RLock()
+	secret := s.state.Secret
+	s.mu.RUnlock()
+	b, err := json.MarshalIndent(exportFile{devicesFile: devicesFile{Version: 2, Devices: devs}, Secret: secret}, "", "  ")
 	return append(b, '\n'), err
+}
+
+type exportFile struct {
+	devicesFile
+	Secret string `json:"secret,omitempty"`
+}
+
+// validWakeKey: so sehen Schlüssel aus, die newWakeKey erzeugt (Hex, ausreichend lang).
+func validWakeKey(k string) bool {
+	b, err := hex.DecodeString(k)
+	return err == nil && len(b) >= 8 && len(b) <= 32
 }
 
 // ImportResult beschreibt das Ergebnis eines Imports.
 type ImportResult struct {
-	Added   int      `json:"added"`
-	Skipped int      `json:"skipped"`
-	Errors  []string `json:"errors,omitempty"`
+	Added          int      `json:"added"`
+	Skipped        int      `json:"skipped"`
+	Errors         []string `json:"errors,omitempty"`
+	SecretRestored bool     `json:"secret_restored,omitempty"` // Gruppen-Wecklinks der Sicherung gelten wieder
 }
 
 // Import übernimmt Geräte aus einem Export (oder einer devices.json des alten wolweb). Geräte,
@@ -645,9 +665,14 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 	if err != nil {
 		return ImportResult{}, Invalid("val.import_invalid", err)
 	}
+	var exp struct {
+		Secret string `json:"secret"`
+	}
+	_ = json.Unmarshal(b, &exp)
 	var res ImportResult
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	restore := len(s.devices) == 0 // leere Installation: Sicherung wiederherstellen
 	next := slices.Clone(s.devices)
 	now := time.Now().UTC()
 	for _, src := range devs {
@@ -667,6 +692,11 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 			d.Name = fmt.Sprintf("%s %d", base, i)
 		}
 		d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
+		// Den Schlüssel aus der Sicherung behalten, sonst gelten gespeicherte Wecklinks
+		// (Lesezeichen, Automationen) nach einer Wiederherstellung nicht mehr.
+		if validWakeKey(src.WakeKey) && !slices.ContainsFunc(next, func(x Device) bool { return x.WakeKey == src.WakeKey }) {
+			d.WakeKey = src.WakeKey
+		}
 		next = append(next, d)
 		res.Added++
 	}
@@ -680,6 +710,15 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 		return ImportResult{}, err
 	}
 	s.revision++
+	if sec, err := hex.DecodeString(exp.Secret); restore && err == nil && len(sec) >= 16 && exp.Secret != s.state.Secret {
+		old := s.state.Secret
+		s.state.Secret = exp.Secret
+		if err := s.saveState(); err != nil {
+			s.state.Secret = old
+			return res, err
+		}
+		res.SecretRestored = true
+	}
 	return res, nil
 }
 

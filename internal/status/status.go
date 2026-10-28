@@ -36,8 +36,9 @@ type Monitor struct {
 	mu       sync.RWMutex
 	states   map[string]State
 
-	// OnChange wird nach jeder Änderung (Zustand, IP, Methode, Hinweis) außerhalb der Sperre
-	// aufgerufen; hadOld ist false beim ersten Ergebnis eines Geräts. Vor Run setzen.
+	// OnChange wird nach jeder Änderung (Zustand, IP, Methode, Hinweis) aufgerufen – unter der
+	// Sperre des Monitors, also kurz halten und nicht zurückrufen. hadOld ist false beim ersten
+	// Ergebnis eines Geräts. Vor Run setzen.
 	OnChange func(d store.Device, old State, hadOld bool, st State)
 }
 
@@ -167,10 +168,13 @@ func (m *Monitor) set(d store.Device, st State) {
 		log.Printf("Status: %s %s → %s", d.Name, old.State, st.State)
 	}
 	m.states[d.ID] = st
-	m.mu.Unlock()
+	// Unter der Sperre melden: Sonst können zwei gleichzeitige Prüfungen ihre Ereignisse in
+	// anderer Reihenfolge abliefern, als sie gespeichert wurden, und die Oberfläche zeigte den
+	// älteren Zustand. OnChange darf deshalb nicht in den Monitor zurückrufen.
 	if m.OnChange != nil && (!ok || old.State != st.State || old.IP != st.IP || old.Method != st.Method || old.Note != st.Note) {
 		m.OnChange(d, old, ok, st)
 	}
+	m.mu.Unlock()
 }
 
 func (m *Monitor) prune(devices []store.Device) {

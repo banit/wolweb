@@ -521,26 +521,52 @@ const (
 // wake sendet das Magic Packet und trägt den Versuch in den Verlauf ein. r darf nil sein
 // (Zeitplan); source sagt, woher der Auftrag kam, group nennt bei Gruppen deren Namen.
 func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wakeResult, int) {
+	res, code, a := s.sendWake(r, d, source, group)
+	s.recordWakes(a)
+	return res, code
+}
+
+// wakeAttempt ist ein Weckversuch, der noch eingetragen und gemeldet werden muss.
+type wakeAttempt struct {
+	ev store.Event
+	ip string
+}
+
+// recordWakes trägt Weckversuche mit einem Schreibvorgang in den Verlauf ein, meldet die Änderung
+// einmal an die Oberfläche und benachrichtigt je Versuch.
+func (s *Server) recordWakes(as ...wakeAttempt) {
+	if len(as) == 0 {
+		return
+	}
+	evs := make([]store.Event, len(as))
+	for i, a := range as {
+		evs[i] = a.ev
+	}
+	if err := s.store.RecordWake(evs...); err != nil {
+		log.Printf("Verlauf speichern: %v", err)
+	}
+	s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
+	for _, a := range as {
+		ev := a.ev
+		// Benachrichtigungen in der eingestellten Sprache – sie gehen an niemand Bestimmtes.
+		src := i18n.T(s.defLang, "ui.src."+ev.Source, ev.Group)
+		result, kind, msg := "ok", notify.Wake, i18n.T(s.defLang, "notify.wake", ev.Device, src)
+		if !ev.Success {
+			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.defLang, "notify.wake_failed", ev.Device, ev.Error)
+		}
+		s.wakesMu.Lock()
+		s.wakes[[2]string{ev.ID, result}]++
+		s.wakesMu.Unlock()
+		s.notify.Send(notify.Event{Event: kind, Device: ev.Device, ID: ev.ID, IP: a.ip, Source: ev.Source, Message: msg})
+	}
+}
+
+// sendWake verschickt das Magic Packet, ohne den Versuch schon einzutragen.
+func (s *Server) sendWake(r *http.Request, d store.Device, source, group string) (wakeResult, int, wakeAttempt) {
 	l := s.lang(r)
 	target := s.wakeTarget(d)
 	client, user := s.caller(r)
-	ev := store.Event{ID: d.ID, Device: d.Name, Source: source, Group: group, Client: client, User: user, Target: target}
-	defer func() {
-		if err := s.store.RecordWake(ev); err != nil {
-			log.Printf("Verlauf speichern: %v", err)
-		}
-		s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
-		// Benachrichtigungen in der eingestellten Sprache – sie gehen an niemand Bestimmtes.
-		src := i18n.T(s.defLang, "ui.src."+source, group)
-		result, kind, msg := "ok", notify.Wake, i18n.T(s.defLang, "notify.wake", d.Name, src)
-		if !ev.Success {
-			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.defLang, "notify.wake_failed", d.Name, ev.Error)
-		}
-		s.wakesMu.Lock()
-		s.wakes[[2]string{d.ID, result}]++
-		s.wakesMu.Unlock()
-		s.notify.Send(notify.Event{Event: kind, Device: d.Name, ID: d.ID, IP: d.IP, Source: source, Message: msg})
-	}()
+	a := wakeAttempt{ev: store.Event{ID: d.ID, Device: d.Name, Source: source, Group: group, Client: client, User: user, Target: target}, ip: d.IP}
 	res := wakeResult{Device: d.Name, ID: d.ID, Target: target}
 	hw, err := wol.ParseMAC(d.MAC)
 	var pass []byte
@@ -553,14 +579,14 @@ func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wa
 	if err != nil {
 		log.Printf("Wecken von %s fehlgeschlagen: %v", d.Name, err)
 		res.Message, res.Error = i18n.T(l, "msg.wake_failed", d.Name), i18n.Text(l, err)
-		ev.Error = res.Error
-		return res, http.StatusInternalServerError
+		a.ev.Error = res.Error
+		return res, http.StatusInternalServerError, a
 	}
 	log.Printf("Magic Packet an %s (%s) über %s gesendet (%s)", d.Name, d.MAC, target, source)
-	ev.Success = true
+	a.ev.Success = true
 	res.Success = true
 	res.Message = i18n.T(l, "msg.wake_sent", d.Name)
-	return res, http.StatusOK
+	return res, http.StatusOK, a
 }
 
 func (s *Server) wakeDevice(w http.ResponseWriter, r *http.Request) {
@@ -615,7 +641,7 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, wakeResult{Message: i18n.T(s.lang(r), "err.device_not_found_name", name), Error: "not found"})
 		return
 	}
-	if s.limitPublic(w, r, d) {
+	if s.limitPublic(w, r, "gerät:"+d.ID, "err.rate_limited", d.Name) {
 		return
 	}
 	res, code := s.wake(r, d, srcLink, "")
@@ -657,7 +683,7 @@ func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
-	if s.limitPublic(w, r, d) {
+	if s.limitPublic(w, r, "gerät:"+d.ID, "err.rate_limited", d.Name) {
 		return
 	}
 	res, code := s.wake(r, d, srcPage, "")

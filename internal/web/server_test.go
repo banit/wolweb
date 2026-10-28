@@ -502,3 +502,23 @@ func TestEnglish(t *testing.T) {
 		t.Errorf("Wecklink: %s", rec.Body)
 	}
 }
+
+func TestScheduleMinuteDue(t *testing.T) {
+	at := func(h, m, s int) time.Time { return time.Date(2026, 10, 30, h, m, s, 0, time.Local) }
+	next := at(7, 30, 0)
+	for _, tc := range []struct {
+		name      string
+		now, last time.Time
+		want      bool
+	}{
+		{"pünktlich", at(7, 30, 0), at(7, 29, 0), true},
+		{"etwas später", at(7, 30, 2), at(7, 29, 0), true},
+		{"nach Ruhezustand", at(12, 0, 20), at(7, 29, 0), false},
+		{"Uhr zurückgestellt, Minute schon dran", at(7, 30, 1), at(7, 30, 0), false},
+		{"Wanduhr noch davor", at(7, 29, 58), at(7, 29, 0), false},
+	} {
+		if got := scheduleMinuteDue(next, tc.now, tc.last); got != tc.want {
+			t.Errorf("%s: %v", tc.name, got)
+		}
+	}
+}

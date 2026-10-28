@@ -45,3 +45,12 @@ func TestExampleLoads(t *testing.T) {
 		t.Fatalf("%v %v %+v", err, found, c)
 	}
 }
+
+func TestNotifyEventsTrimmed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(path, []byte(`{"notify":{"webhook":"https://ha.lan/x","events":["online"," wake "]}}`), 0o644)
+	c, _, err := Load(path)
+	if err != nil || c.Notify.Events[1] != "wake" {
+		t.Errorf("%q %v", c.Notify.Events, err)
+	}
+}

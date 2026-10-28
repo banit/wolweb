@@ -257,3 +257,43 @@ func TestGroupsAndSchedule(t *testing.T) {
 		t.Errorf("Mitglieder: %+v", m)
 	}
 }
+
+func TestGroupDotsAndBrokenSecret(t *testing.T) {
+	dir := t.TempDir()
+	s, _, _ := Open(dir, "")
+	for _, g := range []string{".", ".."} {
+		if _, err := s.Create(Input{Name: "x" + g, MAC: "00:00:00:00:00:01", Group: g}); err == nil {
+			t.Errorf("Gruppe %q angenommen", g)
+		}
+	}
+	// Kaputtes Geheimnis wird ersetzt statt still als leerer Schlüssel benutzt.
+	os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{"version":1,"secret":"kein-hex"}`), 0o644)
+	s2, _, err := Open(dir, "")
+	if err != nil || len(s2.Secret()) != 32 {
+		t.Fatalf("Geheimnis nach Reparatur: %d Byte, %v", len(s2.Secret()), err)
+	}
+}
+
+// Nach einer Wiederherstellung müssen gespeicherte Wecklinks (Geräte und Gruppen) weiter gelten.
+func TestImportKeepsWakeKeysAndSecret(t *testing.T) {
+	src, _, _ := Open(t.TempDir(), "")
+	d, _ := src.Create(Input{Name: "PC", MAC: "00:11:22:33:44:55", Group: "Büro"})
+	b, _ := src.Export()
+	dst, _, _ := Open(t.TempDir(), "")
+	res, err := dst.Import(b, "de")
+	if err != nil || res.Added != 1 || !res.SecretRestored {
+		t.Fatalf("%+v %v", res, err)
+	}
+	got, _ := dst.FindByName("PC")
+	if got.WakeKey != d.WakeKey || !bytesEqual(dst.Secret(), src.Secret()) {
+		t.Error("Weckschlüssel oder Geheimnis nicht übernommen")
+	}
+	// In eine Installation mit Geräten: Geheimnis bleibt, Schlüssel nur ohne Kollision.
+	other, _, _ := Open(t.TempDir(), "")
+	other.Create(Input{Name: "Alt", MAC: "00:00:00:00:00:09"})
+	before := other.Secret()
+	res, _ = other.Import(b, "de")
+	if res.SecretRestored || !bytesEqual(other.Secret(), before) {
+		t.Error("Geheimnis einer bestehenden Installation überschrieben")
+	}
+}

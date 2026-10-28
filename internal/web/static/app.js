@@ -685,6 +685,7 @@
       const parts = [t("ui.import.added", res.added)];
       if (res.skipped) parts.push(t("ui.import.skipped", res.skipped));
       if (res.errors && res.errors.length) parts.push(t("ui.import.faulty", res.errors.length));
+      if (res.secret_restored) parts.push(t("ui.import.secret"));
       toast(res.errors && res.errors.length ? "warn" : "ok", t("ui.import.done"), parts.join(", ") + (res.errors && res.errors.length ? ": " + res.errors.slice(0, 3).join("; ") : ""));
       loadDevices();
     } catch (err) {

@@ -62,7 +62,9 @@ func (s *Store) loadState() (changed bool, err error) {
 	if s.state.LastSeen == nil {
 		s.state.LastSeen = map[string]time.Time{}
 	}
-	if s.state.Secret == "" {
+	// Fehlt das Geheimnis oder ist es kaputt (etwa von Hand gekürzt), wird ein neues erzeugt. Ein
+	// leerer Schlüssel machte die Gruppen-Wecklinks für jeden berechenbar.
+	if b, err := hex.DecodeString(s.state.Secret); err != nil || len(b) < 16 {
 		b := make([]byte, 32)
 		_, _ = rand.Read(b)
 		s.state.Secret, changed = hex.EncodeToString(b), true
@@ -80,19 +82,25 @@ func (s *Store) saveState() error {
 	return nil
 }
 
-// RecordWake trägt einen Weckversuch in den Verlauf ein und merkt sich bei Erfolg den Zeitpunkt.
-func (s *Store) RecordWake(ev Event) error {
+// RecordWake trägt Weckversuche in den Verlauf ein und merkt sich bei Erfolg den Zeitpunkt –
+// mehrere (Gruppe, Zeitplan) mit einem einzigen Schreibvorgang.
+func (s *Store) RecordWake(evs ...Event) error {
+	if len(evs) == 0 {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if ev.Time.IsZero() {
-		ev.Time = time.Now().UTC()
+	for _, ev := range evs {
+		if ev.Time.IsZero() {
+			ev.Time = time.Now().UTC()
+		}
+		s.state.History = append(s.state.History, ev)
+		if ev.Success && ev.ID != "" {
+			s.state.LastWake[ev.ID] = ev.Time
+		}
 	}
-	s.state.History = append(s.state.History, ev)
 	if n := len(s.state.History); n > HistoryMax {
 		s.state.History = slices.Clone(s.state.History[n-HistoryMax:])
-	}
-	if ev.Success && ev.ID != "" {
-		s.state.LastWake[ev.ID] = ev.Time
 	}
 	return s.saveState()
 }

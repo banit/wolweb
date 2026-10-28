@@ -217,11 +217,13 @@ func (s *Scanner) Start(auto bool) error {
 	s.cancel = cancel
 	s.job = Job{Running: true, Networks: s.Networks(), StartedAt: time.Now().UTC(), Auto: auto}
 	j := s.job
-	go s.run(ctx, cancel)
 	s.mu.Unlock()
+	// Erst den Start melden, dann suchen – sonst kann "läuft" nach "fertig" ankommen (etwa wenn
+	// das Segment sofort scheitert), und die Oberfläche zeigte dauerhaft eine laufende Suche.
 	if s.OnUpdate != nil {
 		s.OnUpdate(j)
 	}
+	go s.run(ctx, cancel)
 	return nil
 }
 

@@ -159,6 +159,7 @@
  "ui.import.done": "Import abgeschlossen",
  "ui.import.failed": "Import fehlgeschlagen",
  "ui.import.faulty": "{0} fehlerhaft",
+ "ui.import.secret": "Schlüssel der Gruppen-Wecklinks übernommen",
  "ui.import.skipped": "{0} schon vorhanden",
  "ui.ip_address": "IP-Adresse",
  "ui.ip_from_scan": "IP aus der Netzwerksuche",

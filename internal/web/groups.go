@@ -65,8 +65,10 @@ type groupResult struct {
 func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device, source string) (groupResult, int) {
 	res := groupResult{Success: true, Group: name}
 	ok := 0
+	var attempts []wakeAttempt
 	for _, d := range members {
-		wr, _ := s.wake(r, d, source, name)
+		wr, _, a := s.sendWake(r, d, source, name)
+		attempts = append(attempts, a)
 		res.Results = append(res.Results, wr)
 		if wr.Success {
 			ok++
@@ -74,6 +76,7 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 			res.Success = false
 		}
 	}
+	s.recordWakes(attempts...) // ein Schreibvorgang, ein Ereignis für die ganze Gruppe
 	res.Message = i18n.T(s.lang(r), "msg.group_sent", ok, len(members), name)
 	code := http.StatusOK
 	if ok == 0 {
@@ -139,13 +142,8 @@ func (s *Server) groupLinkPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name string, members []store.Device, source string) {
-	if isPublic(r) {
-		if wait, ok := s.limiter.allow("gruppe:" + strings.ToLower(name)); !ok {
-			secs := int(wait.Seconds()) + 1
-			w.Header().Set("Retry-After", strconv.Itoa(secs))
-			s.fail(w, r, http.StatusTooManyRequests, "err.group_rate_limited", name, secs)
-			return
-		}
+	if s.limitPublic(w, r, "gruppe:"+strings.ToLower(name), "err.group_rate_limited", name) {
+		return
 	}
 	res, code := s.wakeGroup(r, name, members, source)
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); wait > 0 && code == http.StatusOK {
@@ -196,6 +194,7 @@ func (s *Server) groupLinkStatus(w http.ResponseWriter, r *http.Request) {
 // RunSchedules weckt Geräte zu ihren Weckzeiten (Ortszeit). Geprüft wird zu jeder vollen Minute;
 // verpasste Minuten (Rechner im Ruhezustand) werden nicht nachgeholt.
 func (s *Server) RunSchedules(ctx context.Context) {
+	var last time.Time
 	for {
 		next := time.Now().Truncate(time.Minute).Add(time.Minute)
 		select {
@@ -203,25 +202,39 @@ func (s *Server) RunSchedules(ctx context.Context) {
 			return
 		case <-time.After(time.Until(next)):
 		}
-		s.wakeDue(next)
+		if scheduleMinuteDue(next, time.Now(), last) {
+			last = next
+			s.wakeDue(next)
+		}
 	}
+}
+
+// scheduleMinuteDue sagt, ob die Minute next jetzt (now) geweckt werden soll. Der Zeitgeber läuft
+// auf der monotonen Uhr, die im Ruhezustand steht: Nach dem Aufwachen um 12:00 käme sonst noch die
+// Minute 07:30 an die Reihe. Und stellt NTP die Uhr zurück, käme dieselbe Minute zweimal.
+// Daher nur, wenn die Wanduhr wirklich in dieser Minute steht und sie noch nicht dran war.
+func scheduleMinuteDue(next, now, last time.Time) bool {
+	return now.Truncate(time.Minute).Equal(next) && next.After(last)
 }
 
 // wakeDue weckt alle Geräte, die zur Minute t eine Weckzeit haben, und liefert ihre Namen.
 func (s *Server) wakeDue(t time.Time) []string {
 	var woken []string
+	var attempts []wakeAttempt
 	devices, _ := s.store.Devices()
 	for _, d := range devices {
 		entries, _ := schedule.ParseList(d.Schedule)
 		for _, e := range entries {
 			if e.Due(t) {
 				log.Printf("Zeitplan: wecke %s (%s)", d.Name, e)
-				s.wake(nil, d, srcSchedule, "")
+				_, _, a := s.sendWake(nil, d, srcSchedule, "")
+				attempts = append(attempts, a)
 				woken = append(woken, d.Name)
 				break
 			}
 		}
 	}
+	s.recordWakes(attempts...)
 	return woken
 }
 
