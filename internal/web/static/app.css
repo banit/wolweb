@@ -577,6 +577,12 @@ textarea { resize: vertical; }
 .wake-actions { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; margin-top: .8rem; }
 .timer { font-variant-numeric: tabular-nums; }
 
+/* Mittlere Breiten: eine Zeile, aber die kurzen Beschriftungen – sonst bricht der Titel um */
+@media (max-width: 860px) {
+  .main-action .lbl-long { display: none; }
+  .main-action .lbl-short { display: inline; }
+  .brand h1 { white-space: nowrap; }
+}
 /* --- Schmale Bildschirme --- */
 @media (max-width: 640px) {
   .topbar { padding: .7rem 16px; }
