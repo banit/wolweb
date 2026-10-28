@@ -9,10 +9,13 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"wolweb/internal/notify"
 )
 
 type Config struct {
@@ -25,6 +28,7 @@ type Config struct {
 	Discovery Discovery `json:"discovery"`
 	Status    Status    `json:"status"`
 	Auth      Auth      `json:"auth"`
+	Notify    Notify    `json:"notify"`
 	// AllowedHosts sind zusätzliche Hostnamen, unter denen wolweb aufgerufen werden darf (Schutz
 	// vor DNS-Rebinding), z. B. "wol.example.com" oder "*.example.com"; "*" schaltet die Prüfung ab.
 	AllowedHosts []string `json:"allowed_hosts"`
@@ -45,6 +49,16 @@ type Status struct {
 	Ports []int `json:"ports"`
 	// WakeTimeout: wie lange die Weckseite auf das Gerät wartet.
 	WakeTimeout string `json:"wake_timeout"`
+}
+
+// Notify: Benachrichtigungen bei Ereignissen.
+type Notify struct {
+	// Webhook bekommt jedes Ereignis als JSON per POST (z. B. Home Assistant, Node-RED).
+	Webhook string `json:"webhook"`
+	// Ntfy ist die Themen-URL eines ntfy-Servers, z. B. "https://ntfy.sh/mein-geheimes-thema".
+	Ntfy string `json:"ntfy"`
+	// Events: "online", "offline", "wake", "wake_failed"; leer = alle.
+	Events []string `json:"events"`
 }
 
 type Auth struct {
@@ -137,6 +151,11 @@ func applyEnv(c *Config) {
 	str(&c.Auth.APIToken, "WOLWEB_TOKEN")
 	boolean(&c.Auth.PublicWake, "WOLWEB_PUBLIC_WAKE")
 	boolean(&c.Auth.WakeKeys, "WOLWEB_WAKE_KEYS")
+	str(&c.Notify.Webhook, "WOLWEB_WEBHOOK")
+	str(&c.Notify.Ntfy, "WOLWEB_NTFY")
+	if v, ok := os.LookupEnv("WOLWEB_NOTIFY_EVENTS"); ok {
+		c.Notify.Events = splitList(v)
+	}
 	if v, ok := os.LookupEnv("WOLWEB_ALLOWED_HOSTS"); ok {
 		c.AllowedHosts = splitList(v)
 	}
@@ -184,6 +203,19 @@ func (c *Config) normalize() error {
 	}{{"discovery.interval", c.Discovery.Interval}, {"status.interval", c.Status.Interval}, {"status.wake_timeout", c.Status.WakeTimeout}} {
 		if _, err := ParseDuration(d.val); err != nil {
 			return fmt.Errorf("%s: %w", d.name, err)
+		}
+	}
+	for _, u := range []struct{ name, val string }{{"notify.webhook", c.Notify.Webhook}, {"notify.ntfy", c.Notify.Ntfy}} {
+		if u.val == "" {
+			continue
+		}
+		if p, err := url.Parse(u.val); err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" {
+			return fmt.Errorf("%s: %q ist keine http(s)-Adresse", u.name, u.val)
+		}
+	}
+	for _, e := range c.Notify.Events {
+		if !notify.ValidKind(e) {
+			return fmt.Errorf("notify.events: unbekanntes Ereignis %q (online, offline, wake, wake_failed)", e)
 		}
 	}
 	if (c.Auth.Username == "") != (c.Auth.Password == "") {

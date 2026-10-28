@@ -380,3 +380,57 @@ func TestEventsStream(t *testing.T) {
 		}
 	}
 }
+
+func TestMetrics(t *testing.T) {
+	h, st := newTestServer(t, nil)
+	d, _ := st.Create(store.Input{Name: `NAS "1"`, MAC: "00:11:22:33:44:55", Broadcast: udpSink(t)})
+	req := httptest.NewRequest("POST", "/api/v1/devices/"+d.ID+"/wake", nil)
+	req.Header.Set("X-WolWeb", "1")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	body := rec.Body.String()
+	for _, want := range []string{
+		`wolweb_info{version="test"} 1`,
+		`wolweb_wakes_total{id="` + d.ID + `",name="NAS \"1\"",mac="00:11:22:33:44:55",result="ok"} 1`,
+		`wolweb_device_last_wake_timestamp_seconds{`,
+		`wolweb_discovery_found{kind="new"} 0`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("fehlt: %s\n%s", want, body)
+		}
+	}
+}
+
+func TestStatusChangeNotifies(t *testing.T) {
+	got := make(chan string, 4)
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var ev map[string]any
+		json.NewDecoder(r.Body).Decode(&ev)
+		got <- ev["event"].(string)
+	}))
+	defer hook.Close()
+	st, _, _ := store.Open(t.TempDir(), "")
+	mon := status.New(st, probe.New(nil, 100*time.Millisecond), 0)
+	cfg := config.Default()
+	cfg.Notify.Webhook = hook.URL
+	s := New(cfg, st, mon, discovery.New(st, nil, 16), false, "test")
+	d := store.Device{ID: "x", Name: "PC"}
+	s.statusChanged(d, status.State{}, false, status.State{State: "online"})                 // erstes Ergebnis: still
+	s.statusChanged(d, status.State{State: "online"}, true, status.State{State: "online"})   // keine Änderung
+	s.statusChanged(d, status.State{State: "online"}, true, status.State{State: "offline"})  // Wechsel
+	s.statusChanged(d, status.State{State: "offline"}, true, status.State{State: "unknown"}) // keine IP mehr: still
+	select {
+	case ev := <-got:
+		if ev != "offline" {
+			t.Errorf("Ereignis %q", ev)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("keine Benachrichtigung")
+	}
+	select {
+	case ev := <-got:
+		t.Errorf("unerwartet: %q", ev)
+	case <-time.After(300 * time.Millisecond):
+	}
+}

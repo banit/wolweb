@@ -21,6 +21,7 @@ import (
 
 	"wolweb/internal/config"
 	"wolweb/internal/discovery"
+	"wolweb/internal/notify"
 	"wolweb/internal/status"
 	"wolweb/internal/store"
 	"wolweb/internal/wol"
@@ -40,6 +41,10 @@ type Server struct {
 	tmpl        *template.Template
 	limiter     wakeLimiter
 	hub         hub
+	notify      *notify.Notifier
+
+	wakesMu sync.Mutex
+	wakes   map[[2]string]int // {Geräte-ID, "ok"/"error"} -> Anzahl seit dem Start (für /metrics)
 
 	scanMu   sync.Mutex
 	scanLast time.Time
@@ -52,7 +57,9 @@ func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.
 	}
 	s := &Server{
 		cfg: cfg, store: st, monitor: mon, scanner: sc, icmp: icmp, version: version, wakeTimeout: wt,
-		tmpl: template.Must(template.ParseFS(assets, "templates/*.html")),
+		tmpl:   template.Must(template.ParseFS(assets, "templates/*.html")),
+		notify: notify.New(cfg.Notify.Webhook, cfg.Notify.Ntfy, cfg.Notify.Events, version),
+		wakes:  map[[2]string]int{},
 	}
 	// Live-Updates (und Benachrichtigungen) hängen an Monitor und Suche – daher vor deren Start.
 	mon.OnChange = s.statusChanged
@@ -110,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Kompatibel zum Original: Geräteliste im alten Format
 	mux.HandleFunc("GET "+base+"data/get", s.legacyData)
+	mux.HandleFunc("GET "+base+"metrics", s.metrics)
 
 	return s.recoverer(s.hostGuard(s.auth(s.csrf(securityHeaders(mux)))))
 }
@@ -470,6 +478,14 @@ func (s *Server) wake(r *http.Request, d store.Device, source string) (wakeResul
 			log.Printf("Verlauf speichern: %v", err)
 		}
 		s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
+		result, kind, msg := "ok", notify.Wake, fmt.Sprintf("Magic Packet an %s gesendet (%s).", d.Name, source)
+		if !ev.Success {
+			result, kind, msg = "error", notify.WakeFailed, fmt.Sprintf("Wecken von %s fehlgeschlagen: %s", d.Name, ev.Error)
+		}
+		s.wakesMu.Lock()
+		s.wakes[[2]string{d.ID, result}]++
+		s.wakesMu.Unlock()
+		s.notify.Send(notify.Event{Event: kind, Device: d.Name, ID: d.ID, IP: d.IP, Source: source, Message: msg})
 	}()
 	res := wakeResult{Device: d.Name, ID: d.ID, Target: target}
 	hw, err := wol.ParseMAC(d.MAC)

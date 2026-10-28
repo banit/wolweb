@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"wolweb/internal/discovery"
+	"wolweb/internal/notify"
 	"wolweb/internal/status"
 	"wolweb/internal/store"
 )
@@ -122,6 +123,22 @@ func (s *Server) devicesChanged() { s.hub.publish("devices", struct{}{}) }
 // statusChanged wird vom Monitor nach jeder Statusänderung aufgerufen.
 func (s *Server) statusChanged(d store.Device, old status.State, hadOld bool, st status.State) {
 	s.hub.publish("status", map[string]any{"id": d.ID, "status": st})
+	// Benachrichtigen nur bei echten Wechseln online ↔ offline – nicht beim ersten Ergebnis nach
+	// dem Start und nicht bei "unbekannt" (keine IP).
+	if hadOld && old.State != st.State && (old.State == "online" || old.State == "offline") &&
+		(st.State == "online" || st.State == "offline") {
+		kind, msg := notify.Online, d.Name+" ist online"
+		if st.State == "offline" {
+			kind, msg = notify.Offline, d.Name+" ist offline"
+		}
+		if st.Method != "" {
+			msg += " (" + st.Method + ")"
+		}
+		if st.Note != "" {
+			msg += " – " + st.Note
+		}
+		s.notify.Send(notify.Event{Event: kind, Device: d.Name, ID: d.ID, IP: st.IP, Message: msg})
+	}
 }
 
 // scanChanged gibt den Fortschritt der Suche weiter – höchstens viermal pro Sekunde, Anfang und

@@ -11,6 +11,8 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
   per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen oder ignorieren
 - **Gruppen** („Homelab“, „Büro“) gemeinsam wecken, auch per festem Gruppen-Wecklink; **Zeitpläne** wie
   `Mo-Fr 07:30` wecken Geräte automatisch
+- **Benachrichtigungen** per Webhook (JSON) oder ntfy aufs Handy, wenn ein Gerät online/offline geht oder
+  geweckt wird; **Prometheus-Metriken** unter `/metrics`
 - **Verlauf** jedes Weckversuchs (wer, wann, woher, Ergebnis), **Export/Import** der Geräte als JSON
 - Übernimmt die `devices.json` und die Einstellungen des alten wolweb
 
@@ -123,6 +125,9 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 | `auth.public_wake` | `WOLWEB_PUBLIC_WAKE` | `true` | Wecklinks funktionieren ohne Anmeldung |
 | `auth.wake_keys` | `WOLWEB_WAKE_KEYS` | `false` | Wecklinks ohne Anmeldung nur mit dem Schlüssel des Geräts (`?key=…`) |
 | `allowed_hosts` | `WOLWEB_ALLOWED_HOSTS` | – | weitere Hostnamen, unter denen wolweb erreichbar ist (siehe Sicherheit) |
+| `notify.webhook` | `WOLWEB_WEBHOOK` | – | URL, die jedes Ereignis als JSON per POST bekommt |
+| `notify.ntfy` | `WOLWEB_NTFY` | – | ntfy-Thema, z. B. `https://ntfy.sh/mein-geheimes-thema` |
+| `notify.events` | `WOLWEB_NOTIFY_EVENTS` | alle | Auswahl aus `online`, `offline`, `wake`, `wake_failed` |
 
 `devices.json` enthält nur, was man selbst einträgt; was wolweb beobachtet (zuletzt geweckt, zuletzt online, die
 letzten 500 Weckversuche) steht in `state.json`. Zum Umziehen oder Sichern reicht der Export unten auf der Seite.
@@ -131,6 +136,21 @@ Die Broadcast-Adresse eines Geräts wird automatisch aus dem Netz seiner IP best
 Gerät unter „Erweitert“ eintragen. Ist keine IP bekannt, gilt `bcastip`, ohne Einstellung die Broadcast-Adresse des
 Suchsegments (wenn genau eins eingetragen ist), sonst `255.255.255.255:9`. Ist am Gerät eine Netzwerkschnittstelle
 eingetragen, verlässt das Paket den Rechner unter Linux auch wirklich über diese Schnittstelle.
+
+## Benachrichtigungen und Metriken
+
+Mit `notify.webhook` bekommt eine URL jedes Ereignis als JSON, z. B. für einen Home-Assistant-Webhook oder Node-RED:
+
+```json
+{"event":"online","device":"NAS","id":"3fa2b1c4d5e6","ip":"192.168.1.20","message":"NAS ist online (icmp)","time":"…"}
+```
+
+Mit `notify.ntfy` kommt eine Push-Nachricht aufs Handy (App „ntfy“, Thema abonnieren). Gemeldet werden nur echte
+Wechsel online ↔ offline, nicht das erste Ergebnis nach dem Start.
+
+`/metrics` liefert Kennzahlen im Prometheus-Format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
+`wolweb_device_last_seen_timestamp_seconds`, `wolweb_wakes_total`, `wolweb_discovery_found` …). Mit Anmeldung
+braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_token>}`.
 
 ## Sicherheit
 
@@ -168,6 +188,7 @@ Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site
 | POST | `/api/v1/discovery/{mac}/ignore` | `{"ignored":true}` |
 | GET | `/wake/{name}`, `/health`, `/data/get` | wie im Original |
 | GET / POST | `/wake-group/{name}` | Gruppen-Wecklink |
+| GET | `/metrics` | Kennzahlen für Prometheus |
 
 ## Entwicklung
 
