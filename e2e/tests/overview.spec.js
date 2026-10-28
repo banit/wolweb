@@ -68,7 +68,7 @@ test("Wecken aus der Übersicht landet im Verlauf", async ({ page, request }) =>
   await addDevice(request, { name: "Drucker" });
   await page.goto("./");
   await page.locator(".card", { hasText: "Drucker" }).locator(".btn-wake").click();
-  await expect(page.locator("#toasts")).toContainText("Magic Packet gesendet");
+  await expect(page.locator("#toasts")).toContainText("Weckruf gesendet");
   await page.click("#open-history");
   const first = page.locator("#history-list li").first();
   await expect(first).toContainText("Drucker");
@@ -362,4 +362,20 @@ test("Import: Ergebnis bleibt stehen, mit allen Einträgen", async ({ page, requ
   await dlg.getByRole("button", { name: "Fertig" }).click();
   await expect(dlg).toBeHidden();
   await expect(page.locator(".card")).toHaveCount(3);
+});
+
+test("Ohne X-WolWeb: verständliche Meldung, Technisches in \"error\"", async ({ request }) => {
+  const res = await request.post("api/v1/devices", { data: { name: "x", mac: "02:00:00:00:50:01" } });
+  expect(res.status()).toBe(403);
+  const body = await res.json();
+  expect(body.message).toBe("Die Anfrage konnte nicht verarbeitet werden. Lade die Seite neu und versuche es erneut.");
+  expect(body.error).toContain("X-WolWeb: 1");
+});
+
+test("Einfache Ansicht: Online ohne Ping/Port/ms", async ({ page, request }) => {
+  await onlineDevice(request, "Proxmox");
+  await page.goto("./?view=simple");
+  const card = page.locator(".card", { hasText: "Proxmox" });
+  await expect(card.locator(".pill.online")).toBeVisible({ timeout: 15000 });
+  await expect(card.locator(".status-line")).toHaveText("Online");
 });

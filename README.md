@@ -9,7 +9,7 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/wake-waiting.png" alt="Weckseite: Magic Packet gesendet, wartet auf den Start"></td>
+<td width="50%"><img src="docs/screenshots/wake-waiting.png" alt="Weckseite: Weckruf gesendet, wartet auf den Start"></td>
 <td width="50%"><img src="docs/screenshots/wake-online.png" alt="Weckseite: Gerät ist online"></td>
 </tr>
 <tr>
@@ -74,7 +74,7 @@ nächste geplante Weckzeit oder „Zeitplan pausiert“.
 
 | Aufruf | Ergebnis |
 |---|---|
-| `http://host:8089/wake/NAS` im Browser | Weckseite mit Fortschritt: *Gerät prüfen → Magic Packet senden → Auf Start warten → Online* |
+| `http://host:8089/wake/NAS` im Browser | Weckseite mit Fortschritt: *Gerät prüfen → Weckruf senden → Auf Start warten → Online* (IP, MAC, Ziel und Ping/Port/ms unter „Technische Details“) |
 | `curl http://host:8089/wake/NAS` | weckt sofort, Antwort JSON `{"success":true,"message":…}` (wie im Original) |
 | `curl "http://host:8089/wake/NAS?wait=120"` | weckt und wartet bis zu 120 s, bis das Gerät antwortet (`"online": true/false`; fehlt, wenn keine IP bekannt ist) |
 | `…/wake/NAS?format=html` / `?format=json` | Ausgabe erzwingen |
@@ -392,7 +392,8 @@ Touch-Ziele auf einem Handy.
 
 ## API
 
-Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site-Requests) oder ein Bearer-Token.
+Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site-Requests) oder ein Bearer-Token;
+fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in `"error"`.
 
 | Methode | Pfad | |
 |---|---|---|
@@ -575,9 +576,9 @@ All keys are described in the German [configuration table](#konfiguration) above
 ### API
 
 The REST API lives under `/api/v1/` (see the [table above](#api)); changing requests need the header
-`X-WolWeb: 1` or a bearer token. Messages follow `Accept-Language` (or `?lang=en`), validation errors name the
+`X-WolWeb: 1` or a bearer token (without it: 403, the technical reason in `"error"`). Messages follow `Accept-Language` (or `?lang=en`), validation errors name the
 affected field (`"field": "mac"`). Wake links stay compatible with the original:
-`curl http://host:8089/wake/NAS` → `{"success":true,"message":"Magic packet sent to NAS."}` (with
+`curl http://host:8089/wake/NAS` → `{"success":true,"message":"Wake-up call sent to NAS."}` (with
 `Accept-Language: en`).
 
 ### Development

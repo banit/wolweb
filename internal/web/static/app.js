@@ -256,7 +256,8 @@
         resent ? el("span", { text: t("ui.resent") }) : null];
     }
     if (s === "online") {
-      return [el("span", { class: "pill online", text: t("ui.online") }), el("span", { text: methodText(st.method) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "") })];
+      // Ping/Port/ms nur in der normalen Ansicht – die einfache bleibt bei „Online“.
+      return [el("span", { class: "pill online", text: t("ui.online") }), state.simple ? null : el("span", { text: methodText(st.method) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "") })];
     }
     if (s === "unknown") {
       return [el("span", { class: "pill unknown", text: t("ui.no_status") }), el("span", { text: t("ui.no_ip_known") })];

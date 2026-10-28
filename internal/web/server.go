@@ -204,7 +204,9 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 		default:
 			if r.Header.Get("X-WolWeb") == "" && !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
-				s.fail(w, r, http.StatusForbidden, "err.csrf")
+				// Die Meldung ist für Menschen; wer die API anspricht, liest in "error", was fehlt.
+				writeJSON(w, http.StatusForbidden, map[string]any{"success": false, "message": i18n.T(s.lang(r), "err.csrf"),
+					"error": `header "X-WolWeb: 1" missing`})
 				return
 			}
 		}

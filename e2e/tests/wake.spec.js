@@ -7,7 +7,7 @@ test.beforeEach(async ({ request }) => {
   await reset(request);
 });
 
-test("ohne IP: Paket gesendet", async ({ page, request }) => {
+test("ohne IP: Weckruf gesendet", async ({ page, request }) => {
   await addDevice(request, { name: "Büro-PC" });
   await page.goto("wake/" + encodeURIComponent("Büro-PC"));
   await expect(page.locator("#wake")).toHaveAttribute("data-state", "sent");
@@ -20,12 +20,19 @@ test("läuft schon: nichts senden, aber anbieten", async ({ page, request }) => 
   await onlineDevice(request, "Proxmox");
   await page.goto("wake/Proxmox");
   await expect(page.locator("#wake")).toHaveAttribute("data-state", "online", { timeout: 15000 });
+  // Alltagssprache in den Schritten, Ping/Port/ms nur unter „Technische Details“
+  await expect(page.locator('[data-step="check"] [data-detail]')).toHaveText("Läuft bereits");
+  await expect(page.locator("#steps")).not.toContainText(/ms\b|Port|Ping|Magic/);
+  const tech = page.locator("details.tech");
+  await expect(tech.locator("#tech-answer")).toBeHidden();
+  await tech.getByText("Technische Details").click();
+  await expect(tech.locator("#tech-answer")).toHaveText(/^(Ping|Port \d+)/); // dahinter ggf. „· 3 ms“
   await expect(page.locator("#wake-result")).toHaveClass(/\bok\b/);
   await expect(page.locator('[data-step="send"]')).toHaveAttribute("data-s", "skip");
   await expect(page.locator("#wake-again")).toBeVisible();
 });
 
-test("keine Antwort: Paket wird wiederholt, dann Tipps", async ({ page, request }) => {
+test("keine Antwort: Weckruf wird wiederholt, dann Tipps", async ({ page, request }) => {
   test.setTimeout(45000);
   const nas = await offlineDevice(request, "NAS");
   // Jede Ansage der Live-Region mitschreiben (Screenreader hören genau diese Folge).

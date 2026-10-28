@@ -33,7 +33,6 @@
     </div>
   </div>
   <h1 id="wake-title">{{.T "wake.title.starting" .Device.Name}}</h1>
-  <p class="muted" id="wake-sub">{{if .Device.CheckIP}}<span class="mono">{{.Device.CheckIP}}</span> · {{end}}<span class="mono">{{.Device.MAC}}</span></p>
 
   <ol class="steps" id="steps">
     <li data-step="check"><span class="step-dot"></span><div><strong>{{.T "wake.step.check"}}</strong><small class="muted" data-detail></small></div></li>
@@ -43,6 +42,15 @@
   </ol>
 
   <p class="muted small wake-note" id="wake-note" hidden></p>
+  <details class="help tech">
+    <summary>{{.T "wake.tech"}}</summary>
+    <dl class="tech-list">
+      {{if .Device.CheckIP}}<dt>{{.T "ui.ip_address"}}</dt><dd class="mono">{{.Device.CheckIP}}</dd>{{end}}
+      <dt>{{.T "ui.mac_address"}}</dt><dd class="mono">{{.Device.MAC}}</dd>
+      <dt>{{.T "wake.tech.target"}}</dt><dd class="mono" id="tech-target">{{.Device.WakeTarget}}</dd>
+      <dt>{{.T "wake.tech.answer"}}</dt><dd id="tech-answer">–</dd>
+    </dl>
+  </details>
   <p class="sr-only" id="wake-live" role="status"></p>
   <div class="wake-result" id="wake-result" hidden></div>
 

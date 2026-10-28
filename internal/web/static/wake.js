@@ -1,4 +1,5 @@
-// Weckseite: prüft das Gerät, sendet das Magic Packet und verfolgt den Start bis "online".
+// Weckseite: prüft das Gerät, sendet den Weckruf (Magic Packet) und verfolgt den Start bis "online".
+// Die Schritte sprechen Alltagssprache; IP, MAC, Ziel und Ping/Port/ms stehen unter „Technische Details“.
 (function () {
   "use strict";
   const { t } = window.wolwebI18n;
@@ -37,11 +38,15 @@
     const m = Math.floor(s / 60), r = s % 60;
     return m + " min" + (r ? " " + r + " s" : "");
   }
+  // tech trägt die technische Antwort (Ping/Port, Millisekunden) in „Technische Details“ ein.
+  function tech(st) {
+    document.getElementById("tech-answer").textContent = via(st) || "–";
+  }
   function via(st) {
     if (!st || !st.method) return "";
     const port = /^tcp\/(\d+)( \(abgelehnt\))?/.exec(st.method);
     const m = st.method === "icmp" ? "Ping" : port ? t(port[2] ? "wake.port_closed" : "ui.port", port[1]) : st.method;
-    return t("wake.answers_via", m) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "");
+    return m + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "");
   }
   function showResult(kind, head, text, tips) {
     result.className = "wake-result " + kind;
@@ -120,10 +125,11 @@
       try { st = await status(); } catch (e) { /* weiter mit Senden */ }
       await sleep(Math.max(0, 500 - (Date.now() - t0)));
       if (st && st.state === "online") {
-        step("check", "done", t("wake.check.running", via(st)));
+        step("check", "done", t("wake.check.running"));
         step("send", "skip", t("wake.send.not_needed"));
         step("wait", "skip", "");
-        step("online", "done", via(st));
+        step("online", "done", t("wake.online.reachable"));
+        tech(st);
         setState("online");
         setTitle(t("wake.title.running", name), "✓ " + name);
         showResult("ok", t("wake.result.ready"), t("wake.result.ready_text", name));
@@ -138,10 +144,10 @@
       step("check", "skip", hasIP ? t("wake.check.skipped") : t("wake.check.no_ip"));
     }
 
-    // 2. Magic Packet senden
+    // 2. Weckruf senden
     setState("send");
     announce(t("wake.live.sending"));
-    step("send", "active", t("wake.send.active", card.dataset.target));
+    step("send", "active", t("wake.send.active"));
     let sent;
     try {
       sent = await call("POST", path + query);
@@ -158,7 +164,8 @@
       return;
     }
     // Eben erst geweckt (zweimal getippt, Seite neu geladen): kein neuer Weckruf, der Start läuft weiter.
-    step("send", "done", sent.already ? t("wake.send.already") : t("wake.send.done", sent.target || card.dataset.target));
+    step("send", "done", sent.already ? t("wake.send.already") : t("wake.send.done"));
+    if (sent.target) document.getElementById("tech-target").textContent = sent.target;
 
     if (!hasIP) {
       step("wait", "skip", t("wake.wait.no_ip"));
@@ -198,7 +205,8 @@
 
     if (online) {
       step("wait", "done", t("ui.started_after", fmt(took)));
-      step("online", "done", via(online));
+      step("online", "done", t("wake.online.reachable"));
+      tech(online);
       setState("online");
       setTitle(t("wake.title.confirmed", name), "✓ " + name);
       showResult("ok", t("wake.result.started"), t("wake.result.started_text", name, human(took)));
@@ -227,7 +235,8 @@
     running = false;
     if (st && st.state === "online") {
       step("wait", "done", "");
-      step("online", "done", via(st));
+      step("online", "done", t("wake.online.reachable"));
+      tech(st);
       setState("online");
       setTitle(t("wake.title.confirmed", name), "✓ " + name);
       showResult("ok", t("wake.result.started"), t("wake.result.late_text", name));
