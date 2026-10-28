@@ -122,7 +122,8 @@ func (e Entry) String() string {
 	return strings.Join(parts, ",") + " " + clock
 }
 
-// At liefert den Weckzeitpunkt des Eintrags am Kalendertag y-m-d in loc – unabhängig vom Wochentag:
+// At liefert den Weckzeitpunkt des Eintrags am Kalendertag y-m-d in loc – unabhängig vom Wochentag.
+// Eine Regel für Ausführung (Due) und Anzeige (Next), damit beide übereinstimmen:
 //   - Fällt die Uhrzeit in die Lücke der Umstellung auf Sommerzeit (02:30 gibt es dann nicht), gilt
 //     die erste gültige Minute danach (03:00) – geweckt wird trotzdem, nur eben dann.
 //   - Gibt es die Uhrzeit bei der Rückstellung zweimal, gilt die erste.
@@ -157,12 +158,18 @@ func (e Entry) Due(t time.Time) bool {
 	return e.Days[t.Weekday()] && t.Truncate(time.Minute).Equal(e.At(y, m, d, t.Location()))
 }
 
-// Next liefert die nächste Weckzeit nach after (in dessen Zeitzone).
+// Next liefert die nächste Weckzeit nach after (in dessen Zeitzone). Jeder Kandidat wird aus
+// Kalendertag und Uhrzeit neu gebaut – nach einer Umstellung zieht sonst eine verschobene Stunde in
+// alle folgenden Tage mit.
 func (e Entry) Next(after time.Time) time.Time {
-	day := time.Date(after.Year(), after.Month(), after.Day(), e.Hour, e.Min, 0, 0, after.Location())
-	for i := 0; i < 8; i++ {
-		t := day.AddDate(0, 0, i)
-		if t.After(after) && e.Days[t.Weekday()] {
+	loc := after.Location()
+	for i := 0; i <= 7; i++ {
+		day := time.Date(after.Year(), after.Month(), after.Day()+i, 12, 0, 0, 0, loc) // Mittag gibt es immer
+		if !e.Days[day.Weekday()] {
+			continue
+		}
+		y, m, d := day.Date()
+		if t := e.At(y, m, d, loc); t.After(after) {
 			return t
 		}
 	}
