@@ -43,11 +43,11 @@
     svg.append(use);
     return svg;
   }
-  async function api(method, url, body) {
+  async function api(method, url, body, raw) {
     const opts = { method, cache: "no-store", headers: { "Accept": "application/json", "X-WolWeb": "1" } };
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
-      opts.body = JSON.stringify(body);
+      opts.body = raw ? body : JSON.stringify(body);
     }
     const res = await fetch("api/v1/" + url, opts);
     let data = null;
@@ -546,6 +546,43 @@
     loadDiscovery();
   });
 
+  // ---------- Verlauf, Export, Import ----------
+  const SOURCE_ICON = { "Zeitplan": "clock" };
+  async function openHistory() {
+    const d = $("#history-dialog");
+    let events = [];
+    try { events = (await api("GET", "history?limit=200")).events || []; } catch (e) { toast("err", "Verlauf nicht verfügbar", e.message); return; }
+    const fmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    $("#history-list").replaceChildren(...events.map((ev) => el("li", { class: ev.success ? "ok" : "err" },
+      icon(ev.success ? (SOURCE_ICON[ev.source] || "check") : "x"),
+      el("div", { class: "h-main" },
+        el("strong", { text: ev.device }),
+        el("div", { class: "h-meta", text: [ev.source, ev.user, ev.client, ev.target && "an " + ev.target].filter(Boolean).join(" · ") }),
+        ev.error ? el("div", { class: "h-meta", text: ev.error }) : null),
+      el("time", { datetime: ev.time, title: new Date(ev.time).toLocaleString("de-DE"), text: fmt.format(new Date(ev.time)) }))));
+    $("#history-empty").hidden = events.length !== 0;
+    d.showModal();
+  }
+  $("#open-history").addEventListener("click", openHistory);
+  for (const b of document.querySelectorAll("#history-dialog [data-close]")) b.addEventListener("click", () => $("#history-dialog").close());
+
+  $("#import-btn").addEventListener("click", () => $("#import-file").click());
+  $("#import-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const res = await api("POST", "import", await file.text(), true);
+      const parts = [res.added + " übernommen"];
+      if (res.skipped) parts.push(res.skipped + " schon vorhanden");
+      if (res.errors && res.errors.length) parts.push(res.errors.length + " fehlerhaft");
+      toast(res.errors && res.errors.length ? "warn" : "ok", "Import abgeschlossen", parts.join(", ") + (res.errors && res.errors.length ? ": " + res.errors.slice(0, 3).join("; ") : ""));
+      loadDevices();
+    } catch (err) {
+      toast("err", "Import fehlgeschlagen", err.message);
+    }
+  });
+
   // ---------- Filter, Suche, Theme ----------
   function segmented(box, key, onChange) {
     box.addEventListener("click", (e) => {
@@ -599,8 +636,10 @@
     } catch (e) { /* Standardwerte */ }
     if (state.info.read_only) {
       $("#add-device").hidden = true;
+      $("#import-btn").hidden = true;
       for (const b of document.querySelectorAll('[data-action="add"]')) b.hidden = true;
     }
+    if (state.info.version) $("#version").textContent = "wolweb " + state.info.version;
     await loadDevices();
     loadDiscovery();
     setInterval(() => { if (!document.hidden) loadDevices(); }, 10000);

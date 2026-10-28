@@ -44,7 +44,7 @@ func TestWakeLinkCrossSiteDoesNotWake(t *testing.T) {
 	if !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("fremde Seite bekam %q statt der Weckseite", rec.Header().Get("Content-Type"))
 	}
-	if got, _ := st.Get(d.ID); got.LastWake != nil {
+	if !st.LastWake(d.ID).IsZero() {
 		t.Fatal("Aufruf einer fremden Seite hat geweckt")
 	}
 }
@@ -146,12 +146,12 @@ func TestWakeLinkHeadDoesNotWake(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("HEAD", "/wake/NAS", nil))
-	if got, _ := st.Get(d.ID); got.LastWake != nil || rec.Code != http.StatusOK {
+	if !st.LastWake(d.ID).IsZero() || rec.Code != http.StatusOK {
 		t.Fatalf("HEAD hat geweckt (Status %d)", rec.Code)
 	}
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/wake/NAS", nil))
-	if got, _ := st.Get(d.ID); got.LastWake == nil {
+	if st.LastWake(d.ID).IsZero() {
 		t.Fatalf("GET hat nicht geweckt: %d %s", rec.Code, rec.Body)
 	}
 }

@@ -59,6 +59,15 @@
     </div>
   </div>
   <p class="empty-filter muted" id="empty-filter" hidden>Keine Geräte passen zur Suche.</p>
+
+  <footer class="page-foot">
+    <button class="btn btn-ghost btn-sm" id="open-history"><svg class="ico"><use href="#i-clock"/></svg>Verlauf</button>
+    <a class="btn btn-ghost btn-sm" href="api/v1/export" download><svg class="ico"><use href="#i-download"/></svg>Exportieren</a>
+    <button class="btn btn-ghost btn-sm" id="import-btn"><svg class="ico"><use href="#i-upload"/></svg>Importieren</button>
+    <input type="file" id="import-file" accept="application/json,.json" hidden>
+    <span class="spacer"></span>
+    <span class="muted small" id="version"></span>
+  </footer>
 </main>
 
 <!-- Netzwerksuche -->
@@ -163,6 +172,18 @@
       <button type="submit" class="btn btn-primary" id="save-device">Speichern</button>
     </footer>
   </form>
+</dialog>
+
+<!-- Verlauf -->
+<dialog class="modal" id="history-dialog" aria-labelledby="history-title">
+  <header class="modal-head">
+    <h2 id="history-title">Verlauf</h2>
+    <button type="button" class="btn btn-ghost icon-only" data-close aria-label="Schließen"><svg class="ico"><use href="#i-x"/></svg></button>
+  </header>
+  <div class="modal-body">
+    <ul class="history" id="history-list"></ul>
+    <p class="muted small center" id="history-empty" hidden>Noch kein Gerät geweckt.</p>
+  </div>
 </dialog>
 
 <!-- Löschen bestätigen -->

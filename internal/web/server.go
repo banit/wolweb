@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -81,6 +82,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE "+api+"devices/{id}", s.writable(s.deleteDevice))
 	mux.HandleFunc("POST "+api+"devices/{id}/wake", s.wakeDevice)
 	mux.HandleFunc("GET "+api+"devices/{id}/status", s.deviceStatus)
+	mux.HandleFunc("GET "+api+"history", s.history)
+	mux.HandleFunc("GET "+api+"export", s.export)
+	mux.HandleFunc("POST "+api+"import", s.writable(s.importDevices))
 	mux.HandleFunc("GET "+api+"discovery", s.discovery)
 	mux.HandleFunc("POST "+api+"discovery/scan", s.startScan)
 	mux.HandleFunc("POST "+api+"discovery/cancel", s.cancelScan)
@@ -260,12 +264,16 @@ type deviceView struct {
 	WakeTarget string        `json:"wake_target"`
 	WakePath   string        `json:"wake_path"`
 	CheckIP    string        `json:"check_ip,omitempty"`
+	LastWake   *time.Time    `json:"last_wake,omitempty"`
 }
 
 func (s *Server) view(d store.Device) deviceView {
 	v := deviceView{Device: d, WakeTarget: s.wakeTarget(d), WakePath: "wake/" + pathEscape(d.Name)}
 	if ip, _ := s.monitor.Target(d); ip.IsValid() {
 		v.CheckIP = ip.String()
+	}
+	if t := s.store.LastWake(d.ID); !t.IsZero() {
+		v.LastWake = &t
 	}
 	if st, ok := s.monitor.Get(d.ID); ok {
 		v.Status = &st
@@ -383,8 +391,47 @@ type wakeResult struct {
 	Online  *bool  `json:"online,omitempty"`
 }
 
-func (s *Server) wake(d store.Device) (wakeResult, int) {
+// caller beschreibt den Aufrufer für den Verlauf: IP-Adresse (hinter einem Reverse-Proxy samt
+// X-Forwarded-For) und, falls angemeldet, den Benutzer.
+func (s *Server) caller(r *http.Request) (client, user string) {
+	if r == nil {
+		return "", ""
+	}
+	client = r.RemoteAddr
+	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		client = h
+	}
+	if xff, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ","); strings.TrimSpace(xff) != "" {
+		client = clip(strings.TrimSpace(xff), 64) + " über " + client
+	}
+	if s.cfg.AuthEnabled() && s.authorized(r) {
+		if u, _, ok := r.BasicAuth(); ok {
+			user = u
+		} else {
+			user = "Token"
+		}
+	}
+	return client, user
+}
+
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
+// wake sendet das Magic Packet und trägt den Versuch in den Verlauf ein. r darf nil sein
+// (Zeitplan); source sagt, woher der Auftrag kam.
+func (s *Server) wake(r *http.Request, d store.Device, source string) (wakeResult, int) {
 	target := s.wakeTarget(d)
+	client, user := s.caller(r)
+	ev := store.Event{ID: d.ID, Device: d.Name, Source: source, Client: client, User: user, Target: target}
+	defer func() {
+		if err := s.store.RecordWake(ev); err != nil {
+			log.Printf("Verlauf speichern: %v", err)
+		}
+	}()
 	res := wakeResult{Device: d.Name, ID: d.ID, Target: target}
 	hw, err := wol.ParseMAC(d.MAC)
 	var pass []byte
@@ -397,10 +444,11 @@ func (s *Server) wake(d store.Device) (wakeResult, int) {
 	if err != nil {
 		log.Printf("Wecken von %s fehlgeschlagen: %v", d.Name, err)
 		res.Message, res.Error = fmt.Sprintf("Magic Packet für %s konnte nicht gesendet werden.", d.Name), err.Error()
+		ev.Error = err.Error()
 		return res, http.StatusInternalServerError
 	}
-	log.Printf("Magic Packet an %s (%s) über %s gesendet", d.Name, d.MAC, target)
-	s.store.MarkWoken(d.ID)
+	log.Printf("Magic Packet an %s (%s) über %s gesendet (%s)", d.Name, d.MAC, target, source)
+	ev.Success = true
 	res.Success = true
 	res.Message = fmt.Sprintf("Magic Packet an %s gesendet.", d.Name)
 	return res, http.StatusOK
@@ -412,7 +460,12 @@ func (s *Server) wakeDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Gerät nicht gefunden.")
 		return
 	}
-	res, code := s.wake(d)
+	// Die Oberfläche schickt X-WolWeb ohne Token; Automationen nutzen meist ein Token.
+	source := "API"
+	if r.Header.Get("X-WolWeb") != "" && !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		source = "Übersicht"
+	}
+	res, code := s.wake(r, d, source)
 	writeJSON(w, code, res)
 }
 
@@ -449,7 +502,7 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, wakeResult{Message: fmt.Sprintf("Gerät %q nicht gefunden.", name), Error: "not found"})
 		return
 	}
-	res, code := s.wake(d)
+	res, code := s.wake(r, d, "Wecklink")
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); res.Success && wait > 0 {
 		if ip, _ := s.monitor.Target(d); !ip.IsValid() {
 			// Ohne IP lässt sich nichts prüfen – "online" bleibt weg statt eines falschen false.
@@ -488,7 +541,7 @@ func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Gerät nicht gefunden.")
 		return
 	}
-	res, code := s.wake(d)
+	res, code := s.wake(r, d, "Weckseite")
 	writeJSON(w, code, res)
 }
 
@@ -499,6 +552,46 @@ func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
+}
+
+// --- Verlauf, Export, Import ---
+
+func (s *Server) history(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > store.HistoryMax {
+		limit = 200
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": s.store.History(limit)})
+}
+
+func (s *Server) export(w http.ResponseWriter, r *http.Request) {
+	b, err := s.store.Export()
+	if err != nil {
+		storeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="wolweb-geraete-`+time.Now().Format("2006-01-02")+`.json"`)
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(b)
+}
+
+func (s *Server) importDevices(w http.ResponseWriter, r *http.Request) {
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Datei zu groß oder unvollständig.")
+		return
+	}
+	res, err := s.store.Import(b)
+	if err != nil {
+		storeError(w, err)
+		return
+	}
+	log.Printf("Import: %d Gerät(e) übernommen, %d schon vorhanden, %d fehlerhaft", res.Added, res.Skipped, len(res.Errors))
+	if res.Added > 0 {
+		go s.monitor.CheckAll(context.Background())
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // --- Suche ---

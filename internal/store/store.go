@@ -23,20 +23,19 @@ import (
 )
 
 type Device struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	MAC       string     `json:"mac"`
-	IP        string     `json:"ip,omitempty"`        // Adresse des Geräts (für die Online-Prüfung)
-	Broadcast string     `json:"broadcast,omitempty"` // Ziel des Magic Packets "ip:port", leer = Standard
-	Interface string     `json:"interface,omitempty"`
-	Icon      string     `json:"icon,omitempty"`
-	Note      string     `json:"note,omitempty"`
-	Ports     []int      `json:"ports,omitempty"` // eigene Ports für die Online-Prüfung, leer = Standard
-	SecureOn  string     `json:"secureon,omitempty"`
-	Vendor    string     `json:"vendor,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	LastWake  *time.Time `json:"last_wake,omitempty"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	MAC       string    `json:"mac"`
+	IP        string    `json:"ip,omitempty"`        // Adresse des Geräts (für die Online-Prüfung)
+	Broadcast string    `json:"broadcast,omitempty"` // Ziel des Magic Packets "ip:port", leer = Standard
+	Interface string    `json:"interface,omitempty"`
+	Icon      string    `json:"icon,omitempty"`
+	Note      string    `json:"note,omitempty"`
+	Ports     []int     `json:"ports,omitempty"` // eigene Ports für die Online-Prüfung, leer = Standard
+	SecureOn  string    `json:"secureon,omitempty"`
+	Vendor    string    `json:"vendor,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Found ist ein Gerät, das die Netzwerksuche gesehen hat.
@@ -64,11 +63,13 @@ type ValidationError struct{ Msg string }
 func (e ValidationError) Error() string { return e.Msg }
 
 type Store struct {
-	mu       sync.RWMutex
-	dir      string
-	devices  []Device
-	found    map[string]*Found
-	revision int64
+	mu         sync.RWMutex
+	dir        string
+	devices    []Device
+	found      map[string]*Found
+	revision   int64
+	state      stateFile
+	stateDirty bool
 }
 
 type devicesFile struct {
@@ -94,13 +95,15 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 	}
 	s := &Store{dir: dir, found: map[string]*Found{}}
 	path := filepath.Join(dir, "devices.json")
+	var migratedWake map[string]time.Time // last_wake aus devices.json von 1.0.x
 	b, err := os.ReadFile(path)
 	switch {
 	case err == nil:
-		n, err := s.decode(b)
+		devs, lw, n, err := decodeDevices(b)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", path, err)
 		}
+		s.devices, migratedWake = devs, lw
 		if n != "" {
 			// Die Datei im alten Format wird gleich überschrieben – vorher sichern, damit ein
 			// Zurück zum alten wolweb möglich bleibt.
@@ -118,9 +121,11 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 			lb, err := os.ReadFile(legacyPath)
 			switch {
 			case err == nil:
-				if _, err := s.decode(lb); err != nil {
+				devs, _, _, err := decodeDevices(lb)
+				if err != nil {
 					return nil, nil, fmt.Errorf("%s: %w", legacyPath, err)
 				}
+				s.devices = devs
 				notes = append(notes, fmt.Sprintf("%d Gerät(e) aus %s übernommen", len(s.devices), legacyPath))
 			case !errors.Is(err, os.ErrNotExist):
 				// Nicht still mit leerer Liste starten – sonst würde der Import nie wieder versucht.
@@ -155,6 +160,25 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 	case !errors.Is(err, os.ErrNotExist):
 		return nil, nil, fmt.Errorf("%s: %w", fpath, err)
 	}
+	changed, err := s.loadState()
+	if err != nil {
+		return nil, nil, err
+	}
+	for id, t := range migratedWake {
+		if _, ok := s.state.LastWake[id]; !ok {
+			s.state.LastWake[id], changed = t, true
+		}
+	}
+	if changed {
+		if err := s.saveState(); err != nil {
+			return nil, nil, err
+		}
+	}
+	if len(migratedWake) > 0 { // erst nach dem Speichern von state.json aus devices.json entfernen
+		if err := s.saveDevices(); err != nil {
+			return nil, nil, err
+		}
+	}
 	return s, notes, nil
 }
 
@@ -175,25 +199,40 @@ func cleanName(s string) string {
 	return s
 }
 
-// decode liest das eigene Format oder das des Original-wolweb.
-func (s *Store) decode(b []byte) (string, error) {
+// decodeDevices liest das eigene Format oder das des Original-wolweb. lastWake enthält die
+// Weckzeitpunkte, die wolweb 1.0.x noch in devices.json abgelegt hat; note ist gesetzt, wenn
+// das alte Format umgewandelt wurde.
+func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note string, err error) {
 	var probe struct {
 		Version int `json:"version"`
 	}
 	if err := json.Unmarshal(b, &probe); err != nil {
-		return "", err
+		return nil, nil, "", err
 	}
 	if probe.Version >= 2 {
-		var f devicesFile
-		if err := json.Unmarshal(b, &f); err != nil {
-			return "", err
+		var f struct {
+			Devices []struct {
+				Device
+				LastWake *time.Time `json:"last_wake"`
+			} `json:"devices"`
 		}
-		s.devices = f.Devices
-		return "", nil
+		if err := json.Unmarshal(b, &f); err != nil {
+			return nil, nil, "", err
+		}
+		for _, d := range f.Devices {
+			devs = append(devs, d.Device)
+			if d.LastWake != nil && d.ID != "" {
+				if lastWake == nil {
+					lastWake = map[string]time.Time{}
+				}
+				lastWake[d.ID] = *d.LastWake
+			}
+		}
+		return devs, lastWake, "", nil
 	}
 	var lf legacyFile
 	if err := json.Unmarshal(b, &lf); err != nil {
-		return "", err
+		return nil, nil, "", err
 	}
 	now := time.Now().UTC()
 	used := map[string]bool{}
@@ -211,12 +250,12 @@ func (s *Store) decode(b []byte) (string, error) {
 		}
 		used[strings.ToLower(name)] = true
 		bc, _ := config.NormalizeBroadcast(d.IP)
-		s.devices = append(s.devices, Device{
+		devs = append(devs, Device{
 			ID: newID(), Name: name, MAC: wol.FormatMAC(hw), Broadcast: bc, Interface: d.Interface,
 			Vendor: oui.Lookup(hw), CreatedAt: now, UpdatedAt: now,
 		})
 	}
-	return fmt.Sprintf("%d Gerät(e) aus dem alten wolweb-Format umgewandelt", len(s.devices)), nil
+	return devs, nil, fmt.Sprintf("%d Gerät(e) aus dem alten wolweb-Format umgewandelt", len(devs)), nil
 }
 
 func newID() string {
@@ -410,13 +449,16 @@ func (in *Input) validate() (Device, error) {
 	return d, nil
 }
 
-func (s *Store) nameTaken(name, exceptID string) bool {
-	for _, d := range s.devices {
-		if d.ID != exceptID && strings.EqualFold(d.Name, name) {
-			return true
-		}
-	}
-	return false
+func (s *Store) nameTaken(name, exceptID string) bool { return nameTakenIn(s.devices, name, exceptID) }
+
+func nameTakenIn(list []Device, name, exceptID string) bool {
+	return slices.ContainsFunc(list, func(d Device) bool { return d.ID != exceptID && strings.EqualFold(d.Name, name) })
+}
+
+// inputOf liefert die vom Benutzer gepflegten Felder eines Geräts (für Import und Prüfung).
+func inputOf(d Device) Input {
+	return Input{Name: d.Name, MAC: d.MAC, IP: d.IP, Broadcast: d.Broadcast, Interface: d.Interface,
+		Icon: d.Icon, Note: d.Note, Ports: d.Ports, SecureOn: d.SecureOn}
 }
 
 func (s *Store) Create(in Input) (Device, error) {
@@ -461,7 +503,7 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 	if s.nameTaken(d.Name, id) {
 		return d, ValidationError{fmt.Sprintf("Es gibt schon ein Gerät namens %q.", d.Name)}
 	}
-	d.ID, d.CreatedAt, d.LastWake, d.UpdatedAt = old.ID, old.CreatedAt, old.LastWake, time.Now().UTC()
+	d.ID, d.CreatedAt, d.UpdatedAt = old.ID, old.CreatedAt, time.Now().UTC()
 	prev := s.devices
 	s.devices = slices.Clone(s.devices)
 	s.devices[i] = d
@@ -487,22 +529,69 @@ func (s *Store) Delete(id string) error {
 		return err
 	}
 	s.revision++
+	delete(s.state.LastWake, id)
+	delete(s.state.LastSeen, id)
+	s.stateDirty = true
 	return nil
 }
 
-// MarkWoken merkt sich den Zeitpunkt des letzten Weckens (Fehler beim Speichern sind hier unkritisch).
-func (s *Store) MarkWoken(id string) {
+// Export liefert alle Geräte im Format von devices.json (zum Sichern oder Umziehen).
+func (s *Store) Export() ([]byte, error) {
+	devs, _ := s.Devices()
+	b, err := json.MarshalIndent(devicesFile{Version: 2, Devices: devs}, "", "  ")
+	return append(b, '\n'), err
+}
+
+// ImportResult beschreibt das Ergebnis eines Imports.
+type ImportResult struct {
+	Added   int      `json:"added"`
+	Skipped int      `json:"skipped"`
+	Errors  []string `json:"errors,omitempty"`
+}
+
+// Import übernimmt Geräte aus einem Export (oder einer devices.json des alten wolweb). Geräte,
+// deren MAC schon angelegt ist, werden übersprungen; doppelte Namen bekommen eine Nummer.
+func (s *Store) Import(b []byte) (ImportResult, error) {
+	devs, _, _, err := decodeDevices(b)
+	if err != nil {
+		return ImportResult{}, ValidationError{"Die Datei ist keine gültige Geräteliste: " + err.Error()}
+	}
+	var res ImportResult
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.devices {
-		if s.devices[i].ID == id {
-			now := time.Now().UTC()
-			s.devices = slices.Clone(s.devices)
-			s.devices[i].LastWake = &now
-			_ = s.saveDevices()
-			return
+	next := slices.Clone(s.devices)
+	now := time.Now().UTC()
+	for _, src := range devs {
+		in := inputOf(src)
+		in.Name = cleanName(in.Name)
+		d, err := in.validate()
+		if err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", src.Name, err))
+			continue
 		}
+		if slices.ContainsFunc(next, func(x Device) bool { return x.MAC == d.MAC }) {
+			res.Skipped++
+			continue
+		}
+		base := string([]rune(d.Name)[:min(utf8.RuneCountInString(d.Name), 60)])
+		for i := 2; nameTakenIn(next, d.Name, ""); i++ {
+			d.Name = fmt.Sprintf("%s %d", base, i)
+		}
+		d.ID, d.CreatedAt, d.UpdatedAt = newID(), now, now
+		next = append(next, d)
+		res.Added++
 	}
+	if res.Added == 0 {
+		return res, nil
+	}
+	prev := s.devices
+	s.devices = next
+	if err := s.saveDevices(); err != nil {
+		s.devices = prev
+		return ImportResult{}, err
+	}
+	s.revision++
+	return res, nil
 }
 
 // --- Suchergebnisse ---

@@ -8,6 +8,7 @@ als einzelne Datei ohne externe Abhängigkeiten im Browser.
   sendet und den Start verfolgt, bis das Gerät wirklich online ist
 - **Netzwerksuche**: findet eingeschaltete Geräte in freigegebenen Segmenten (IP, MAC, Hostname, Hersteller) –
   per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen oder ignorieren
+- **Verlauf** jedes Weckversuchs (wer, wann, woher, Ergebnis), **Export/Import** der Geräte als JSON
 - Übernimmt die `devices.json` und die Einstellungen des alten wolweb
 
 ## Geräte
@@ -101,7 +102,7 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 | `vdir` | `WOLWEBVDIR` | `/` | Unterpfad, z. B. `/wolweb` hinter einem Reverse-Proxy |
 | `bcastip` | `WOLWEBBCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
 | `read_only` | `WOLWEBREADONLY` | `false` | nur wecken, nichts ändern |
-| `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`) und Suchergebnisse (`discovered.json`) |
+| `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`) und Suchergebnisse (`discovered.json`) |
 | `discovery.networks` | `WOLWEB_NETWORKS` | – | Segmente für die Suche (CIDR, kommagetrennt) |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus |
 | `discovery.max_hosts` | – | `1024` | größtes erlaubtes Segment |
@@ -111,6 +112,9 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | Anmeldung (HTTP Basic) |
 | `auth.api_token` | `WOLWEB_TOKEN` | – | `Authorization: Bearer …` für Automationen |
 | `auth.public_wake` | `WOLWEB_PUBLIC_WAKE` | `true` | Wecklinks funktionieren ohne Anmeldung |
+
+`devices.json` enthält nur, was man selbst einträgt; was wolweb beobachtet (zuletzt geweckt, zuletzt online, die
+letzten 500 Weckversuche) steht in `state.json`. Zum Umziehen oder Sichern reicht der Export unten auf der Seite.
 
 Die Broadcast-Adresse eines Geräts wird automatisch aus dem Netz seiner IP bestimmt; nur bei Sonderfällen im
 Gerät unter „Erweitert“ eintragen. Ist keine IP bekannt, gilt `bcastip`, ohne Einstellung die Broadcast-Adresse des
@@ -128,6 +132,8 @@ Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site
 | PUT / DELETE | `/api/v1/devices/{id}` | ändern (`updated_at` mitschicken schützt vor Überschreiben) / löschen |
 | POST | `/api/v1/devices/{id}/wake` | Magic Packet senden |
 | GET | `/api/v1/devices/{id}/status` | sofort prüfen |
+| GET | `/api/v1/history` | Weckverlauf, neueste zuerst (`?limit=`) |
+| GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen |
 | GET | `/api/v1/discovery` | letzte Suche und Treffer |
 | POST | `/api/v1/discovery/scan`, `/cancel` | Suche starten / abbrechen |
 | POST | `/api/v1/discovery/{mac}/ignore` | `{"ignored":true}` |

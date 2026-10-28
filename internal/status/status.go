@@ -111,12 +111,16 @@ func (m *Monitor) Check(ctx context.Context, d store.Device) State {
 	r := m.prober.Check(ctx, ip, ports, hint)
 	st := State{State: "offline", IP: ip.String(), IPSource: src, CheckedAt: time.Now().UTC(), started: started}
 	st.LastSeen = prev.LastSeen
+	if st.LastSeen.IsZero() { // nach einem Neustart: gespeicherter Wert
+		st.LastSeen = m.store.LastSeen(d.ID)
+	}
 	if r.Online {
 		// Antwortet unter der IP ein anderes Gerät (andere MAC in der Nachbartabelle), zählt das nicht.
 		if mac := discovery.NeighborMAC(ip); mac != nil && !strings.EqualFold(mac.String(), d.MAC) {
 			st.Note = "Unter " + ip.String() + " antwortet ein anderes Gerät (" + strings.ToUpper(mac.String()) + ")"
 		} else {
 			st.State, st.Method, st.RTTMillis, st.LastSeen = "online", r.Method, r.RTT.Milliseconds(), st.CheckedAt
+			m.store.SeenAt(d.ID, st.CheckedAt)
 		}
 	}
 	// Nur speichern, wenn das Gerät inzwischen nicht geändert wurde (sonst überschreibt eine

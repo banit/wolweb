@@ -75,6 +75,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go mon.Run(ctx)
+	go st.RunFlush(ctx)
 	if iv, _ := config.ParseDuration(cfg.Discovery.Interval); iv > 0 && len(cfg.Discovery.Networks) > 0 {
 		log.Printf("Automatische Suche alle %s in %v", iv, cfg.Discovery.Networks)
 		go autoScan(ctx, scanner, iv)
@@ -98,6 +99,9 @@ func main() {
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdown)
+	if err := st.FlushState(); err != nil {
+		log.Printf("Laufzeitdaten speichern: %v", err)
+	}
 	log.Print("Beendet.")
 }
 
