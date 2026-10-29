@@ -20,9 +20,9 @@ import (
 // in Geräteliste und Gruppen, bei Live-Ereignissen, auf den Weckseiten, im Verlauf und in /metrics –,
 // nicht nur in der Oberfläche. Geprüft wird trotzdem (automatische Wiederholung, Benachrichtigungen).
 //
-// Ausnahme Wecklinks: Wer über einen Weck- oder Gruppenlink weckt, startet das Gerät ohnehin – er
-// darf sehen, ob es hochkommt (siehe watchToken, ?wait=). Nur die Vorabprüfung „läuft es schon?“
-// entfällt, denn die verriete den Status, ohne zu wecken.
+// Ausnahme Wecken: Wer ein Gerät weckt (Wecklink, Gruppenlink, Knopf in der Übersicht), startet es
+// ohnehin – er darf sehen, ob es hochkommt (siehe watchToken, ?wait=). Nur die Vorabprüfung „läuft es
+// schon?“ entfällt, denn die verriete den Status, ohne zu wecken.
 
 // privileged: Die Anfrage kommt von jemandem, der entsperrt hat (mit gesetztem Passwort für
 // Änderungen) oder das API-Token nutzt. Ohne Passwort trifft das außer dem Token niemanden – wer
@@ -59,7 +59,7 @@ func (s *Server) foundVisible(r *http.Request) bool {
 // „Nochmals prüfen“ danach).
 const watchTTL = 15 * time.Minute
 
-// watchToken bekommt, wer über einen Wecklink geweckt hat: Mit ihm zeigt …/status den Start des
+// watchToken bekommt, wer eben geweckt hat: Mit ihm zeigt …/status den Start des
 // Geräts (target "device:<ID>") bzw. der Gruppe ("group:<Name>"), auch wenn der Online-Status sonst
 // ausgeblendet ist. Signiert mit dem Geheimnis der Installation, gültig für watchTTL.
 func (s *Server) watchToken(target string) string {

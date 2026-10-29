@@ -367,13 +367,15 @@ Unter „Privatsphäre“ auf der Einstellungsseite legst du fest, wer sieht, ob
 | Für niemanden anzeigen | `none` | niemand, auch nicht nach dem Entsperren |
 
 Ausgeblendet heißt überall, nicht nur in der Übersicht: Die Karten zeigen keinen Status, keinen grünen Punkt und
-kein „Erneut wecken“, der Filter Online/Offline entfällt, Gruppen nennen nur die Zahl ihrer Geräte, und nach dem
-Wecken läuft keine Startuhr. Der Server lässt den Status aus `/api/v1/devices` und `/api/v1/groups`, den
-Live-Ereignissen, `/metrics` und dem Verlauf weg; die `…/status`-Aufrufe antworten 403 mit `"hidden": true`.
-**Ausnahme Wecklinks:** Wer ein Gerät über seinen Weck- oder Gruppenlink weckt, startet es ohnehin – die Seite
-zeigt deshalb weiter, ob es hochkommt (die Weckantwort bringt einen kurzlebigen Schlüssel `watch` mit, den
-`…/status?watch=…` 15 Minuten lang annimmt), und `?wait=` funktioniert weiter. Nur die Vorabprüfung, ob das Gerät
-schon läuft, entfällt – sie verriete den Status, ohne zu wecken. Auch die Suchtreffer verraten, wer im Netz
+kein „Erneut wecken“, der Filter Online/Offline entfällt, und Gruppen nennen nur die Zahl ihrer Geräte. Der Server
+lässt den Status aus `/api/v1/devices` und `/api/v1/groups`, den Live-Ereignissen, `/metrics` und dem Verlauf weg;
+die `…/status`-Aufrufe antworten 403 mit `"hidden": true`. **Ausnahme Wecken:** Wer ein Gerät weckt – per Knopf in
+der Übersicht oder über seinen Weck- oder Gruppenlink –, startet es ohnehin und sieht deshalb weiter, ob es
+hochkommt. Die Karte in der Übersicht verfolgt den Start dieses einen Geräts und blendet den Status danach wieder
+aus; Weck- und Gruppenseiten bestätigen den Start wie gewohnt. Die Weckantwort bringt dafür einen kurzlebigen
+Schlüssel `watch` mit, den `…/status?watch=…` 15 Minuten lang für dieses Gerät bzw. diese Gruppe annimmt, und
+`?wait=` funktioniert weiter. Nur die Vorabprüfung, ob das Gerät schon läuft, entfällt – sie verriete den Status,
+ohne zu wecken. Auch die Suchtreffer verraten, wer im Netz
 ist – bei `unlocked` und `none` sehen sie nur Entsperrte. Geprüft wird im Hintergrund weiter, für die automatische
 Wiederholung und die Benachrichtigungen (deren Ereignisse wählst du getrennt). Die Anmeldung per HTTP Basic zählt
 nicht als entsperrt, wie beim Passwort für Änderungen.

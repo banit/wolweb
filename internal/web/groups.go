@@ -189,6 +189,13 @@ func (s *Server) wakeGroupAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, code := s.wakeGroup(r, name, members, srcGroup)
+	if !s.statusVisible(r) { // die Übersicht verfolgt den Start jedes geweckten Mitglieds einzeln
+		for i := range res.Results {
+			if res.Results[i].Success {
+				res.Results[i].Watch = s.watchToken("device:" + res.Results[i].ID)
+			}
+		}
+	}
 	writeJSON(w, code, res)
 }
 

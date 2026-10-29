@@ -557,7 +557,7 @@ func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
-	if !s.statusVisible(r) {
+	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
 		s.statusHidden(w, r)
 		return
 	}
@@ -738,6 +738,9 @@ func (s *Server) wakeDevice(w http.ResponseWriter, r *http.Request) {
 		source = srcUI
 	}
 	res, code := s.wake(r, d, source, "")
+	if res.Success && !s.statusVisible(r) {
+		res.Watch = s.watchToken("device:" + d.ID) // wer weckt, darf den Start verfolgen (privacy.go)
+	}
 	writeJSON(w, code, res)
 }
 

@@ -16,6 +16,7 @@
     search: "",
     waking: new Map(), // id -> { start }
     unconfirmed: new Set(), // Geräte, deren Start nach dem Wecken nicht bestätigt wurde – bis sie antworten
+    watch: new Map(), // id -> Schlüssel aus der Weckantwort: Start verfolgen trotz ausgeblendetem Status
     editing: null,
     fresh: null, // { id, adopted } – eben angelegtes Gerät: die Karte zeigt die nächsten Schritte
     naming: null, // MAC eines Suchtreffers ohne Namen, für den gerade ein Name abgefragt wird
@@ -178,8 +179,8 @@
   const statusOff = () => !!state.info.status_hidden;
 
   function deviceState(d) {
+    if (state.waking.has(d.id)) return "waking"; // auch bei ausgeblendetem Status: wer weckt, sieht den Start
     if (statusOff()) return "hidden";
-    if (state.waking.has(d.id)) return "waking";
     return (d.status && d.status.state) || (d.check_ip ? "offline" : "unknown");
   }
 
@@ -413,7 +414,8 @@
       toast("err", t("ui.wake_failed"), (e.data && e.data.error) || e.message);
       return;
     }
-    if (statusOff()) { // ob es startet, zeigt die Übersicht hier nicht
+    if (res.watch) state.watch.set(d.id, res.watch);
+    if (statusOff() && !res.watch) { // ohne Schlüssel kein Start zu sehen
       toast("sent", t("ui.packet_sent"), t("ui.sent_hidden", d.name));
       loadDevices();
       return;
@@ -437,12 +439,14 @@
       return;
     }
     const failed = res.results.filter((r) => !r.success);
-    const checking = !statusOff() && res.results.some((r) => r.success && (state.devices.find((x) => x.id === r.id) || {}).check_ip);
+    for (const r of res.results) if (r.watch) state.watch.set(r.id, r.watch);
+    const canWatch = (r) => !statusOff() || state.watch.has(r.id);
+    const checking = res.results.some((r) => r.success && canWatch(r) && (state.devices.find((x) => x.id === r.id) || {}).check_ip);
     toast(failed.length ? "warn" : "sent", t("ui.group_x", g.name), res.message +
       (failed.length ? " " + t("ui.errors_for", failed.map((r) => r.device).join(", ")) : checking ? " " + t("ui.group_checking") : ""));
     for (const r of res.results) {
       const d = state.devices.find((x) => x.id === r.id);
-      if (r.success && d && d.check_ip && !statusOff()) track(d, true);
+      if (r.success && d && d.check_ip && canWatch(r)) track(d, true);
     }
     loadDevices();
   }
@@ -457,9 +461,9 @@
     while (Date.now() < deadline) {
       await sleep(2000);
       try {
-        const st = await api("GET", "devices/" + encodeURIComponent(d.id) + "/status");
+        const st = await api("GET", statusPath(d));
         const cur = state.devices.find((x) => x.id === d.id);
-        if (cur) cur.status = st;
+        if (cur && !statusOff()) cur.status = st;
         if (st.state === "online") {
           state.waking.delete(d.id);
           renderDevices();
@@ -487,11 +491,16 @@
         el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.next.dismiss"), "aria-label": t("ui.next.dismiss"), "data-focus": "dismiss-warn",
           onclick: () => { state.unconfirmed.delete(d.id); renderDevices(); focusCard(d.id); } }, icon("x"))));
   }
+  // statusPath: Status eines Geräts – bei ausgeblendetem Status mit dem Schlüssel aus der Weckantwort.
+  function statusPath(d) {
+    const w = state.watch.get(d.id);
+    return "devices/" + encodeURIComponent(d.id) + "/status" + (w ? "?watch=" + encodeURIComponent(w) : "");
+  }
   async function recheck(d) {
     let st = null;
-    try { st = await api("GET", "devices/" + encodeURIComponent(d.id) + "/status"); } catch (e) { /* keine Antwort */ }
+    try { st = await api("GET", statusPath(d)); } catch (e) { /* keine Antwort */ }
     const cur = state.devices.find((x) => x.id === d.id);
-    if (cur && st) cur.status = st;
+    if (cur && st && !statusOff()) cur.status = st;
     if (st && st.state === "online") {
       state.unconfirmed.delete(d.id);
       toast("ok", t("ui.x_is_online", d.name), t("wake.result.late_text", d.name));

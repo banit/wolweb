@@ -47,9 +47,11 @@ test("Nur nach dem Entsperren: Gäste sehen keinen Status, Entsperrte schon", as
   await expect(guest.locator("#summary")).toHaveText("1 Gerät");
   await expect(guest.locator('.group-head[data-id="gruppe:Büro"]')).toContainText("1 Gerät");
   await expect(c.getByRole("button", { name: "Wecken", exact: true })).toBeVisible(); // nicht „Erneut wecken“
+  // Wer weckt, startet das Gerät ohnehin: Die Karte verfolgt den Start und blendet den Status danach wieder aus.
   await c.getByRole("button", { name: "Wecken", exact: true }).click();
-  await expect(guest.locator("#toasts")).toContainText("Ob das Gerät läuft, zeigt die Übersicht nicht an");
-  await expect(c.locator(".pill.waking")).toHaveCount(0);
+  await expect(guest.locator("#toasts")).toContainText("NAS ist online", { timeout: 15000 });
+  await expect(c).toHaveAttribute("data-state", "hidden");
+  await expect(c.locator(".pill")).toHaveCount(0);
   // Auch die API verrät nichts.
   const devs = await (await guest.request.get("api/v1/devices")).json();
   expect(devs[0].status).toBeUndefined();

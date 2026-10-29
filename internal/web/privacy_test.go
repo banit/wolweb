@@ -211,3 +211,34 @@ func TestWakeLinkNoWatchWhenVisible(t *testing.T) {
 		t.Fatalf("Schlüssel, obwohl der Status sichtbar ist: %s", body)
 	}
 }
+
+// Auch der Knopf in der Übersicht (API) gibt dem, der weckt, einen Schlüssel – je Gerät, auch beim
+// Wecken einer Gruppe.
+func TestOverviewWakeWatchToken(t *testing.T) {
+	_, h, d := privacyServer(t, "unlocked")
+	guest := &browser{t: t, h: h}
+	var res struct{ Watch string }
+	json.Unmarshal(guest.do("POST", "/api/v1/devices/"+d.ID+"/wake", "").Body.Bytes(), &res)
+	if res.Watch == "" {
+		t.Fatal("kein Schlüssel in der Weckantwort")
+	}
+	status := "/api/v1/devices/" + d.ID + "/status"
+	if rec := guest.do("GET", status, ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("ohne Schlüssel: %d", rec.Code)
+	}
+	if rec := guest.do("GET", status+"?watch="+res.Watch, ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"state":"online"`) {
+		t.Fatalf("mit Schlüssel: %d %s", rec.Code, rec.Body)
+	}
+	// Die Liste bleibt ohne Status.
+	if strings.Contains(guest.do("GET", "/api/v1/devices", "").Body.String(), `"status"`) {
+		t.Fatal("Status in der Liste")
+	}
+	var grp struct{ Results []struct{ ID, Watch string } }
+	json.Unmarshal(guest.do("POST", "/api/v1/groups/B%C3%BCro/wake", "").Body.Bytes(), &grp)
+	if len(grp.Results) != 1 || grp.Results[0].Watch == "" {
+		t.Fatalf("Gruppe: %+v", grp)
+	}
+	if rec := guest.do("GET", "/api/v1/devices/"+grp.Results[0].ID+"/status?watch="+grp.Results[0].Watch, ""); rec.Code != http.StatusOK {
+		t.Fatalf("Gruppenmitglied mit Schlüssel: %d", rec.Code)
+	}
+}
