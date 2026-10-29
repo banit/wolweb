@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"wolweb/internal/i18n"
 )
 
 // Gruppen sind eigene Einträge in devices.json: Name, frühere Namen und ihre Reihenfolge (die der
@@ -30,28 +32,36 @@ func hasAlias(aliases []string, name string) bool {
 	return slices.ContainsFunc(aliases, func(a string) bool { return strings.EqualFold(a, name) })
 }
 
-// releaseGroupAlias nimmt name aus den früheren Namen der anderen Gruppen: Wer eine Gruppe so nennt,
-// meint mit dem Link ab jetzt diese.
+// aliasIndex sucht die Gruppe (außer except), deren früherer Name name ist.
+func aliasIndex(groups []Group, name string, except int) int {
+	for i, g := range groups {
+		if i != except && hasAlias(g.Aliases, name) {
+			return i
+		}
+	}
+	return -1
+}
+
+// releaseGroupAlias nimmt name aus den früheren Namen der anderen Gruppen – nur nach ausdrücklicher
+// Bestätigung (takeOver in CreateGroup/UpdateGroup): Dann meint ein alter Link ab jetzt diese Gruppe.
 func releaseGroupAlias(groups []Group, name string, except int) {
 	for i := range groups {
-		if i == except || !hasAlias(groups[i].Aliases, name) {
-			continue
-		}
-		groups[i].Aliases = slices.DeleteFunc(slices.Clone(groups[i].Aliases), func(a string) bool { return strings.EqualFold(a, name) })
-		if len(groups[i].Aliases) == 0 {
-			groups[i].Aliases = nil
+		if i != except {
+			groups[i].Aliases = withoutAlias(groups[i].Aliases, name)
 		}
 	}
 }
 
-// syncGroups legt für Gruppennamen der Geräte ohne Eintrag einen an (alphabetisch hinten angefügt, wie
-// sie bisher angezeigt wurden) und gleicht die Schreibweise der Geräte an ihren Eintrag an. devs wird
-// dabei geändert, groups bekommt eine neue Liste.
+// syncGroups ordnet jedes Gerät seinem Gruppeneintrag zu und gleicht die Schreibweise an. Ein früherer
+// Name gilt als die Gruppe, die ihn trägt – wie im Gruppen-Wecklink; so lenkt ein getippter alter
+// Name (Gerätedialog, Mehrfachauswahl, Import) keine Links um. Für unbekannte Namen entsteht ein
+// Eintrag (alphabetisch hinten angefügt, wie Gruppen bis 1.2 angezeigt wurden). devs wird dabei
+// geändert, groups bekommt eine neue Liste.
 func syncGroups(devs []Device, groups []Group) []Group {
 	groups = slices.Clone(groups)
 	var missing []string
 	for _, d := range devs {
-		if d.Group != "" && groupIndex(groups, d.Group) < 0 &&
+		if d.Group != "" && groupIndex(groups, d.Group) < 0 && aliasIndex(groups, d.Group, -1) < 0 &&
 			!slices.ContainsFunc(missing, func(m string) bool { return strings.EqualFold(m, d.Group) }) {
 			missing = append(missing, d.Group)
 		}
@@ -59,12 +69,16 @@ func syncGroups(devs []Device, groups []Group) []Group {
 	slices.SortFunc(missing, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
 	for _, name := range missing {
 		groups = append(groups, Group{Name: name})
-		releaseGroupAlias(groups, name, len(groups)-1)
 	}
 	for i := range devs {
-		if devs[i].Group != "" {
-			devs[i].Group = groups[groupIndex(groups, devs[i].Group)].Name
+		if devs[i].Group == "" {
+			continue
 		}
+		j := groupIndex(groups, devs[i].Group)
+		if j < 0 {
+			j = aliasIndex(groups, devs[i].Group, -1)
+		}
+		devs[i].Group = groups[j].Name
 	}
 	return groups
 }
@@ -79,11 +93,13 @@ func decodeGroups(b []byte) []Group {
 	return mergeGroups(nil, f.Groups)
 }
 
-// mergeGroups fügt add an groups an, soweit es die Namen noch nicht gibt.
+// mergeGroups fügt add an groups an, soweit es die Namen noch nicht gibt – weder als Namen noch als
+// früheren Namen (dessen Geräte ordnet syncGroups dann jener Gruppe zu). Vorhandene frühere Namen
+// bleiben unangetastet: Ein Import lenkt keine alten Links um.
 func mergeGroups(groups, add []Group) []Group {
 	for _, g := range add {
 		name, err := validGroup(g.Name)
-		if err != nil || name == "" || groupIndex(groups, name) >= 0 {
+		if err != nil || name == "" || groupIndex(groups, name) >= 0 || aliasIndex(groups, name, -1) >= 0 {
 			continue
 		}
 		var aliases []string
@@ -94,7 +110,6 @@ func mergeGroups(groups, add []Group) []Group {
 			}
 		}
 		groups = append(groups, Group{Name: name, Aliases: aliases})
-		releaseGroupAlias(groups, name, len(groups)-1)
 	}
 	return groups
 }
@@ -143,8 +158,10 @@ func (s *Store) GroupMembers(group string) []Device {
 	return slices.DeleteFunc(devs, func(d Device) bool { return d.Group == "" || !strings.EqualFold(d.Group, group) })
 }
 
-// groupName prüft den Namen einer Gruppe, die angelegt oder umbenannt wird (except: ihr bisheriger Platz).
-func groupName(groups []Group, name string, except int) (string, error) {
+// groupName prüft den Namen einer Gruppe, die angelegt oder umbenannt wird (except: ihr bisheriger
+// Platz). War der Name früher der einer anderen Gruppe, wecken deren alte Links bisher jene – die
+// neue bekommt ihn nur mit takeOver (wie bei Geräten, siehe takeOverName).
+func groupName(groups []Group, name string, except int, takeOver bool) (string, error) {
 	name, err := validGroup(name)
 	if err != nil {
 		return name, invalid("name", "val.group")
@@ -154,6 +171,9 @@ func groupName(groups []Group, name string, except int) (string, error) {
 	}
 	if i := groupIndex(groups, name); i >= 0 && i != except {
 		return name, invalid("name", "val.group_taken", groups[i].Name)
+	}
+	if i := aliasIndex(groups, name, except); i >= 0 && !takeOver {
+		return name, ValidationError{Msg: i18n.M("val.group_was_alias", name, groups[i].Name), Field: "name", Confirm: "take_over_name"}
 	}
 	return name, nil
 }
@@ -184,11 +204,11 @@ func setMembers(next []Device, name string, ids []string, now time.Time) error {
 }
 
 // CreateGroup legt eine Gruppe am Ende der Liste an; members (Geräte-IDs) kommen hinein, auch aus
-// einer anderen Gruppe.
-func (s *Store) CreateGroup(name string, members []string) (Group, error) {
+// einer anderen Gruppe. takeOver bestätigt, dass ein früherer Name einer anderen Gruppe übernommen wird.
+func (s *Store) CreateGroup(name string, members []string, takeOver bool) (Group, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	name, err := groupName(s.groups, name, -1)
+	name, err := groupName(s.groups, name, -1, takeOver)
 	if err != nil {
 		return Group{}, err
 	}
@@ -202,32 +222,21 @@ func (s *Store) CreateGroup(name string, members []string) (Group, error) {
 }
 
 // UpdateGroup benennt die Gruppe name um (newName; der alte Name bleibt als früherer Name für
-// Wecklinks) und setzt ihre Mitglieder, wenn members nicht nil ist.
-func (s *Store) UpdateGroup(name, newName string, members []string) (Group, error) {
+// Wecklinks) und setzt ihre Mitglieder, wenn members nicht nil ist. takeOver wie bei CreateGroup.
+func (s *Store) UpdateGroup(name, newName string, members []string, takeOver bool) (Group, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i := groupIndex(s.groups, name)
 	if i < 0 {
 		return Group{}, ErrGroupNotFound
 	}
-	newName, err := groupName(s.groups, newName, i)
+	newName, err := groupName(s.groups, newName, i, takeOver)
 	if err != nil {
 		return Group{}, err
 	}
 	groups := slices.Clone(s.groups)
 	old := groups[i]
-	g := Group{Name: newName, Aliases: slices.DeleteFunc(slices.Clone(old.Aliases), func(a string) bool {
-		return strings.EqualFold(a, newName) || strings.EqualFold(a, old.Name)
-	})}
-	if !strings.EqualFold(old.Name, newName) {
-		g.Aliases = append(g.Aliases, old.Name)
-	}
-	if len(g.Aliases) > maxAliases {
-		g.Aliases = g.Aliases[len(g.Aliases)-maxAliases:]
-	}
-	if len(g.Aliases) == 0 {
-		g.Aliases = nil
-	}
+	g := Group{Name: newName, Aliases: formerNames(old.Aliases, old.Name, newName)}
 	groups[i] = g
 	releaseGroupAlias(groups, newName, i)
 	next := slices.Clone(s.devices)

@@ -84,10 +84,23 @@
     const members = [...form.querySelectorAll('input[name="member"]:checked')].map((i) => i.value);
     const btn = $("#group-save");
     btn.disabled = true;
+    const send = (extra) => g
+      ? o.api("PUT", "groups/" + encodeURIComponent(g.name), Object.assign({ name, members }, extra))
+      : o.api("POST", "groups", Object.assign({ name, members }, extra));
     try {
-      const res = g
-        ? await o.api("PUT", "groups/" + encodeURIComponent(g.name), { name, members })
-        : await o.api("POST", "groups", { name, members });
+      let res;
+      try {
+        res = await send({});
+      } catch (err) {
+        // Der Name gehörte früher einer anderen Gruppe: Deren alte Wecklinks wecken danach diese –
+        // nur nach ausdrücklicher Bestätigung.
+        if (!(err.data && err.data.confirm === "take_over_name")) throw err;
+        if (!(await confirm(t("ui.take_name.title", name), err.message, t("ui.take_name.ok")))) {
+          showError(err.message, true);
+          return;
+        }
+        res = await send({ take_over_name: true });
+      }
       cur.saved = true;
       close();
       o.toast("ok", g ? t("ui.grp.saved", res.name) : t("ui.grp.created", res.name), "");
@@ -99,19 +112,21 @@
     }
   });
 
-  // Löschen fragt nach: die Geräte bleiben, nur ohne Gruppe.
-  function confirmDelete(g) {
+  // confirm fragt über den Bestätigungsdialog der Seite nach.
+  function confirm(title, text, ok) {
     const d = $("#confirm-dialog");
-    $("#confirm-title").textContent = t("ui.grp.delete_q", g.name);
-    $("#confirm-text").textContent = t("ui.grp.delete_text");
-    $("#confirm-ok").textContent = t("ui.delete");
+    $("#confirm-title").textContent = title;
+    $("#confirm-text").textContent = text;
+    $("#confirm-ok").textContent = ok;
+    d.returnValue = ""; // sonst gälte Escape als „ok“, wenn die letzte Rückfrage bestätigt wurde
     d.showModal();
     return new Promise((resolve) => d.addEventListener("close", () => resolve(d.returnValue === "ok"), { once: true }));
   }
+  // Löschen fragt nach: die Geräte bleiben, nur ohne Gruppe.
   $("#group-delete").addEventListener("click", async () => {
     if (!cur || !cur.group) return;
     const { group: g, opts: o } = cur;
-    if (!(await confirmDelete(g))) {
+    if (!(await confirm(t("ui.grp.delete_q", g.name), t("ui.grp.delete_text"), t("ui.delete")))) {
       $("#group-delete").focus();
       return;
     }

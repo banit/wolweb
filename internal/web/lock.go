@@ -19,9 +19,10 @@ import (
 //
 // Ist auf der Einstellungsseite ein Passwort gesetzt, bleiben Ansehen und Wecken frei; ändern lässt
 // sich erst, wenn der Browser mit dem Passwort entsperrt wurde. Das Entsperren gilt, bis der
-// Browser geschlossen wird (Sitzungs-Cookie) oder 12 Stunden lang nichts passiert (gleitende Frist
-// im Cookie, vom Server signiert). Automationen mit API-Token gelten als entsperrt; die Anmeldung
-// per HTTP Basic nicht – die kennen oft alle im Haushalt, das Passwort für Änderungen nicht.
+// Browser geschlossen wird (Sitzungs-Cookie) oder 12 Stunden lang nichts bearbeitet wird
+// (gleitende Frist im Cookie, vom Server signiert). Automationen mit API-Token gelten als
+// entsperrt; die Anmeldung per HTTP Basic nicht – die kennen oft alle im Haushalt, das Passwort
+// für Änderungen nicht.
 
 const (
 	unlockCookie = "wolweb_unlock"
@@ -83,14 +84,13 @@ func (s *Server) setUnlockCookie(w http.ResponseWriter, r *http.Request, value s
 	http.SetCookie(w, c) // ohne Ablaufdatum: endet mit dem Browser
 }
 
-// keepUnlocked verlängert eine gültige Entsperrung bei Benutzung (gleitende 12 Stunden).
-func (s *Server) keepUnlocked(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if until := s.unlockUntil(r); !until.IsZero() && time.Until(until) < unlockIdle-unlockRenew {
-			s.setUnlockCookie(w, r, s.unlockToken(time.Now().Add(unlockIdle)), false)
-		}
-		next.ServeHTTP(w, r)
-	})
+// renewUnlock verlängert eine gültige Entsperrung, wenn damit gearbeitet wird (gleitende 12 Stunden).
+// Nur bei geschützten Aufrufen, nicht bei jeder Anfrage: Eine offene Übersicht fragt im Hintergrund
+// ständig nach – das hielte die Entsperrung sonst unbegrenzt am Leben.
+func (s *Server) renewUnlock(w http.ResponseWriter, r *http.Request) {
+	if until := s.unlockUntil(r); !until.IsZero() && time.Until(until) < unlockIdle-unlockRenew {
+		s.setUnlockCookie(w, r, s.unlockToken(time.Now().Add(unlockIdle)), false)
+	}
 }
 
 // editable lässt nur entsperrte Anfragen durch; sonst 403 mit "locked": true, damit die Oberfläche
@@ -102,6 +102,7 @@ func (s *Server) editable(h http.HandlerFunc) http.HandlerFunc {
 				"message": i18n.T(s.lang(r), "err.locked")})
 			return
 		}
+		s.renewUnlock(w, r)
 		h(w, r)
 	}
 }
@@ -122,18 +123,17 @@ func (s *Server) unlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := clientKey(r)
-	if wait := s.attempts.wait(key); wait > 0 {
+	ok, wait := s.attempts.try(key, func() bool { return s.store.CheckPassword(in.Password) })
+	if wait > 0 {
 		s.fail(w, r, http.StatusTooManyRequests, "err.unlock_wait", int(wait.Seconds()+0.999))
 		return
 	}
-	if !s.store.CheckPassword(in.Password) {
-		s.attempts.failed(key)
+	if !ok {
 		log.Printf("Unlock failed from %s", key)
 		writeJSON(w, http.StatusForbidden, map[string]any{"success": false, "field": "password",
 			"message": i18n.T(s.lang(r), "err.password_wrong")})
 		return
 	}
-	s.attempts.reset(key)
 	s.setUnlockCookie(w, r, s.unlockToken(time.Now().Add(unlockIdle)), false)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "locked": false})
 }
@@ -155,18 +155,16 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.store.HasPassword() {
-		key := clientKey(r)
-		if wait := s.attempts.wait(key); wait > 0 {
+		ok, wait := s.attempts.try(clientKey(r), func() bool { return s.store.CheckPassword(in.Current) })
+		if wait > 0 {
 			s.fail(w, r, http.StatusTooManyRequests, "err.unlock_wait", int(wait.Seconds()+0.999))
 			return
 		}
-		if !s.store.CheckPassword(in.Current) {
-			s.attempts.failed(key)
+		if !ok {
 			writeJSON(w, http.StatusForbidden, map[string]any{"success": false, "field": "current",
 				"message": i18n.T(s.lang(r), "err.password_wrong")})
 			return
 		}
-		s.attempts.reset(key)
 	}
 	if err := s.store.SetPassword(in.Password); err != nil {
 		s.storeError(w, r, err)
@@ -184,19 +182,52 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "password": in.Password != ""})
 }
 
-// clientKey ist die Adresse des Aufrufers für die Begrenzung der Fehlversuche.
+// clientKey unterscheidet Aufrufer für die Bremse: die Adresse und, hinter einem Reverse-Proxy, der
+// letzte Eintrag von X-Forwarded-For (den hängt der Proxy selbst an) – sonst teilten sich alle im
+// Haushalt einen Zähler, und wer sich vertippt, sperrte alle aus. Ohne Proxy kann ein Aufrufer den
+// Kopf frei setzen; dagegen hilft die gemeinsame Obergrenze für alle (attemptsFreeAll).
 func clientKey(r *http.Request) string {
+	key := r.RemoteAddr
 	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return h
+		key = h
 	}
-	return r.RemoteAddr
+	if f := r.Header.Values("X-Forwarded-For"); len(f) > 0 {
+		hops := strings.Split(f[len(f)-1], ",")
+		if last := strings.TrimSpace(hops[len(hops)-1]); last != "" {
+			key += " via " + last[:min(len(last), 64)]
+		}
+	}
+	return key
 }
 
-// attemptLimiter bremst das Raten: Nach 5 Fehlversuchen je Adresse heißt es warten, zuerst 30 s,
-// dann jeweils doppelt so lange (höchstens 15 Minuten). Ein Treffer setzt zurück.
+// attemptLimiter bremst das Raten: Nach 5 Fehlversuchen je Aufrufer heißt es warten, zuerst 30 s,
+// dann jeweils doppelt so lange (höchstens 15 Minuten); nach 30 Fehlversuchen insgesamt gilt das für
+// alle. Ein Treffer setzt zurück.
 type attemptLimiter struct {
+	run  sync.Mutex // eine Prüfung zur Zeit
 	mu   sync.Mutex
 	seen map[string]*attempts
+}
+
+const allClients = "" // Schlüssel der gemeinsamen Zählung (clientKey ist nie leer)
+
+// try prüft ein Passwort unter der Bremse. Es läuft immer nur eine Prüfung (PBKDF2 kostet Rechenzeit),
+// und die Wartezeit wird erst unter dieser Sperre angesehen – so zählen auch gleichzeitig geschickte
+// Versuche einzeln. wait > 0: abgewiesen, ohne zu prüfen.
+func (l *attemptLimiter) try(key string, check func() bool) (ok bool, wait time.Duration) {
+	l.run.Lock()
+	defer l.run.Unlock()
+	if wait = max(l.wait(key), l.wait(allClients)); wait > 0 {
+		return false, wait
+	}
+	if check() {
+		l.reset(key)
+		l.reset(allClients)
+		return true, 0
+	}
+	l.failed(key, attemptsFree)
+	l.failed(allClients, attemptsFreeAll)
+	return false, 0
 }
 
 type attempts struct {
@@ -206,9 +237,10 @@ type attempts struct {
 }
 
 const (
-	attemptsFree = 5
-	attemptsWait = 30 * time.Second
-	attemptsMax  = 15 * time.Minute
+	attemptsFree    = 5
+	attemptsFreeAll = 30
+	attemptsWait    = 30 * time.Second
+	attemptsMax     = 15 * time.Minute
 )
 
 func (l *attemptLimiter) wait(key string) time.Duration {
@@ -220,7 +252,7 @@ func (l *attemptLimiter) wait(key string) time.Duration {
 	return 0
 }
 
-func (l *attemptLimiter) failed(key string) {
+func (l *attemptLimiter) failed(key string, free int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.seen == nil {
@@ -238,7 +270,7 @@ func (l *attemptLimiter) failed(key string) {
 	}
 	a.failures++
 	a.last = time.Now()
-	if n := a.failures - attemptsFree; n >= 0 {
+	if n := a.failures - free; n >= 0 {
 		d := attemptsWait << min(n, 10)
 		a.until = time.Now().Add(min(d, attemptsMax))
 	}

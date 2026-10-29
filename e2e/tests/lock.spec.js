@@ -149,3 +149,57 @@ test("Entsperr-Dialog und Passwortbereich ohne axe-Befunde", async ({ page, brow
   expect(r.violations.map((v) => v.id + ": " + v.nodes.map((n) => n.target).join(", "))).toEqual([]);
   await other.context().close();
 });
+
+test("Entsperren abgebrochen: der Gerätedialog bleibt mit den Eingaben offen", async ({ page, request }) => {
+  await offlineDevice(request, "NAS");
+  await setPassword(page);
+  await page.goto("./");
+  await page.getByRole("button", { name: "Bearbeiten" }).click();
+  await page.locator('#device-form input[name="name"]').fill("NAS neu");
+  await page.context().clearCookies();
+  await page.click("#save-device");
+  await expect(page.locator("#unlock-dialog")).toBeVisible();
+  await page.click("#unlock-cancel");
+  // erst wenn die Seite die Sperre übernommen hat, ist klar, ob der Dialog offen bleibt
+  await expect(page.locator("#lock-toggle")).toHaveAttribute("aria-label", "Gesperrt – zum Ändern entsperren");
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => document.getElementById("device-dialog").open)).toBe(true);
+  await expect(page.locator('#device-form input[name="name"]')).toHaveValue("NAS neu");
+});
+
+test("Passwort in einem anderen Fenster gesetzt: Sortieren endet", async ({ page, browser, request }) => {
+  await offlineDevice(request, "Anna");
+  await offlineDevice(request, "Bert");
+  await page.goto("./");
+  await page.click("#sort-toggle");
+  await expect(page.locator(".sort-item")).toHaveCount(2);
+  const admin = await (await browser.newContext({ locale: "de-DE" })).newPage();
+  await setPassword(admin);
+  await expect(page.locator("#sort-bar")).toBeHidden();
+  await expect(page.locator("#sort-toggle")).toBeHidden();
+  await expect(page.locator(".sort-item")).toHaveCount(0);
+  await expect(page.locator("#lock-toggle")).toBeVisible();
+  await admin.context().close();
+});
+
+// Rückfrage ohne Wahl geschlossen: close() ohne Wert – so schließen ältere Browser auch bei Escape
+// (Chromium setzt dabei den Wert selbst zurück).
+test("Geschlossene Rückfrage entfernt das Passwort nicht, auch nach einer bestätigten", async ({ page, request }) => {
+  await setPassword(page);
+  // erst eine Rückfrage bestätigen (Gruppe löschen)
+  expect((await page.request.post("api/v1/groups", { headers: HEADERS, data: { name: "Weg" } })).ok()).toBeTruthy();
+  await page.reload();
+  await page.getByRole("button", { name: "„Weg“ bearbeiten" }).click();
+  await page.click("#group-delete");
+  await page.click("#confirm-ok");
+  await expect(page.locator("#grp-empty")).toBeVisible();
+  // dann „Passwort entfernen“ – und mit Escape abbrechen
+  await page.locator('#pw-form input[name="current"]').fill(PASSWORD);
+  await page.click("#pw-remove");
+  await expect(page.locator("#confirm-dialog")).toBeVisible();
+  await page.evaluate(() => document.getElementById("confirm-dialog").close());
+  await expect(page.locator("#confirm-dialog")).toBeHidden();
+  await page.waitForTimeout(500); // ein (fälschliches) Entfernen hätte jetzt stattgefunden
+  await expect(page.locator("#pw-state")).toHaveText("Ein Passwort ist gesetzt.");
+  expect((await (await request.get("api/v1/info")).json()).password).toBe(true);
+});

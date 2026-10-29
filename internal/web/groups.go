@@ -59,6 +59,9 @@ func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
 type groupInput struct {
 	Name    string   `json:"name"`
 	Members []string `json:"members"` // Geräte-IDs; fehlt es (null), bleiben die Mitglieder
+	// TakeOverName bestätigt, dass ein früherer Name einer anderen Gruppe übernommen wird – deren alte
+	// Gruppen-Wecklinks wecken danach diese.
+	TakeOverName bool `json:"take_over_name"`
 }
 
 func (s *Server) createGroup(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +70,7 @@ func (s *Server) createGroup(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	g, err := s.store.CreateGroup(in.Name, in.Members)
+	g, err := s.store.CreateGroup(in.Name, in.Members, in.TakeOverName)
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -84,7 +87,7 @@ func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old := r.PathValue("name")
-	g, err := s.store.UpdateGroup(old, in.Name, in.Members)
+	g, err := s.store.UpdateGroup(old, in.Name, in.Members, in.TakeOverName)
 	if err != nil {
 		s.storeError(w, r, err)
 		return

@@ -101,3 +101,42 @@ test("Gruppendialog ohne axe-Befunde", async ({ page, request }) => {
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"]).include("#group-dialog").analyze();
   expect(r.violations.map((v) => v.id + ": " + v.nodes.map((n) => n.target).join(", "))).toEqual([]);
 });
+
+// Rückfrage ohne Wahl geschlossen: close() ohne Wert – so schließen ältere Browser auch bei Escape
+// (Chromium setzt dabei den Wert selbst zurück).
+test("Geschlossene Rückfrage löscht nicht, auch nach einer bestätigten", async ({ page, request }) => {
+  await offlineDevice(request, "NAS", { group: "Homelab" });
+  await offlineDevice(request, "Alt");
+  await page.goto("./");
+  // erst eine Rückfrage mit „Löschen“ bestätigen (Gerät „Alt“)
+  await page.locator('.card:has-text("Alt")').getByRole("button", { name: "Bearbeiten" }).click();
+  await page.click("#delete-device");
+  await page.click("#confirm-ok");
+  await expect(page.locator(".card h3")).toHaveText(["NAS"]);
+  // dann die Gruppe löschen wollen – und mit Escape abbrechen
+  await page.getByRole("button", { name: "Gruppe bearbeiten" }).click();
+  await page.click("#group-delete");
+  await expect(page.locator("#confirm-dialog")).toBeVisible();
+  await page.evaluate(() => document.getElementById("confirm-dialog").close());
+  await expect(page.locator("#confirm-dialog")).toBeHidden();
+  await expect(page.locator("#group-dialog")).toBeVisible();
+  expect((await (await request.get("api/v1/groups")).json()).map((g) => g.name)).toEqual(["Homelab"]);
+});
+
+test("Früherer Name einer anderen Gruppe nur mit Rückfrage", async ({ page, request }) => {
+  await offlineDevice(request, "NAS", { group: "Büro" });
+  expect((await request.put("api/v1/groups/B%C3%BCro", { headers: HEADERS, data: { name: "Office" } })).ok()).toBeTruthy();
+  await page.goto("settings");
+  await page.click("#grp-add");
+  await page.locator('#group-dialog input[name="name"]').fill("Büro");
+  await page.click("#group-save");
+  await expect(page.locator("#confirm-title")).toHaveText("Namen „Büro“ übernehmen?");
+  await expect(page.locator("#confirm-text")).toContainText("wecken bisher „Office“");
+  await page.keyboard.press("Escape"); // nicht übernehmen
+  await expect(page.locator("#group-error")).toContainText("war früher der Name der Gruppe „Office“");
+  expect((await (await request.get("api/v1/groups")).json()).map((g) => g.name)).toEqual(["Office"]);
+  await page.click("#group-save");
+  await page.click("#confirm-ok");
+  await expect(page.locator("#group-dialog")).toBeHidden();
+  await expect(rows(page)).toHaveText(["Office", "Büro"]);
+});

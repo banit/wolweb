@@ -2,9 +2,11 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -161,9 +163,17 @@ func TestUnlockCookieTampered(t *testing.T) {
 			t.Errorf("%s: %d", name, rec.Code)
 		}
 	}
-	// Eine fast abgelaufene Entsperrung wird bei Benutzung verlängert.
-	c := &browser{t: t, h: h, cookie: &http.Cookie{Name: unlockCookie, Value: s.unlockToken(time.Now().Add(time.Hour))}}
-	c.do("GET", "/api/v1/info", "")
+	// Abfragen im Hintergrund (eine offene Übersicht) verlängern eine Entsperrung nicht …
+	soon := s.unlockToken(time.Now().Add(time.Hour))
+	c := &browser{t: t, h: h, cookie: &http.Cookie{Name: unlockCookie, Value: soon}}
+	for _, path := range []string{"/api/v1/info", "/api/v1/devices", "/api/v1/groups", "/"} {
+		c.do("GET", path, "")
+	}
+	if c.cookie == nil || c.cookie.Value != soon {
+		t.Fatal("Entsperrung durch bloßes Ansehen verlängert")
+	}
+	// … Arbeiten damit schon.
+	c.do("GET", "/api/v1/settings", "")
 	if c.cookie == nil || s.unlockUntil(httptestWithCookie(c.cookie)).Before(time.Now().Add(unlockIdle-time.Minute)) {
 		t.Fatal("Entsperrung nicht verlängert")
 	}
@@ -195,6 +205,65 @@ func TestUnlockAttemptsLimited(t *testing.T) {
 	// Jetzt hilft auch das richtige Passwort erst nach der Wartezeit.
 	if rec := b.do("POST", "/api/v1/unlock", `{"password":"geheim123"}`); rec.Code != http.StatusTooManyRequests || b.cookie != nil {
 		t.Fatalf("nach %d Fehlversuchen: %d %s", attemptsFree, rec.Code, rec.Body)
+	}
+}
+
+// Gleichzeitig geschickte Versuche zählen einzeln: Mehr als attemptsFree falsche Passwörter werden
+// nicht geprüft, auch wenn sie alle auf einmal kommen.
+func TestUnlockAttemptsConcurrent(t *testing.T) {
+	_, h, _ := settingsServer(t, `{"port": 8089}`)
+	(&browser{t: t, h: h}).do("PUT", "/api/v1/password", `{"password":"geheim123"}`)
+	codes := make(chan int, 40)
+	var wg sync.WaitGroup
+	for range 40 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			codes <- call(h, "POST", "/api/v1/unlock", `{"password":"falsch"}`).Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	checked := 0
+	for c := range codes {
+		if c == http.StatusForbidden {
+			checked++
+		} else if c != http.StatusTooManyRequests {
+			t.Fatalf("unerwartet: %d", c)
+		}
+	}
+	if checked != attemptsFree {
+		t.Fatalf("%d Passwörter geprüft statt %d", checked, attemptsFree)
+	}
+}
+
+// Hinter einem Reverse-Proxy (alle Anfragen von derselben Adresse) sperrt ein Browser, der sich
+// vertippt, nicht die anderen aus; viele Fehlversuche insgesamt bremsen aber alle.
+func TestUnlockAttemptsBehindProxy(t *testing.T) {
+	_, h, _ := settingsServer(t, `{"port": 8089}`)
+	(&browser{t: t, h: h}).do("PUT", "/api/v1/password", `{"password":"geheim123"}`)
+	via := func(client string) *browser {
+		return &browser{t: t, h: h, setup: func(r *http.Request) {
+			r.RemoteAddr = "127.0.0.1:40000"
+			r.Header.Set("X-Forwarded-For", client)
+		}}
+	}
+	kid, owner := via("192.168.1.30"), via("192.168.1.20")
+	for range attemptsFree {
+		kid.do("POST", "/api/v1/unlock", `{"password":"falsch"}`)
+	}
+	if rec := kid.do("POST", "/api/v1/unlock", `{"password":"geheim123"}`); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("Kind nicht gebremst: %d", rec.Code)
+	}
+	if rec := owner.do("POST", "/api/v1/unlock", `{"password":"geheim123"}`); rec.Code != http.StatusOK || owner.cookie == nil {
+		t.Fatalf("Besitzer ausgesperrt: %d %s", rec.Code, rec.Body)
+	}
+	// Wechselnde Absender (gefälschter Kopf ohne Proxy): nach attemptsFreeAll ist für alle Schluss.
+	for i := range attemptsFreeAll {
+		via(fmt.Sprintf("10.0.0.%d", i+1)).do("POST", "/api/v1/unlock", `{"password":"falsch"}`)
+	}
+	if rec := via("192.168.1.21").do("POST", "/api/v1/unlock", `{"password":"geheim123"}`); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("gemeinsame Obergrenze greift nicht: %d", rec.Code)
 	}
 }
 

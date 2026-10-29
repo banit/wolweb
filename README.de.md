@@ -333,11 +333,13 @@ Unten auf der Einstellungsseite lässt sich ein Passwort für Änderungen setzen
   Wecklinks.
 - **Alles andere erst nach dem Entsperren**: Geräte anlegen, bearbeiten und löschen, Gruppen zuordnen, Import und
   Export, die Netzwerksuche und die Einstellungsseite. Das Schloss in der Kopfzeile fragt nach dem Passwort; danach
-  bleibt dieser Browser entsperrt, bis er geschlossen wird oder 12 Stunden lang nichts passiert. Derselbe Knopf
-  sperrt sofort wieder.
+  bleibt dieser Browser entsperrt, bis er geschlossen wird oder 12 Stunden lang nichts bearbeitet wird (eine bloß
+  offene Übersicht zählt nicht). Derselbe Knopf sperrt sofort wieder.
 - Ändern oder Entfernen verlangt das bisherige Passwort; ein neues Passwort beendet die Entsperrung aller anderen
-  Browser. Nach 5 Fehlversuchen je Adresse heißt es 30 s warten (mit jedem weiteren Fehlversuch doppelt so lange,
-  höchstens 15 Minuten).
+  Browser. Nach 5 Fehlversuchen aus einem Browser heißt es für ihn 30 s warten (mit jedem weiteren Fehlversuch
+  doppelt so lange, höchstens 15 Minuten); hinter einem Reverse-Proxy unterscheidet der letzte Eintrag von
+  `X-Forwarded-For` die Browser. Nach 30 Fehlversuchen insgesamt gilt die Wartezeit für alle, und es läuft immer nur
+  eine Passwortprüfung zur Zeit.
 - Gespeichert wird nur ein PBKDF2-SHA256-Hash in `data/state.json`; die Entsperrung ist ein signiertes Cookie
   (HttpOnly, SameSite=Strict).
 - Automationen mit `auth.api_token` sind nicht betroffen. Die Anmeldung per HTTP Basic entsperrt nicht – die kennt

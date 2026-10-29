@@ -114,3 +114,30 @@ test.describe("Touch", () => {
     expect(await smallTargets(page)).toEqual([]);
   });
 });
+
+test("Schnell hintereinander verschoben und gleich „Fertig“: alles gespeichert", async ({ page, request }) => {
+  for (const n of ["Anna", "Bert", "Carl"]) await offlineDevice(request, n);
+  // Speichern bremsen, damit der zweite Klick und „Fertig“ sicher währenddessen kommen
+  await page.route("**/api/v1/order", async (route) => { await new Promise((r) => setTimeout(r, 400)); await route.continue(); });
+  await page.goto("./");
+  await page.click("#sort-toggle");
+  await page.getByRole("button", { name: "„Carl“ nach vorn" }).click();
+  await page.getByRole("button", { name: "„Carl“ nach vorn" }).click();
+  await page.click("#sort-done");
+  await expect.poll(async () => (await (await request.get("api/v1/devices")).json()).map((d) => d.name)).toEqual(["Carl", "Anna", "Bert"]);
+  // danach wird weiter gespeichert
+  await page.click("#sort-toggle");
+  await page.getByRole("button", { name: "„Bert“ nach vorn" }).click();
+  await expect.poll(async () => (await (await request.get("api/v1/devices")).json()).map((d) => d.name)).toEqual(["Carl", "Bert", "Anna"]);
+});
+
+test("Mit dem Pfeil in eine leere Gruppe ganz oben", async ({ page, request }) => {
+  expect((await request.post("api/v1/groups", { headers: HEADERS, data: { name: "Leer" } })).ok()).toBeTruthy();
+  await offlineDevice(request, "Anna", { group: "G2" });
+  await page.goto("./");
+  await page.click("#sort-toggle");
+  await expect(heads(page)).toHaveText(["Leer", "G2", "Weitere Geräte"]);
+  await page.getByRole("button", { name: "„Anna“ nach vorn" }).click();
+  await expect(items(page, "Leer")).toHaveText(["Anna"]);
+  await expect(page.getByRole("button", { name: "„Anna“ nach vorn" })).toBeDisabled();
+});

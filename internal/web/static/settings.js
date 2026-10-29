@@ -60,6 +60,7 @@
     $("#confirm-title").textContent = title;
     $("#confirm-text").textContent = text;
     $("#confirm-ok").textContent = ok;
+    d.returnValue = ""; // sonst gälte Escape als „ok“, wenn die letzte Rückfrage bestätigt wurde
     d.showModal();
     return new Promise((resolve) => d.addEventListener("close", () => resolve(d.returnValue === "ok"), { once: true }));
   }
@@ -376,7 +377,7 @@
     $("#pw-remove").hidden = !on;
     pwError();
     const btn = $("#lock-toggle");
-    btn.hidden = !on || view.read_only;
+    btn.hidden = !on; // auch im Nur-Lesen-Betrieb: die Seite selbst braucht die Entsperrung
     window.wolwebLock.button(btn, false);
   }
   // pwError zeigt eine Meldung am Feld (name) oder löscht alle.

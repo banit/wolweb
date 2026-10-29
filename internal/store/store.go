@@ -489,18 +489,24 @@ func IsAlias(d Device, name string) bool {
 
 const maxAliases = 10
 
-// renamed führt die früheren Namen fort: Der bisherige Name kommt dazu, der neue fällt heraus.
-// Groß-/Kleinschreibung zählt nicht als Umbenennen – Links finden das Gerät ohnehin.
-func renamed(old Device, name string) []string {
-	out := slices.DeleteFunc(slices.Clone(old.Aliases), func(a string) bool {
-		return strings.EqualFold(a, name) || strings.EqualFold(a, old.Name)
-	})
-	if !strings.EqualFold(old.Name, name) {
-		out = append(out, old.Name)
+// formerNames führt die früheren Namen (von Geräten wie Gruppen) beim Umbenennen von oldName nach
+// name fort: Der bisherige Name kommt dazu, der neue fällt heraus, höchstens maxAliases bleiben.
+// Groß-/Kleinschreibung zählt nicht als Umbenennen – Links finden das Ziel ohnehin.
+func formerNames(aliases []string, oldName, name string) []string {
+	out := withoutAlias(aliases, oldName)
+	out = withoutAlias(out, name)
+	if !strings.EqualFold(oldName, name) {
+		out = append(out, oldName)
 	}
 	if len(out) > maxAliases {
 		out = out[len(out)-maxAliases:]
 	}
+	return out
+}
+
+// withoutAlias liefert aliases ohne name (Groß-/Kleinschreibung egal); leer ist nil.
+func withoutAlias(aliases []string, name string) []string {
+	out := slices.DeleteFunc(slices.Clone(aliases), func(a string) bool { return strings.EqualFold(a, name) })
 	if len(out) == 0 {
 		return nil
 	}
@@ -533,10 +539,7 @@ func releaseAlias(list []Device, name, exceptID string) {
 		if list[i].ID == exceptID || !slices.ContainsFunc(list[i].Aliases, func(a string) bool { return strings.EqualFold(a, name) }) {
 			continue
 		}
-		list[i].Aliases = slices.DeleteFunc(slices.Clone(list[i].Aliases), func(a string) bool { return strings.EqualFold(a, name) })
-		if len(list[i].Aliases) == 0 {
-			list[i].Aliases = nil
-		}
+		list[i].Aliases = withoutAlias(list[i].Aliases, name)
 	}
 }
 
@@ -657,6 +660,8 @@ func (s *Store) SetGroup(ids []string, group string) ([]Device, error) {
 	defer s.mu.Unlock()
 	if i := groupIndex(s.groups, group); i >= 0 {
 		group = s.groups[i].Name
+	} else if i := aliasIndex(s.groups, group, -1); i >= 0 && group != "" {
+		group = s.groups[i].Name // früherer Name: die Gruppe, die ihn trägt (siehe syncGroups)
 	}
 	next := slices.Clone(s.devices)
 	var changed []Device
@@ -741,7 +746,7 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 		return d, err
 	}
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = old.ID, old.CreatedAt, time.Now().UTC(), old.WakeKey
-	d.Aliases = renamed(old, d.Name)
+	d.Aliases = formerNames(old.Aliases, old.Name, d.Name)
 	if strings.EqualFold(d.Group, old.Group) {
 		d.Order = old.Order // Platz behalten; in einer anderen Gruppe kommt es hinten an
 	}

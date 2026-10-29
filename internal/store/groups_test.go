@@ -51,17 +51,17 @@ func TestGroupCRUD(t *testing.T) {
 	c, _ := s.Create(Input{Name: "C", MAC: "02:00:00:00:00:03", Group: "Büro"})
 
 	// Anlegen: leer oder mit Mitgliedern (auch aus einer anderen Gruppe)
-	if _, err := s.CreateGroup("büro", nil); err == nil {
+	if _, err := s.CreateGroup("büro", nil, false); err == nil {
 		t.Fatal("doppelter Name angenommen")
 	}
 	var ve ValidationError
-	if _, err := s.CreateGroup("a/b", nil); !errors.As(err, &ve) || ve.Field != "name" {
+	if _, err := s.CreateGroup("a/b", nil, false); !errors.As(err, &ve) || ve.Field != "name" {
 		t.Fatalf("ungültiger Name: %v", err)
 	}
-	if _, err := s.CreateGroup("Leer", nil); err != nil {
+	if _, err := s.CreateGroup("Leer", nil, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateGroup("Homelab", []string{b.ID, c.ID}); err != nil {
+	if _, err := s.CreateGroup("Homelab", []string{b.ID, c.ID}, false); err != nil {
 		t.Fatal(err)
 	}
 	if g := s.Groups(); !slices.Equal(g, []string{"Büro", "Leer", "Homelab"}) {
@@ -70,12 +70,12 @@ func TestGroupCRUD(t *testing.T) {
 	if m := s.GroupMembers("Homelab"); !slices.Equal(names(m), []string{"B", "C"}) {
 		t.Fatalf("Homelab: %q", names(m))
 	}
-	if _, err := s.CreateGroup("X", []string{"gibtsnicht"}); !errors.Is(err, ErrNotFound) {
+	if _, err := s.CreateGroup("X", []string{"gibtsnicht"}, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unbekanntes Gerät: %v", err)
 	}
 
 	// Umbenennen: alter Name bleibt als früherer Name; Mitglieder setzen
-	g, err := s.UpdateGroup("büro", "Office", []string{a.ID, b.ID})
+	g, err := s.UpdateGroup("büro", "Office", []string{a.ID, b.ID}, false)
 	if err != nil || g.Name != "Office" || !slices.Equal(g.Aliases, []string{"Büro"}) {
 		t.Fatalf("umbenennen: %+v %v", g, err)
 	}
@@ -85,11 +85,18 @@ func TestGroupCRUD(t *testing.T) {
 	if f, ok := s.FindGroup("BÜRO"); !ok || f.Name != "Office" {
 		t.Fatalf("früherer Name: %+v %v", f, ok)
 	}
-	if _, err := s.UpdateGroup("Office", "homelab", nil); err == nil {
+	if _, err := s.UpdateGroup("Office", "homelab", nil, false); err == nil {
 		t.Fatal("Umbenennen auf vergebenen Namen angenommen")
 	}
-	// Ein neuer Gruppenname nimmt den früheren Namen einer anderen Gruppe.
-	if _, err := s.CreateGroup("Büro", nil); err != nil {
+	// Den früheren Namen einer anderen Gruppe gibt es nur mit Bestätigung – sonst wechselte das Ziel
+	// alter Links unbemerkt.
+	if _, err := s.CreateGroup("büro", nil, false); !errors.As(err, &ve) || ve.Confirm != "take_over_name" {
+		t.Fatalf("ohne Bestätigung: %v", err)
+	}
+	if f, _ := s.FindGroup("Büro"); f.Name != "Office" {
+		t.Fatalf("früherer Name schon vergeben: %+v", f)
+	}
+	if _, err := s.CreateGroup("Büro", nil, true); err != nil {
 		t.Fatal(err)
 	}
 	if f, _ := s.FindGroup("Büro"); f.Name != "Büro" {
@@ -180,8 +187,8 @@ func TestExportImportKeepsGroups(t *testing.T) {
 	s, _, _ := Open(t.TempDir(), "")
 	a, _ := s.Create(Input{Name: "A", MAC: "02:00:00:00:00:01", Group: "Zeta"})
 	b, _ := s.Create(Input{Name: "B", MAC: "02:00:00:00:00:02", Group: "Alpha"})
-	s.CreateGroup("Leer", nil)
-	s.UpdateGroup("Zeta", "Zeta2", nil)
+	s.CreateGroup("Leer", nil, false)
+	s.UpdateGroup("Zeta", "Zeta2", nil, false)
 	s.Arrange([]string{"Alpha"}, []Placement{{Group: "Zeta2", IDs: []string{a.ID}}, {Group: "Alpha", IDs: []string{b.ID}}})
 	exp, err := s.Export()
 	if err != nil {
@@ -200,5 +207,36 @@ func TestExportImportKeepsGroups(t *testing.T) {
 	}
 	if d := r.GroupMembers("Alpha"); len(d) != 1 || d[0].Order != 1 {
 		t.Fatalf("Reihenfolge: %+v", d)
+	}
+}
+
+// Ein früherer Gruppenname im Gerätedialog, in der Mehrfachauswahl oder im Import meint die Gruppe, die
+// ihn trägt – ohne Rückfrage entsteht keine neue Gruppe, und kein alter Link wechselt das Ziel.
+func TestFormerGroupNameMeansThatGroup(t *testing.T) {
+	s, _, _ := Open(t.TempDir(), "")
+	s.Create(Input{Name: "A", MAC: "02:00:00:00:00:01", Group: "Büro"})
+	s.UpdateGroup("Büro", "Office", nil, false)
+	b, err := s.Create(Input{Name: "B", MAC: "02:00:00:00:00:02", Group: "büro"})
+	if err != nil || b.Group != "Office" {
+		t.Fatalf("Gerätedialog: %q %v", b.Group, err)
+	}
+	c, _ := s.Create(Input{Name: "C", MAC: "02:00:00:00:00:03"})
+	if devs, err := s.SetGroup([]string{c.ID}, "Büro"); err != nil || devs[0].Group != "Office" {
+		t.Fatalf("Mehrfachauswahl: %+v %v", devs, err)
+	}
+	// Import mit einer Gruppe „Büro“: Ihre Geräte kommen zu Office, der frühere Name bleibt dort.
+	_, err = s.Import([]byte(`{"version":2,"groups":[{"name":"Büro"}],"devices":[
+		{"name":"D","mac":"02:00:00:00:00:04","group":"Büro"}]}`), i18n.DE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := s.Groups(); !slices.Equal(g, []string{"Office"}) {
+		t.Fatalf("Gruppen: %q", g)
+	}
+	if g, _ := s.FindGroup("Büro"); g.Name != "Office" {
+		t.Fatalf("Import hat den früheren Namen genommen: %+v", g)
+	}
+	if m := s.GroupMembers("Office"); len(m) != 4 {
+		t.Fatalf("Mitglieder: %q", names(m))
 	}
 }

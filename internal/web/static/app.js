@@ -152,8 +152,16 @@
       do {
         devicesAgain = false;
         try {
-          const devices = await api("GET", "devices");
-          state.groups = await api("GET", "groups"); // auch leere – für den Gerätedialog und zum Sortieren
+          // Geräte und Gruppen (auch leere – für den Gerätedialog und zum Sortieren) kommen getrennt. Wurde
+          // dazwischen eine Gruppe umbenannt, passen sie nicht zusammen: dann noch einmal holen, sonst
+          // fehlten Geräte in der Übersicht oder landeten beim Sortieren ohne Gruppe.
+          let devices, groups;
+          for (let i = 0; i < 3; i++) {
+            [devices, groups] = await Promise.all([api("GET", "devices"), api("GET", "groups")]);
+            const known = new Set(groups.map((g) => g.name.toLowerCase()));
+            if (devices.every((d) => !d.group || known.has(d.group.toLowerCase()))) break;
+          }
+          state.groups = groups;
           state.devices = devices;
           renderDevices();
         } catch (e) {
@@ -539,7 +547,8 @@
   // gleich gespeichert.
   let layout = null; // [{ group, ids }] wie angezeigt; group "" = ohne Gruppe, steht zuletzt
   let drag = null; // laufendes Ziehen
-  let sortSaving = null, sortAgain = false;
+  let sortSaving = null; // laufendes Speichern
+  let sortPending = null; // Stand, der noch zum Server muss (festgehalten im Moment der Änderung)
 
   function layoutFromState() {
     const lists = state.groups.map((g) => ({ group: g.name, ids: [] }));
@@ -592,7 +601,6 @@
         el("span", { class: "muted", text: tn("ui.n_devices", l.ids.length) }),
         el("span", { class: "spacer" }),
         rest ? null : moveButtons(l.group, gi === 0, gi === groupCount - 1, () => moveGroup(gi, -1), () => moveGroup(gi, 1), ["ui.sort.group_up_x", "ui.sort.group_down_x"]));
-      const firstList = layout.findIndex((x) => x.ids.length);
       const items = l.ids.map((id, i) => {
         const d = byId.get(id);
         return el("li", { class: "sort-item", "data-id": d.id },
@@ -600,7 +608,8 @@
           el("span", { class: "dev-icon" }, icon(d.icon || "desktop")),
           el("strong", { text: d.name, title: d.name }),
           el("span", { class: "spacer" }),
-          moveButtons(d.name, gi === firstList && i === 0, gi === lastList && i === l.ids.length - 1,
+          // „Nach vorn“ geht überall außer ganz vorn – auch in eine leere Gruppe davor.
+          moveButtons(d.name, gi === 0 && i === 0, gi === lastList && i === l.ids.length - 1,
             () => moveDevice(d.id, -1), () => moveDevice(d.id, 1), ["ui.sort.up_x", "ui.sort.down_x"]));
       });
       return el("section", { class: "sort-group" + (rest ? " rest" : ""), "data-id": rest ? "rest" : "gruppe:" + l.group, "data-group": l.group, "aria-labelledby": grouped ? headID : null },
@@ -666,25 +675,32 @@
     return saving;
   }
 
-  // saveLayout speichert den angezeigten Stand; kommen währenddessen weitere Änderungen, folgt der neueste.
+  // saveLayout speichert den angezeigten Stand. Kommen währenddessen weitere Änderungen, folgt der
+  // neueste – auch wenn der Sortiermodus inzwischen geschlossen ist. Solange gespeichert und neu
+  // geladen wird, zeichnet die Ansicht nach dem eigenen Stand (sonst spränge ein eben verschobenes
+  // Gerät kurz zurück); danach wieder nach dem Server, nach einem Fehler also wie vorher.
   function saveLayout() {
-    if (sortSaving) {
-      sortAgain = true;
-      return sortSaving;
-    }
+    sortPending = { groups: layout.filter((l) => l.group).map((l) => l.group), devices: layout.map((l) => ({ group: l.group, ids: [...l.ids] })) };
+    if (sortSaving) return sortSaving;
     sortSaving = (async () => {
-      do {
-        sortAgain = false;
-        const body = { groups: layout.filter((l) => l.group).map((l) => l.group), devices: layout.map((l) => ({ group: l.group, ids: [...l.ids] })) };
-        try {
-          await api("PUT", "order", body);
-        } catch (e) {
-          toast("err", t("ui.sort.failed"), e.message);
-          break;
-        }
-      } while (sortAgain);
-      sortSaving = null;
-      await loadDevices();
+      try {
+        do {
+          while (sortPending) {
+            const body = sortPending;
+            sortPending = null;
+            try {
+              await api("PUT", "order", body);
+            } catch (e) {
+              sortPending = null;
+              toast("err", t("ui.sort.failed"), e.message);
+            }
+          }
+          await loadDevices();
+        } while (sortPending);
+      } finally {
+        sortSaving = null;
+      }
+      if (state.sorting) renderDevices();
     })();
     return sortSaving;
   }
@@ -1590,29 +1606,33 @@
   }
   async function reloadInfo() {
     try { state.info = await api("GET", "info"); } catch (e) { return; }
-    applyInfo();
+    applyInfo(); // jetzt gesperrt (Passwort in einem anderen Fenster gesetzt)? applyLock beendet Sortieren und Auswahl
     renderDevices();
     renderDiscovery();
   }
 
   // ---------- Bearbeitungsschutz ----------
-  // applyLock blendet aus, was gerade nicht geht (Nur-Lesen oder gesperrt), und zeigt das Schloss.
+  // applyLock blendet aus, was gerade nicht geht (Nur-Lesen oder gesperrt), beendet Sortieren und
+  // Auswahl und zeigt das Schloss.
   function applyLock() {
     const off = !editable();
+    if (off && state.sorting) setSorting(false);
+    if (off && state.selecting) setSelecting(false);
     $("#add-device").hidden = off;
     $("#import-btn").hidden = off;
-    $("#export-link").hidden = !!state.info.locked; // mit Weckschlüsseln – im Nur-Lesen-Betrieb weiter erlaubt
+    // Der Export enthält das Geheimnis der Installation und braucht die Entsperrung; Nur-Lesen allein sperrt ihn nicht.
+    $("#export-link").hidden = !!state.info.locked;
     for (const b of document.querySelectorAll('[data-action="add"]')) b.hidden = off;
+    // Auch im Nur-Lesen-Betrieb: Entsperren gibt dort Export und Netzwerksuche frei.
     const btn = $("#lock-toggle");
-    btn.hidden = !state.info.password || state.info.read_only;
+    btn.hidden = !state.info.password;
     window.wolwebLock.button(btn, !!state.info.locked);
   }
+  // setLocked übernimmt den Zustand des Schlosses. Ein offener Dialog bleibt offen, damit Eingaben
+  // nicht verloren gehen – beim Speichern fragt die Seite wieder nach dem Passwort.
   function setLocked(on) {
     if (!!state.info.locked === on) return;
     state.info.locked = on;
-    if (on && state.selecting) setSelecting(false);
-    if (on && state.sorting) setSorting(false);
-    if (on && dlg.open) dlg.close();
     applyLock();
     renderDevices();
     renderDiscovery();

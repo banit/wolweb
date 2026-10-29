@@ -320,9 +320,12 @@ At the bottom of the settings page you can set a password for changes – no use
   fixed wake links.
 - **Everything else needs unlocking**: adding, editing and deleting devices, assigning groups, import and export,
   the network scan and the settings page. The lock in the top bar asks for the password; this browser then stays
-  unlocked until it is closed or nothing happens for 12 hours. The same button locks again right away.
+  unlocked until it is closed or nothing is edited for 12 hours (just leaving the overview open does not count).
+  The same button locks again right away.
 - Changing or removing the password needs the current one; a new password ends the unlock of every other browser.
-  After 5 wrong attempts per address, wolweb makes you wait 30 s (doubling with every further miss, up to 15 min).
+  After 5 wrong attempts from one browser, wolweb makes it wait 30 s (doubling with every further miss, up to
+  15 min); behind a reverse proxy the last `X-Forwarded-For` entry tells browsers apart. After 30 wrong attempts in
+  total the wait applies to everyone, and only one password check runs at a time.
 - Only a PBKDF2-SHA256 hash is stored, in `data/state.json`; the unlock is a signed cookie (HttpOnly,
   SameSite=Strict).
 - Automations with `auth.api_token` are not affected. The HTTP Basic login does not unlock – the whole household

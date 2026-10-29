@@ -162,7 +162,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+base+"data/get", s.legacyData)
 	mux.HandleFunc("GET "+base+"metrics", s.metrics)
 
-	return s.recoverer(s.hostGuard(s.auth(s.csrf(s.keepUnlocked(securityHeaders(mux))))))
+	return s.recoverer(s.hostGuard(s.auth(s.csrf(securityHeaders(mux)))))
 }
 
 // --- Middleware ---
