@@ -8,6 +8,8 @@
   const path = card.dataset.path; // "wake/<Name>", relativ zu <base>
   const query = card.dataset.key ? "?key=" + encodeURIComponent(card.dataset.key) : ""; // Weckschlüssel
   const hasIP = card.dataset.hasIp === "1";
+  // Privatsphäre: Online-Status ausgeblendet – die Seite sendet nur und verfolgt den Start nicht.
+  const hidden = card.dataset.statusHidden === "1";
   const timeout = (parseInt(card.dataset.timeout, 10) || 180) * 1000;
   const retry = (parseInt(card.dataset.retry, 10) || 0) * 1000; // dann sendet der Server erneut
   const title = document.getElementById("wake-title");
@@ -40,7 +42,8 @@
   }
   // tech trägt die technische Antwort (Ping/Port, Millisekunden) in „Technische Details“ ein.
   function tech(st) {
-    document.getElementById("tech-answer").textContent = via(st) || "–";
+    const answer = document.getElementById("tech-answer");
+    if (answer) answer.textContent = via(st) || "–";
   }
   function via(st) {
     if (!st || !st.method) return "";
@@ -141,7 +144,7 @@
       step("check", "done", t("wake.check.off"));
     } else {
       await sleep(350);
-      step("check", "skip", hasIP ? t("wake.check.skipped") : t("wake.check.no_ip"));
+      step("check", "skip", hidden ? t("wake.check.hidden") : hasIP ? t("wake.check.skipped") : t("wake.check.no_ip"));
     }
 
     // 2. Weckruf senden
@@ -168,11 +171,11 @@
     if (sent.target) document.getElementById("tech-target").textContent = sent.target;
 
     if (!hasIP) {
-      step("wait", "skip", t("wake.wait.no_ip"));
+      step("wait", "skip", hidden ? t("wake.wait.hidden") : t("wake.wait.no_ip"));
       step("online", "skip", "");
       setState("sent"); // gesendet, aber nicht bestätigt – kein grüner Haken
       setTitle(t("wake.title.sent"), "→ " + name);
-      showResult("sent", t("wake.result.sent"), t("wake.result.sent_text", name));
+      showResult("sent", t("wake.result.sent"), hidden ? t("wake.result.sent_hidden", name) : t("wake.result.sent_text", name));
       again.querySelector("span").textContent = t("wake.btn.again");
       again.hidden = false;
       running = false;

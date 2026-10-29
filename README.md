@@ -262,6 +262,7 @@ Changes made since the update are lost.
   groups too, in their order. An older version drops `groups` and `order` on save – the backup (see above) holds
   the state from before the update.
 - *Accent color* (new): default `indigo` as before.
+- *Privacy* (new): `privacy.online_status` can hide the online status; default `all` as before.
 
 **What changes with 1.2 – and whether you need to act:**
 
@@ -294,9 +295,9 @@ Changes made since the update are lost.
 
 The gear in the top right corner opens the settings page (`/settings`). There you can change the networks and VLANs,
 the network scan, the online check, wait times, notifications (with “Send test message”), public wake links, allowed
-host names, the default language and the accent color (17 colors, each in a light and a dark variant). Changes
-apply immediately, without a restart. Groups and the password for changes have sections of their own there that
-save right away.
+host names, who sees the online status ([Privacy](#privacy)), the default language and the accent color (17 colors,
+each in a light and a dark variant). Changes apply immediately, without a restart. Groups and the password for
+changes have sections of their own there that save right away.
 
 - **Order** (the later one wins): defaults, `config.json`, the settings page, environment variables.
 - **Stored** in `data/settings.json` – in the data directory, because it is always writable (`config.json` is often
@@ -340,6 +341,25 @@ At the bottom of the settings page you can set a password for changes – no use
 
   Without Docker: stop the service, run `wolweb -c config.json -reset-password` with the same configuration (so it
   finds the data directory) and start the service again.
+
+### Privacy
+
+Under “Privacy” on the settings page you choose who sees whether devices are running (`privacy.online_status`):
+
+| Choice | Value | Who sees the online status |
+|---|---|---|
+| Show to everyone | `all` (default) | everyone who opens wolweb |
+| Show only after unlocking | `unlocked` | only browsers unlocked with the [password for changes](#password-for-changes) and automations with `auth.api_token` – for example to troubleshoot. Without a password for changes nobody sees it. |
+| Show to nobody | `none` | nobody, not even after unlocking |
+
+Hidden means hidden everywhere, not just in the overview: cards show no status, no green dot and no “Wake again”,
+the online/offline filter disappears, groups only count their devices, and after waking there is no start timer.
+The server leaves the status out of `/api/v1/devices` and `/api/v1/groups`, live events, `/metrics` and the
+history; `…/status` endpoints answer 403 with `"hidden": true`; wake and group pages only send and no longer
+follow the start, and `?wait=` is ignored. Scan results reveal who is on the network too – with `unlocked` and
+`none` only unlocked browsers see them. wolweb still checks the devices in the background, for the automatic
+retry and notifications (choose the notification events separately). The HTTP Basic login does not count as
+unlocked, as for the password for changes.
 
 ## Multiple networks and VLANs
 
@@ -461,6 +481,7 @@ variable names are given, the first is the one of the original wolweb – both w
 | `notify.webhook` | `WOLWEB_WEBHOOK` | – | URL that receives every event as JSON via POST |
 | `notify.ntfy` | `WOLWEB_NTFY` | – | ntfy topic, e.g. `https://ntfy.sh/my-secret-topic` |
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | all | selection of `online`, `offline`, `wake`, `wake_failed` |
+| `privacy.online_status` | `WOLWEB_ONLINE_STATUS` | `all` | who sees whether devices are running: `all`, `unlocked` (only after unlocking) or `none` (see [Privacy](#privacy)) |
 
 `devices.json` only contains what you enter yourself; what wolweb observes (last woken, last online, the last 500
 wake attempts) is kept in `state.json`. The export at the bottom of the page backs up the devices and their wake-link

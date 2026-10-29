@@ -24,6 +24,7 @@ services:
       # WOLWEB_BCASTIP: "192.168.1.255:9"      # empty = automatic (network of the device IP or of the scanned segment)
       # WOLWEB_LANGUAGE: "de"                  # "en" (default) or "de": notifications and answers to clients without a browser language
       # WOLWEB_ACCENT: "teal"                  # accent color (indigo, blue, sky, teal, green, orange, rose, violet, slate …)
+      # WOLWEB_ONLINE_STATUS: "unlocked"       # who sees whether devices run: all (default), unlocked, none
       # WOLWEB_USER: "admin"
       # WOLWEB_PASSWORD: "please-change"
       # WOLWEB_TOKEN: "long-random-token"      # for Home Assistant & co.

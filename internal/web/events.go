@@ -17,14 +17,20 @@ import (
 )
 
 // hub verteilt Ereignisse an alle offenen Server-Sent-Events-Verbindungen der Oberfläche. Jede
-// Verbindung hat ihre Sprache (für übersetzte Inhalte wie Fehler der Suche).
+// Verbindung hat ihre Sprache (für übersetzte Inhalte wie Fehler der Suche) und weiß, ob sie beim
+// Verbinden entsperrt war (Privatsphäre: Online-Status nur für Entsperrte).
 type hub struct {
 	mu     sync.Mutex
-	subs   map[chan []byte]i18n.Lang
+	subs   map[chan []byte]subscriber
 	closed bool
 }
 
-func (h *hub) subscribe(l i18n.Lang) (chan []byte, func()) {
+type subscriber struct {
+	lang       i18n.Lang
+	privileged bool
+}
+
+func (h *hub) subscribe(l i18n.Lang, privileged bool) (chan []byte, func()) {
 	ch := make(chan []byte, 32)
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -33,9 +39,9 @@ func (h *hub) subscribe(l i18n.Lang) (chan []byte, func()) {
 		return ch, func() {}
 	}
 	if h.subs == nil {
-		h.subs = map[chan []byte]i18n.Lang{}
+		h.subs = map[chan []byte]subscriber{}
 	}
-	h.subs[ch] = l
+	h.subs[ch] = subscriber{l, privileged}
 	return ch, func() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -54,10 +60,19 @@ func (h *hub) publish(event string, data any) {
 
 // publishLocalized baut den Inhalt je Sprache der Empfänger (höchstens einmal pro Sprache).
 func (h *hub) publishLocalized(event string, data func(i18n.Lang) any) {
+	h.publishTo(event, data, nil)
+}
+
+// publishTo wie publishLocalized, aber nur an Empfänger, für die to (falls gesetzt) zutrifft.
+func (h *hub) publishTo(event string, data func(i18n.Lang) any, to func(subscriber) bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	msgs := map[i18n.Lang][]byte{}
-	for ch, l := range h.subs {
+	for ch, sub := range h.subs {
+		if to != nil && !to(sub) {
+			continue
+		}
+		l := sub.lang
 		msg, ok := msgs[l]
 		if !ok {
 			b, err := json.Marshal(data(l))
@@ -110,7 +125,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Accel-Buffering", "no") // nginx: nicht puffern
-	ch, unsubscribe := s.hub.subscribe(s.lang(r))
+	ch, unsubscribe := s.hub.subscribe(s.lang(r), s.privileged(r))
 	defer unsubscribe()
 	if !send(func() error {
 		w.WriteHeader(http.StatusOK)
@@ -152,7 +167,11 @@ func (s *Server) devicesChanged() { s.hub.publish("devices", struct{}{}) }
 
 // statusChanged wird vom Monitor nach jeder Statusänderung aufgerufen.
 func (s *Server) statusChanged(d store.Device, old status.State, hadOld bool, st status.State) {
-	s.hub.publish("status", map[string]any{"id": d.ID, "status": st})
+	// nur an Verbindungen, die den Online-Status sehen dürfen (Einstellung zum Zeitpunkt des Ereignisses)
+	data := map[string]any{"id": d.ID, "status": st}
+	s.hub.publishTo("status", func(i18n.Lang) any { return data }, func(sub subscriber) bool {
+		return statusShown(s.conf().Privacy.OnlineStatus, sub.privileged)
+	})
 	// Erreichbar geworden: offene Weckrufe im Verlauf gelten als „Start bestätigt“ – auch wenn der
 	// Start länger dauerte als die Wartezeit der Weckseite.
 	if st.State == "online" && (!hadOld || old.State != "online") {

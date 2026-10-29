@@ -174,7 +174,11 @@
     return devicesLoading;
   }
 
+  // Privatsphäre: Der Server zeigt diesem Browser keinen Online-Status (Einstellung „Privatsphäre“).
+  const statusOff = () => !!state.info.status_hidden;
+
   function deviceState(d) {
+    if (statusOff()) return "hidden";
     if (state.waking.has(d.id)) return "waking";
     return (d.status && d.status.state) || (d.check_ip ? "offline" : "unknown");
   }
@@ -192,7 +196,13 @@
     const grid = $("#devices");
     const total = state.devices.length;
     const online = state.devices.filter((d) => deviceState(d) === "online").length;
-    $("#summary").textContent = total === 0 ? t("ui.no_devices") : t("ui.summary", tn("ui.n_devices", total), online);
+    $("#summary").textContent = total === 0 ? t("ui.no_devices") : statusOff() ? tn("ui.n_devices", total) : t("ui.summary", tn("ui.n_devices", total), online);
+    // Ohne Online-Status gibt es nichts zu filtern.
+    $("#filter").hidden = statusOff();
+    if (statusOff() && state.filter !== "all") {
+      state.filter = "all";
+      for (const b of $("#filter").children) b.setAttribute("aria-pressed", String(b.dataset.filter === "all"));
+    }
     for (const b of $("#filter").children) {
       const f = b.dataset.filter;
       const n = f === "all" ? total : f === "online" ? online : total - online;
@@ -238,7 +248,7 @@
     const nameID = "gn-" + groupIDs(g.name);
     return el("div", { class: "group-head", "data-id": "gruppe:" + g.name },
       el("h2", { id: nameID, text: g.name }),
-      el("span", { class: "muted", text: t("ui.x_of_y_online", online, members.length) }),
+      el("span", { class: "muted", text: statusOff() ? tn("ui.n_devices", members.length) : t("ui.x_of_y_online", online, members.length) }),
       el("span", { class: "spacer" }),
       // Die Reichweite steht auf dem Knopf – alle Mitglieder, auch wenn die Suche gerade einige ausblendet.
       el("button", { class: "btn btn-secondary btn-sm", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: tn("ui.wake_all", members.length) })),
@@ -296,6 +306,7 @@
       // Ping/Port/ms nur in der normalen Ansicht – die einfache bleibt bei „Online“.
       return [el("span", { class: "pill online", text: t("ui.online") }), state.simple ? null : el("span", { text: methodText(st.method) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "") })];
     }
+    if (s === "hidden") return [el("span", { text: d.last_wake ? t("ui.last_woken", ago(d.last_wake)) : "" })];
     if (s === "unknown") {
       return [el("span", { class: "pill unknown", text: t("ui.no_status") }), el("span", { text: t("ui.no_ip_known") })];
     }
@@ -402,6 +413,11 @@
       toast("err", t("ui.wake_failed"), (e.data && e.data.error) || e.message);
       return;
     }
+    if (statusOff()) { // ob es startet, zeigt die Übersicht hier nicht
+      toast("sent", t("ui.packet_sent"), t("ui.sent_hidden", d.name));
+      loadDevices();
+      return;
+    }
     if (!d.check_ip) {
       toast("sent", t("ui.packet_sent"), t("ui.sent_no_ip", d.name, res.target)); // gesendet ≠ gestartet
       loadDevices();
@@ -421,12 +437,12 @@
       return;
     }
     const failed = res.results.filter((r) => !r.success);
-    const checking = res.results.some((r) => r.success && (state.devices.find((x) => x.id === r.id) || {}).check_ip);
+    const checking = !statusOff() && res.results.some((r) => r.success && (state.devices.find((x) => x.id === r.id) || {}).check_ip);
     toast(failed.length ? "warn" : "sent", t("ui.group_x", g.name), res.message +
       (failed.length ? " " + t("ui.errors_for", failed.map((r) => r.device).join(", ")) : checking ? " " + t("ui.group_checking") : ""));
     for (const r of res.results) {
       const d = state.devices.find((x) => x.id === r.id);
-      if (r.success && d && d.check_ip) track(d, true);
+      if (r.success && d && d.check_ip && !statusOff()) track(d, true);
     }
     loadDevices();
   }
@@ -1185,6 +1201,7 @@
     try {
       const data = await api("GET", "discovery");
       state.found = data.found;
+      state.foundHidden = !!data.hidden;
       state.job = data.job;
       renderDiscovery();
       if (data.job.running && !state.live) discoveryTimer = setTimeout(loadDiscovery, 1000);
@@ -1265,9 +1282,10 @@
     const list = $("#found-list");
     const items = state.found.filter((f) => classify(f) === state.foundFilter);
     keepFocus(list, () => list.replaceChildren(...items.map(buildFound)));
+    $("#found-filter").hidden = !!state.foundHidden;
     const empty = $("#found-empty");
     empty.hidden = items.length !== 0;
-    empty.textContent = state.foundFilter === "new"
+    empty.textContent = state.foundHidden ? t("ui.found.hidden") : state.foundFilter === "new"
       ? (state.found.length ? t("ui.found.none_new") : t("ui.found.no_scan"))
       : state.foundFilter === "known" ? t("ui.found.none_known") : t("ui.found.none_ignored");
   }
@@ -1421,8 +1439,12 @@
   }
   async function openHistory() {
     const d = $("#history-dialog");
-    let events = [];
-    try { events = (await api("GET", "history?limit=200")).events || []; } catch (e) { toast("err", t("ui.history_unavailable"), e.message); return; }
+    let events = [], statusHidden = false; // ohne Online-Status keine Angaben zum Start
+    try {
+      const res = await api("GET", "history?limit=200");
+      events = res.events || [];
+      statusHidden = !!res.status_hidden;
+    } catch (e) { toast("err", t("ui.history_unavailable"), e.message); return; }
     const fmt = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     $("#history-list").replaceChildren(...events.map((ev) => {
       const r = outcome(ev);
@@ -1432,7 +1454,7 @@
         ev.user && t("ui.hist.user", ev.user),
         ev.client && t("ui.hist.client", ev.client),
         ev.target && t("ui.hist.target", ev.target),
-        ev.success && !ev.checkable && t("ui.hist.no_ip"),
+        ev.success && !ev.checkable && !statusHidden && t("ui.hist.no_ip"),
         ev.error && t("ui.hist.error", ev.error),
       ].filter(Boolean);
       return el("li", { class: r.kind },
@@ -1567,9 +1589,18 @@
     clearTimeout(reloadTimer);
     reloadTimer = setTimeout(loadDevices, 250);
   }
+  let es = null; // Live-Verbindung
+  // reconnectEvents verbindet neu, wenn sich Entsperrung ändert: Der Server merkt sich beim
+  // Verbinden, ob diese Verbindung den Online-Status sehen darf.
+  function reconnectEvents() {
+    if (!es) return;
+    es.close();
+    state.live = false;
+    connectEvents();
+  }
   function connectEvents() {
     if (!window.EventSource) return;
-    const es = new EventSource("api/v1/events"); // verbindet sich bei Abbruch selbst neu
+    es = new EventSource("api/v1/events"); // verbindet sich bei Abbruch selbst neu
     es.addEventListener("open", () => {
       if (!state.live) loadDevicesSoon(); // Verpasstes nachholen
       state.live = true;
@@ -1636,6 +1667,11 @@
     applyLock();
     renderDevices();
     renderDiscovery();
+    // Entsperrt sieht man je nach Privatsphäre-Einstellung mehr (Online-Status, Suchtreffer).
+    reconnectEvents();
+    reloadInfo();
+    loadDevices();
+    loadDiscovery();
   }
   $("#lock-toggle").addEventListener("click", async () => {
     if (state.info.locked) {

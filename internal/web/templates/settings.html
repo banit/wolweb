@@ -172,6 +172,29 @@ ip link set eth0.20 up</code></pre>
       <p class="muted small">{{.T "set.sec.credentials"}}</p>
     </section>
 
+    <!-- Privatsphäre -->
+    <section class="set-section" aria-labelledby="sec-privacy">
+      <h2 id="sec-privacy">{{.T "set.privacy.title"}}</h2>
+      <fieldset class="checks" data-key="privacy.online_status">
+        <legend>{{.T "set.privacy.status"}}</legend>
+        <div class="radio-list">
+          <label class="check">
+            <input type="radio" name="privacy.online_status" value="all" aria-describedby="hint-privacy-all">
+            <span>{{.T "set.privacy.all"}}<small class="muted" id="hint-privacy-all">{{.T "set.privacy.all_hint"}}</small></span>
+          </label>
+          <label class="check">
+            <input type="radio" name="privacy.online_status" value="unlocked" aria-describedby="hint-privacy-unlocked">
+            <span>{{.T "set.privacy.unlocked"}}<small class="muted" id="hint-privacy-unlocked">{{.T "set.privacy.unlocked_hint"}}</small>
+              <small class="warn-note" id="privacy-no-pw" hidden>{{.T "set.privacy.unlocked_no_pw"}}</small></span>
+          </label>
+          <label class="check">
+            <input type="radio" name="privacy.online_status" value="none" aria-describedby="hint-privacy-none">
+            <span>{{.T "set.privacy.none"}}<small class="muted" id="hint-privacy-none">{{.T "set.privacy.none_hint"}}</small></span>
+          </label>
+        </div>
+      </fieldset>
+    </section>
+
     <!-- Allgemein -->
     <section class="set-section" aria-labelledby="sec-general">
       <h2 id="sec-general">{{.T "set.general.title"}}</h2>

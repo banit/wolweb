@@ -262,7 +262,7 @@ a { color: var(--accent); }
 }
 .card[data-state="online"] .dev-icon::after { background: var(--ok); }
 .card[data-state="offline"] .dev-icon::after { background: var(--idle); }
-.card[data-state="unknown"] .dev-icon::after { display: none; }
+.card[data-state="unknown"] .dev-icon::after, .card[data-state="hidden"] .dev-icon::after { display: none; }
 .card[data-state="waking"] .dev-icon { background: var(--accent-soft); color: var(--accent); }
 .card[data-state="waking"] .dev-icon::after { background: var(--accent); animation: blink 1s ease-in-out infinite; }
 @keyframes blink { 50% { opacity: .25; } }
@@ -697,6 +697,8 @@ input:disabled, textarea:disabled, select:disabled { background: var(--surface-2
 .pw-state::before { content: ""; width: .6rem; height: .6rem; border-radius: 50%; background: var(--warn); flex: none; }
 .pw-state.ok::before { background: var(--ok); }
 .pw-form { display: grid; gap: .8rem; }
+.radio-list { display: grid; gap: .75rem; }
+.check .warn-note { display: block; margin-top: .25rem; }
 .accent-field { border: 0; padding: 0; margin: 0; min-width: 0; }
 .accent-field legend { font-size: .85rem; font-weight: 600; padding: 0; margin-bottom: .45rem; }
 .swatches { display: flex; flex-wrap: wrap; gap: .45rem; margin-bottom: .35rem; }

@@ -340,11 +340,12 @@ type pageData struct {
 	Host    string // abgelehnter Hostname (blocked.html)
 	Group   *groupView
 
-	Lang       i18n.Lang         // Sprache der Seite
-	OtherLang  i18n.Lang         // Ziel des Umschalters
-	I18N       map[string]string // Katalog für die Skripte (als JSON in der Seite)
-	Accent     string            // Akzentfarbe (data-accent) und ihre Farbe für theme-color
-	ThemeColor string
+	Lang         i18n.Lang         // Sprache der Seite
+	OtherLang    i18n.Lang         // Ziel des Umschalters
+	I18N         map[string]string // Katalog für die Skripte (als JSON in der Seite)
+	StatusHidden bool              // Online-Status für diesen Aufruf ausgeblendet (Privatsphäre)
+	Accent       string            // Akzentfarbe (data-accent) und ihre Farbe für theme-color
+	ThemeColor   string
 }
 
 // T übersetzt in Vorlagen: {{.T "page.save"}}, {{.T "wake.title.starting" .Device.Name}}.
@@ -394,7 +395,8 @@ type deviceView struct {
 	NextWake   *time.Time    `json:"next_wake,omitempty"` // nächste Weckzeit laut Zeitplan
 }
 
-func (s *Server) view(d store.Device) deviceView {
+// view baut die Ansicht eines Geräts; ohne showStatus fehlt der Online-Status (Privatsphäre).
+func (s *Server) view(d store.Device, showStatus bool) deviceView {
 	v := deviceView{Device: d, WakeTarget: s.wakeTarget(d), WakePath: "wake/" + pathEscape(d.Name)}
 	if ip, _ := s.monitor.Target(d); ip.IsValid() {
 		v.CheckIP = ip.String()
@@ -403,7 +405,7 @@ func (s *Server) view(d store.Device) deviceView {
 		v.LastWake = &t
 	}
 	v.NextWake = nextWake(d)
-	if st, ok := s.monitor.Get(d.ID); ok {
+	if st, ok := s.monitor.Get(d.ID); ok && showStatus {
 		v.Status = &st
 	}
 	return v
@@ -449,9 +451,10 @@ func (s *Server) defaultBroadcast() string {
 
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	devices, _ := s.store.Devices()
+	show := s.statusVisible(r)
 	out := make([]deviceView, 0, len(devices))
 	for _, d := range devices {
-		out = append(out, s.view(d))
+		out = append(out, s.view(d, show))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -470,7 +473,7 @@ func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Device added: %s (%s)", d.Name, d.MAC)
 	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
-	writeJSON(w, http.StatusCreated, s.view(d))
+	writeJSON(w, http.StatusCreated, s.view(d, s.statusVisible(r)))
 }
 
 func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
@@ -490,7 +493,7 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Device changed: %s (%s)", d.Name, d.MAC)
 	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
-	writeJSON(w, http.StatusOK, s.view(d))
+	writeJSON(w, http.StatusOK, s.view(d, s.statusVisible(r)))
 }
 
 // setGroup ordnet mehrere Geräte auf einmal einer Gruppe zu (Mehrfachauswahl in der Übersicht);
@@ -520,8 +523,9 @@ func (s *Server) setGroup(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Group %q set for %d devices", group, len(devs))
 	s.devicesChanged()
 	out := make([]deviceView, 0, len(devs))
+	show := s.statusVisible(r)
 	for _, d := range devs {
-		out = append(out, s.view(d))
+		out = append(out, s.view(d, show))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"group": group, "devices": out})
 }
@@ -544,13 +548,17 @@ func (s *Server) rotateWakeKey(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("New wake key for %s", d.Name)
 	s.devicesChanged()
-	writeJSON(w, http.StatusOK, s.view(d))
+	writeJSON(w, http.StatusOK, s.view(d, s.statusVisible(r)))
 }
 
 func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.store.Get(r.PathValue("id"))
 	if !ok {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
+		return
+	}
+	if !s.statusVisible(r) {
+		s.statusHidden(w, r)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
@@ -766,8 +774,9 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, to, http.StatusTemporaryRedirect) // nicht dauerhaft: der Name kann neu vergeben werden
 			return
 		}
-		v := s.view(d)
-		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds())}
+		show := s.statusVisible(r)
+		v := s.view(d, show)
+		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !show}
 		if s.needsKey(r) {
 			pd.Key = d.WakeKey
 		}
@@ -779,7 +788,8 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, code := s.wake(r, d, srcLink, "")
-	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); res.Success && wait > 0 {
+	// ?wait verriete, ob das Gerät läuft – bei ausgeblendetem Status bleibt es beim Senden.
+	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); res.Success && wait > 0 && s.statusVisible(r) {
 		if ip, _ := s.monitor.Target(d); !ip.IsValid() {
 			// Ohne IP lässt sich nichts prüfen – "online" bleibt weg statt eines falschen false.
 			res.Message = i18n.T(s.lang(r), "msg.wake_no_ip", d.Name)
@@ -827,6 +837,10 @@ func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
+	if !s.statusVisible(r) {
+		s.statusHidden(w, r)
+		return
+	}
 	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
 }
 
@@ -838,10 +852,14 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		limit = 200
 	}
 	events := s.store.History(limit)
+	show := s.statusVisible(r)
 	for i := range events {
 		events[i] = events[i].Localized(s.lang(r))
+		if !show { // ob und wann ein Gerät lief, gehört zum Online-Status
+			events[i].Checkable, events[i].WasOnline, events[i].Started = false, false, nil
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": events})
+	writeJSON(w, http.StatusOK, map[string]any{"events": events, "status_hidden": !show})
 }
 
 func (s *Server) export(w http.ResponseWriter, r *http.Request) {
@@ -896,7 +914,9 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"wake_retry":        int(s.rt().wakeRetry.Seconds()),
 		"ports":             s.conf().Status.Ports,
 		"wake_keys":         s.conf().Auth.WakeKeys && s.conf().AuthEnabled(),
-		"timezone":          localZone(), // Zeitpläne laufen in der Ortszeit des Servers
+		"timezone":          localZone(),         // Zeitpläne laufen in der Ortszeit des Servers
+		"status_hidden":     !s.statusVisible(r), // Privatsphäre: kein Online-Status für diese Anfrage
+		"found_hidden":      !s.foundVisible(r),  // … und keine Suchtreffer
 		"accent":            s.conf().Accent,
 		"theme_color":       config.AccentColor(s.conf().Accent),
 		"password":          s.store.HasPassword(), // Bearbeitungsschutz eingerichtet
@@ -910,12 +930,14 @@ type foundView struct {
 }
 
 func (s *Server) discovery(w http.ResponseWriter, r *http.Request) {
-	list := s.store.FoundList()
-	out := make([]foundView, 0, len(list))
-	for _, f := range list {
-		out = append(out, foundView{FoundEntry: f, Broadcast: discovery.BroadcastFor(f.IP)})
+	out := []foundView{}
+	hidden := !s.foundVisible(r) // Privatsphäre: Treffer verraten, wer im Netz ist
+	if !hidden {
+		for _, f := range s.store.FoundList() {
+			out = append(out, foundView{FoundEntry: f, Broadcast: discovery.BroadcastFor(f.IP)})
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"job": s.scanner.Job().Localized(s.lang(r)), "found": out})
+	writeJSON(w, http.StatusOK, map[string]any{"job": s.scanner.Job().Localized(s.lang(r)), "found": out, "hidden": hidden})
 }
 
 func (s *Server) startScan(w http.ResponseWriter, r *http.Request) {

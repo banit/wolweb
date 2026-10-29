@@ -91,6 +91,7 @@
     setField("auth.wake_keys", s.auth.wake_keys);
     setField("allowed_hosts", (s.allowed_hosts || []).join("\n"));
     setField("language", s.language);
+    setField("privacy.online_status", s.privacy.online_status);
     renderAccents(s.accent);
     renderEvents(s.notify.events || []);
     renderRejected(v.rejected_hosts || []);
@@ -124,6 +125,7 @@
     $("#net-add").disabled = !!locked("discovery.networks") || v.read_only;
     $("#notify-test").disabled = v.read_only;
     renderPassword();
+    renderPrivacyNote();
     loadGroups();
     showLockscreen(false);
     setDirty(false);
@@ -311,6 +313,7 @@
     return {
       language: form.elements.language.value,
       accent: (form.querySelector('input[name="accent"]:checked') || {}).value || view.settings.accent,
+      privacy: { online_status: form.elements["privacy.online_status"].value || view.settings.privacy.online_status },
       bcastip: v("bcastip"),
       allowed_hosts: splitList(form.elements.allowed_hosts.value),
       discovery: { networks, interval: v("discovery.interval") },
@@ -364,6 +367,16 @@
     }
   });
 
+  // „Nur nach dem Entsperren“ ohne Passwort heißt: niemand sieht den Status – darauf hinweisen.
+  function renderPrivacyNote() {
+    const show = !!view && !view.password && form.elements["privacy.online_status"].value === "unlocked";
+    $("#privacy-no-pw").hidden = !show;
+    // nur ansagen, was zu sehen ist (ein verborgenes, aber verknüpftes Element läse der Screenreader mit)
+    form.querySelector('input[name="privacy.online_status"][value="unlocked"]')
+      .setAttribute("aria-describedby", show ? "hint-privacy-unlocked privacy-no-pw" : "hint-privacy-unlocked");
+  }
+  form.addEventListener("change", (e) => { if (e.target.name === "privacy.online_status") renderPrivacyNote(); });
+
   // ---------- Passwort für Änderungen ----------
   const pwForm = $("#pw-form");
   function renderPassword() {
@@ -408,6 +421,7 @@
     try {
       await api("PUT", "password", { current, password });
       view.password = !!password;
+      renderPrivacyNote();
       for (const i of pwForm.querySelectorAll("input")) i.value = "";
       $("#set-no-auth").hidden = view.auth || view.password;
       renderPassword();

@@ -19,7 +19,7 @@
 </head>
 <body class="wake-page">
 {{template "icons"}}
-<main class="wake-card" id="group" data-name="{{.Group.Name}}" data-path="{{.Group.Path}}" data-key="{{.Key}}"
+<main class="wake-card" id="group" data-name="{{.Group.Name}}" data-path="{{.Group.Path}}" data-key="{{.Key}}" {{if .StatusHidden}}data-status-hidden="1"{{end}}
   data-timeout="{{.Timeout}}" data-retry="{{.Retry}}" data-state="start">
   <div class="wake-visual">
     <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
@@ -35,7 +35,7 @@
 
   <ul class="members" id="members">
     {{range .Group.Members}}
-    <li data-id="{{.ID}}" data-has-ip="{{if .CheckIP}}1{{end}}" data-s="">
+    <li data-id="{{.ID}}" data-has-ip="{{if and .CheckIP (not $.StatusHidden)}}1{{end}}" data-s="">
       <span class="dev-icon"><svg aria-hidden="true" class="ico"><use href="#i-{{.Icon}}"/></svg></span>
       <div><strong>{{.Name}}</strong><small class="muted" data-detail>{{if .CheckIP}}{{.CheckIP}}{{else}}{{$.T "group.no_ip"}}{{end}}</small></div>
       <span class="pill" data-pill>{{$.T "group.pill.waiting"}}</span>

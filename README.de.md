@@ -273,6 +273,7 @@ geändert wurde, fehlt danach.
   Gerät). `GET /api/v1/groups` nennt auch leere Gruppen, in ihrer Reihenfolge. Eine ältere Version verwirft
   `groups` und `order` beim Speichern – die Sicherung (siehe oben) enthält den Stand vor dem Update.
 - *Akzentfarbe* (neu): Standard `indigo` wie bisher.
+- *Privatsphäre* (neu): `privacy.online_status` blendet den Online-Status aus; Standard `all` wie bisher.
 
 **Was sich mit 1.2 ändert – und ob du etwas tun musst:**
 
@@ -307,9 +308,9 @@ geändert wurde, fehlt danach.
 
 Das Zahnrad oben rechts öffnet die Einstellungsseite (`/settings`). Dort lassen sich die Netze und VLANs,
 Netzwerksuche, Online-Prüfung, Wartezeiten, Benachrichtigungen (mit „Testnachricht senden“), öffentliche Wecklinks,
-erlaubte Hostnamen, die Standardsprache und die Akzentfarbe ändern (17 Farben, jeweils hell und dunkel). Änderungen
-gelten sofort, ohne Neustart. Gruppen und das Passwort für Änderungen haben dort eigene Bereiche, die sofort
-speichern.
+erlaubte Hostnamen, wer den Online-Status sieht ([Privatsphäre](#privatsphäre)), die Standardsprache und die
+Akzentfarbe ändern (17 Farben, jeweils hell und dunkel). Änderungen gelten sofort, ohne Neustart. Gruppen und das
+Passwort für Änderungen haben dort eigene Bereiche, die sofort speichern.
 
 - **Reihenfolge** (das Spätere gewinnt): Standardwerte, `config.json`, die Einstellungsseite, Umgebungsvariablen.
 - **Gespeichert** wird in `data/settings.json` – im Datenverzeichnis, weil das immer beschreibbar ist (`config.json`
@@ -354,6 +355,25 @@ Unten auf der Einstellungsseite lässt sich ein Passwort für Änderungen setzen
 
   Ohne Docker: den Dienst anhalten, `wolweb -c config.json -reset-password` mit derselben Konfiguration ausführen
   (damit es das Datenverzeichnis findet) und den Dienst wieder starten.
+
+### Privatsphäre
+
+Unter „Privatsphäre“ auf der Einstellungsseite legst du fest, wer sieht, ob Geräte laufen (`privacy.online_status`):
+
+| Auswahl | Wert | Wer sieht den Online-Status |
+|---|---|---|
+| Für alle anzeigen | `all` (Standard) | jeder, der wolweb aufruft |
+| Nur nach dem Entsperren anzeigen | `unlocked` | nur Browser, die mit dem [Passwort für Änderungen](#passwort-für-änderungen) entsperrt sind, und Automationen mit `auth.api_token` – etwa zur Fehlersuche. Ohne Passwort für Änderungen sieht ihn niemand. |
+| Für niemanden anzeigen | `none` | niemand, auch nicht nach dem Entsperren |
+
+Ausgeblendet heißt überall, nicht nur in der Übersicht: Die Karten zeigen keinen Status, keinen grünen Punkt und
+kein „Erneut wecken“, der Filter Online/Offline entfällt, Gruppen nennen nur die Zahl ihrer Geräte, und nach dem
+Wecken läuft keine Startuhr. Der Server lässt den Status aus `/api/v1/devices` und `/api/v1/groups`, den
+Live-Ereignissen, `/metrics` und dem Verlauf weg; die `…/status`-Aufrufe antworten 403 mit `"hidden": true`;
+Weck- und Gruppenseiten senden nur noch und verfolgen den Start nicht, `?wait=` wird ignoriert. Auch die
+Suchtreffer verraten, wer im Netz ist – bei `unlocked` und `none` sehen sie nur Entsperrte. Geprüft wird im
+Hintergrund weiter, für die automatische Wiederholung und die Benachrichtigungen (deren Ereignisse wählst du
+getrennt). Die Anmeldung per HTTP Basic zählt nicht als entsperrt, wie beim Passwort für Änderungen.
 
 ## Mehrere Netze und VLANs
 
@@ -477,6 +497,7 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `notify.webhook` | `WOLWEB_WEBHOOK` | – | URL, die jedes Ereignis als JSON per POST bekommt |
 | `notify.ntfy` | `WOLWEB_NTFY` | – | ntfy-Thema, z. B. `https://ntfy.sh/mein-geheimes-thema` |
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | alle | Auswahl aus `online`, `offline`, `wake`, `wake_failed` |
+| `privacy.online_status` | `WOLWEB_ONLINE_STATUS` | `all` | wer sieht, ob Geräte laufen: `all`, `unlocked` (nur nach dem Entsperren) oder `none` (siehe [Privatsphäre](#privatsphäre)) |
 
 `devices.json` enthält nur, was man selbst einträgt; was wolweb beobachtet (zuletzt geweckt, zuletzt online, die
 letzten 500 Weckversuche) steht in `state.json`. Der Export unten auf der Seite sichert die Geräte samt

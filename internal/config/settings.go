@@ -31,6 +31,7 @@ var EditableKeys = []string{
 	"status.interval", "status.ports", "status.wake_timeout", "status.wake_retry",
 	"auth.public_wake", "auth.wake_keys",
 	"notify.webhook", "notify.ntfy", "notify.events",
+	"privacy.online_status",
 }
 
 // Editable sind die Einstellungen, die die Oberfläche ändern darf (Aufbau wie in config.json).
@@ -48,7 +49,8 @@ type Editable struct {
 		PublicWake bool `json:"public_wake"`
 		WakeKeys   bool `json:"wake_keys"`
 	} `json:"auth"`
-	Notify Notify `json:"notify"`
+	Notify  Notify  `json:"notify"`
+	Privacy Privacy `json:"privacy"`
 }
 
 // Editable liefert den änderbaren Teil (Listen nie nil, damit leer und "nicht gesetzt" gleich
@@ -63,6 +65,7 @@ func (c Config) Editable() Editable {
 	e.Auth.PublicWake, e.Auth.WakeKeys = c.Auth.PublicWake, c.Auth.WakeKeys
 	e.Notify = c.Notify
 	e.Notify.Events = nonNil(e.Notify.Events)
+	e.Privacy = c.Privacy
 	return e
 }
 
@@ -74,6 +77,7 @@ func (e Editable) applyTo(c *Config) {
 	c.Auth.PublicWake, c.Auth.WakeKeys = e.Auth.PublicWake, e.Auth.WakeKeys
 	c.Notify = e.Notify
 	c.Notify.Events = slices.Clone(e.Notify.Events)
+	c.Privacy = e.Privacy
 }
 
 func nonNil[T any](s []T) []T {

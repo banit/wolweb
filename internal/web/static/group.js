@@ -15,6 +15,8 @@
   const recheckBtn = document.getElementById("group-check");
   const note = document.getElementById("group-note"); // wie lange geprüft wird
   const items = [...document.querySelectorAll("#members li")];
+  // Privatsphäre: Online-Status ausgeblendet – dann geht nur der Weckruf raus, ohne Start zu verfolgen.
+  const hidden = card.dataset.statusHidden === "1";
   const live = document.getElementById("group-live"); // sagt Screenreadern die Phasen an
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -150,7 +152,7 @@
     const online = watch.filter((li) => li.dataset.s === "online").length;
     const failed = items.filter((li) => li.dataset.s === "error").length;
     const unchecked = items.filter((li) => li.dataset.s === "skip").length; // ohne IP: gesendet, Start nicht prüfbar
-    sub.textContent = t("ui.x_of_y_online", online, watch.length);
+    sub.textContent = hidden ? tn("ui.n_devices", items.length) : t("ui.x_of_y_online", online, watch.length);
     if (!failed && online === watch.length && !unchecked) {
       // Alle geprüft und erreichbar: Start bestätigt
       card.dataset.state = "online";
@@ -161,7 +163,7 @@
       card.dataset.state = "sent";
       setTitle(t("group.title.sent"));
       show("sent", watch.length ? t("group.result.mixed", online, items.length) : t("wake.result.sent"),
-        watch.length ? tn("group.result.mixed_rest", unchecked) : t("group.result.no_ip"));
+        watch.length ? tn("group.result.mixed_rest", unchecked) : hidden ? t("group.result.hidden") : t("group.result.no_ip"));
     } else {
       card.dataset.state = "timeout";
       setTitle(t("group.title.partial"));
