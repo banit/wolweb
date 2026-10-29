@@ -146,6 +146,7 @@ type groupResult struct {
 	Message string       `json:"message"`
 	Group   string       `json:"group"`
 	Results []wakeResult `json:"results"`
+	Watch   string       `json:"watch,omitempty"` // wie bei wakeResult: Start verfolgen trotz ausgeblendetem Status
 }
 
 // wakeGroup weckt alle Geräte einer Gruppe; Erfolg nur, wenn jedes Paket rausging.
@@ -237,10 +238,16 @@ func (s *Server) groupLinkPost(w http.ResponseWriter, r *http.Request) {
 	s.groupWakeNow(w, r, name, members, srcGroupPage)
 }
 
+// watchGroup: Ziel des watchToken einer Gruppe.
+func watchGroup(name string) string { return "group:" + name }
+
 func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name string, members []store.Device, source string) {
 	res, code := s.wakeGroup(r, name, members, source)
-	// ?wait verriete, welche Geräte laufen – bei ausgeblendetem Status bleibt es beim Senden.
-	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); wait > 0 && code == http.StatusOK && s.statusVisible(r) {
+	if code == http.StatusOK && source == srcGroupPage && !s.statusVisible(r) {
+		res.Watch = s.watchToken(watchGroup(name)) // die Gruppenseite verfolgt damit den Start
+	}
+	// Wer weckt, sieht auch bei ausgeblendetem Online-Status, ob die Geräte starten.
+	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); wait > 0 && code == http.StatusOK {
 		// Alle Geräte mit IP gleichzeitig abwarten.
 		var wg sync.WaitGroup
 		for i, d := range members {
@@ -260,12 +267,12 @@ func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name strin
 }
 
 func (s *Server) groupLinkStatus(w http.ResponseWriter, r *http.Request) {
-	_, members, ok := s.findGroupForLink(r)
+	name, members, ok := s.findGroupForLink(r)
 	if !ok {
 		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 		return
 	}
-	if !s.statusVisible(r) {
+	if !s.statusVisible(r) && !s.watching(r, watchGroup(name)) {
 		s.statusHidden(w, r)
 		return
 	}

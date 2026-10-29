@@ -581,6 +581,8 @@ type wakeResult struct {
 	Target  string `json:"target,omitempty"`
 	Online  *bool  `json:"online,omitempty"`
 	Already bool   `json:"already,omitempty"` // eben erst geweckt – kein neuer Weckruf, der Start läuft
+	// Watch: Bei ausgeblendetem Online-Status darf die Weckseite damit den Start verfolgen (privacy.go).
+	Watch string `json:"watch,omitempty"`
 }
 
 // caller beschreibt den Aufrufer für den Verlauf: IP-Adresse (hinter einem Reverse-Proxy samt
@@ -788,8 +790,8 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, code := s.wake(r, d, srcLink, "")
-	// ?wait verriete, ob das Gerät läuft – bei ausgeblendetem Status bleibt es beim Senden.
-	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); res.Success && wait > 0 && s.statusVisible(r) {
+	// Wer weckt, sieht auch bei ausgeblendetem Online-Status, ob das Gerät startet.
+	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); res.Success && wait > 0 {
 		if ip, _ := s.monitor.Target(d); !ip.IsValid() {
 			// Ohne IP lässt sich nichts prüfen – "online" bleibt weg statt eines falschen false.
 			res.Message = i18n.T(s.lang(r), "msg.wake_no_ip", d.Name)
@@ -828,6 +830,9 @@ func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, code := s.wake(r, d, srcPage, "")
+	if res.Success && !s.statusVisible(r) {
+		res.Watch = s.watchToken("device:" + d.ID) // die Weckseite verfolgt damit den Start
+	}
 	writeJSON(w, code, res)
 }
 
@@ -837,7 +842,7 @@ func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
-	if !s.statusVisible(r) {
+	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
 		s.statusHidden(w, r)
 		return
 	}

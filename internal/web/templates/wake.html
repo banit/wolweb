@@ -20,7 +20,7 @@
 <body class="wake-page">
 {{template "icons"}}
 <main class="wake-card" id="wake"
-  {{with .Device}}data-name="{{.Name}}" data-path="{{.WakePath}}" data-has-ip="{{if and .CheckIP (not $.StatusHidden)}}1{{end}}" data-target="{{.WakeTarget}}"{{end}} data-key="{{.Key}}"
+  {{with .Device}}data-name="{{.Name}}" data-path="{{.WakePath}}" data-has-ip="{{if .CheckIP}}1{{end}}" data-target="{{.WakeTarget}}"{{end}} data-key="{{.Key}}"
   {{if .StatusHidden}}data-status-hidden="1"{{end}}
   data-timeout="{{.Timeout}}" data-retry="{{.Retry}}" data-state="{{if .Device}}start{{else}}missing{{end}}">
 {{if .Device}}
@@ -49,7 +49,7 @@
       {{if .Device.CheckIP}}<dt>{{.T "ui.ip_address"}}</dt><dd class="mono">{{.Device.CheckIP}}</dd>{{end}}
       <dt>{{.T "ui.mac_address"}}</dt><dd class="mono">{{.Device.MAC}}</dd>
       <dt>{{.T "wake.tech.target"}}</dt><dd class="mono" id="tech-target">{{.Device.WakeTarget}}</dd>
-      {{if not .StatusHidden}}<dt>{{.T "wake.tech.answer"}}</dt><dd id="tech-answer">–</dd>{{end}}
+      <dt>{{.T "wake.tech.answer"}}</dt><dd id="tech-answer">–</dd>
     </dl>
   </details>
   <p class="sr-only" id="wake-live" role="status"></p>

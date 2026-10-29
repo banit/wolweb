@@ -15,8 +15,10 @@
   const recheckBtn = document.getElementById("group-check");
   const note = document.getElementById("group-note"); // wie lange geprüft wird
   const items = [...document.querySelectorAll("#members li")];
-  // Privatsphäre: Online-Status ausgeblendet – dann geht nur der Weckruf raus, ohne Start zu verfolgen.
+  // Privatsphäre: Online-Status ausgeblendet. Den Start verfolgt die Seite trotzdem – mit dem Schlüssel
+  // aus der Weckantwort ("watch"); fehlt er, bleibt es beim Senden.
   const hidden = card.dataset.statusHidden === "1";
+  let follow = "";
   const live = document.getElementById("group-live"); // sagt Screenreadern die Phasen an
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -103,11 +105,12 @@
       running = false;
       return;
     }
+    if (sent.watch) follow = sent.watch;
     const byID = new Map((sent.results || []).map((r) => [r.id, r]));
     for (const li of items) {
       const r = byID.get(li.dataset.id);
       if (!r || !r.success) mark(li, "error", t("ui.error"), (r && r.error) || t("group.not_sent"));
-      else if (li.dataset.hasIp) mark(li, "sent", t("group.pill.starting"), r.already ? t("group.already") : undefined);
+      else if (li.dataset.hasIp && (!hidden || follow)) mark(li, "sent", t("group.pill.starting"), r.already ? t("group.already") : undefined);
       else mark(li, "skip", t("group.pill.sent"));
     }
     const watch = items.filter((li) => li.dataset.s === "sent");
@@ -136,7 +139,7 @@
   // poll fragt den Stand der Mitglieder ab und markiert die, die jetzt antworten.
   async function poll(start) {
     try {
-      const st = await call("GET", path + "/status" + query);
+      const st = await call("GET", path + "/status" + query + (follow ? (query ? "&" : "?") + "watch=" + encodeURIComponent(follow) : ""));
       for (const m of st.members || []) {
         const li = items.find((x) => x.dataset.id === m.id);
         if (li && (li.dataset.s === "sent" || li.dataset.s === "late") && m.status && m.status.state === "online") {
@@ -152,7 +155,7 @@
     const online = watch.filter((li) => li.dataset.s === "online").length;
     const failed = items.filter((li) => li.dataset.s === "error").length;
     const unchecked = items.filter((li) => li.dataset.s === "skip").length; // ohne IP: gesendet, Start nicht prüfbar
-    sub.textContent = hidden ? tn("ui.n_devices", items.length) : t("ui.x_of_y_online", online, watch.length);
+    sub.textContent = hidden && !follow ? tn("ui.n_devices", items.length) : t("ui.x_of_y_online", online, watch.length);
     if (!failed && online === watch.length && !unchecked) {
       // Alle geprüft und erreichbar: Start bestätigt
       card.dataset.state = "online";
@@ -163,7 +166,7 @@
       card.dataset.state = "sent";
       setTitle(t("group.title.sent"));
       show("sent", watch.length ? t("group.result.mixed", online, items.length) : t("wake.result.sent"),
-        watch.length ? tn("group.result.mixed_rest", unchecked) : hidden ? t("group.result.hidden") : t("group.result.no_ip"));
+        watch.length ? tn("group.result.mixed_rest", unchecked) : hidden && !follow ? t("group.result.hidden") : t("group.result.no_ip"));
     } else {
       card.dataset.state = "timeout";
       setTitle(t("group.title.partial"));

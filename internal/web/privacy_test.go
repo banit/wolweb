@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -75,9 +76,9 @@ func TestOnlineStatusForUnlockedOnly(t *testing.T) {
 	guest := &browser{t: t, h: h}
 	allSame(t, "Gast", seesStatus(t, guest, d), false)
 
-	// Wecken geht weiter; ?wait verrät nichts
+	// Wer weckt, startet das Gerät ohnehin: ?wait sagt auch Gästen, ob es hochkommt.
 	rec := guest.do("GET", "/wake/NAS?wait=5", "")
-	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"online"`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"online":true`) {
 		t.Fatalf("Wecken mit ?wait: %d %s", rec.Code, rec.Body)
 	}
 	// Verlauf ohne Angaben zum Start
@@ -158,5 +159,55 @@ func TestStatusEventsFiltered(t *testing.T) {
 	s.statusChanged(d, status.State{State: "online"}, true, status.State{State: "offline"})
 	if !got(guest) {
 		t.Fatal("all: Gast bekommt keinen Status")
+	}
+}
+
+// Wer über die Weckseite weckt, bekommt einen Schlüssel, mit dem er den Start verfolgen darf – nur
+// für dieses Gerät (bzw. diese Gruppe) und nur, wenn der Status sonst ausgeblendet ist.
+func TestWakeLinkWatchToken(t *testing.T) {
+	_, h, d := privacyServer(t, "none")
+	guest := &browser{t: t, h: h}
+	watchOf := func(rec *httptest.ResponseRecorder) string {
+		var v struct{ Watch string }
+		json.Unmarshal(rec.Body.Bytes(), &v)
+		return v.Watch
+	}
+	tok := watchOf(guest.do("POST", "/wake/NAS", ""))
+	if tok == "" {
+		t.Fatal("kein Schlüssel in der Weckantwort")
+	}
+	if rec := guest.do("GET", "/wake/NAS/status", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("ohne Schlüssel: %d", rec.Code)
+	}
+	if rec := guest.do("GET", "/wake/NAS/status?watch="+tok, ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"state":"online"`) {
+		t.Fatalf("mit Schlüssel: %d %s", rec.Code, rec.Body)
+	}
+	if rec := guest.do("GET", "/wake/NAS/status?watch="+flipLast(tok), ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("veränderter Schlüssel: %d", rec.Code)
+	}
+	// Der Schlüssel gilt nicht für die Liste und nicht für die Gruppe.
+	if strings.Contains(guest.do("GET", "/api/v1/devices?watch="+tok, "").Body.String(), `"status"`) {
+		t.Fatal("Schlüssel öffnet die Geräteliste")
+	}
+	if rec := guest.do("GET", "/wake-group/B%C3%BCro/status?watch="+tok, ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("Geräteschlüssel für die Gruppe: %d", rec.Code)
+	}
+	// Gruppe: eigener Schlüssel
+	gtok := watchOf(guest.do("POST", "/wake-group/B%C3%BCro", ""))
+	if gtok == "" {
+		t.Fatal("kein Schlüssel in der Gruppenantwort")
+	}
+	if rec := guest.do("GET", "/wake-group/B%C3%BCro/status?watch="+gtok, ""); rec.Code != http.StatusOK {
+		t.Fatalf("Gruppe mit Schlüssel: %d %s", rec.Code, rec.Body)
+	}
+	if rec := guest.do("GET", "/api/v1/devices/"+d.ID+"/status?watch="+gtok, ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("Gruppenschlüssel für das Gerät: %d", rec.Code)
+	}
+}
+
+func TestWakeLinkNoWatchWhenVisible(t *testing.T) {
+	_, h, _ := privacyServer(t, "all")
+	if body := (&browser{t: t, h: h}).do("POST", "/wake/NAS", "").Body.String(); strings.Contains(body, `"watch"`) {
+		t.Fatalf("Schlüssel, obwohl der Status sichtbar ist: %s", body)
 	}
 }

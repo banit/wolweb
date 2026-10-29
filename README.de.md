@@ -362,18 +362,21 @@ Unter „Privatsphäre“ auf der Einstellungsseite legst du fest, wer sieht, ob
 
 | Auswahl | Wert | Wer sieht den Online-Status |
 |---|---|---|
-| Für alle anzeigen | `all` (Standard) | jeder, der wolweb aufruft |
+| Für alle anzeigen (Standard) | `all` | jeder, der wolweb aufruft |
 | Nur nach dem Entsperren anzeigen | `unlocked` | nur Browser, die mit dem [Passwort für Änderungen](#passwort-für-änderungen) entsperrt sind, und Automationen mit `auth.api_token` – etwa zur Fehlersuche. Ohne Passwort für Änderungen sieht ihn niemand. |
 | Für niemanden anzeigen | `none` | niemand, auch nicht nach dem Entsperren |
 
 Ausgeblendet heißt überall, nicht nur in der Übersicht: Die Karten zeigen keinen Status, keinen grünen Punkt und
 kein „Erneut wecken“, der Filter Online/Offline entfällt, Gruppen nennen nur die Zahl ihrer Geräte, und nach dem
 Wecken läuft keine Startuhr. Der Server lässt den Status aus `/api/v1/devices` und `/api/v1/groups`, den
-Live-Ereignissen, `/metrics` und dem Verlauf weg; die `…/status`-Aufrufe antworten 403 mit `"hidden": true`;
-Weck- und Gruppenseiten senden nur noch und verfolgen den Start nicht, `?wait=` wird ignoriert. Auch die
-Suchtreffer verraten, wer im Netz ist – bei `unlocked` und `none` sehen sie nur Entsperrte. Geprüft wird im
-Hintergrund weiter, für die automatische Wiederholung und die Benachrichtigungen (deren Ereignisse wählst du
-getrennt). Die Anmeldung per HTTP Basic zählt nicht als entsperrt, wie beim Passwort für Änderungen.
+Live-Ereignissen, `/metrics` und dem Verlauf weg; die `…/status`-Aufrufe antworten 403 mit `"hidden": true`.
+**Ausnahme Wecklinks:** Wer ein Gerät über seinen Weck- oder Gruppenlink weckt, startet es ohnehin – die Seite
+zeigt deshalb weiter, ob es hochkommt (die Weckantwort bringt einen kurzlebigen Schlüssel `watch` mit, den
+`…/status?watch=…` 15 Minuten lang annimmt), und `?wait=` funktioniert weiter. Nur die Vorabprüfung, ob das Gerät
+schon läuft, entfällt – sie verriete den Status, ohne zu wecken. Auch die Suchtreffer verraten, wer im Netz
+ist – bei `unlocked` und `none` sehen sie nur Entsperrte. Geprüft wird im Hintergrund weiter, für die automatische
+Wiederholung und die Benachrichtigungen (deren Ereignisse wählst du getrennt). Die Anmeldung per HTTP Basic zählt
+nicht als entsperrt, wie beim Passwort für Änderungen.
 
 ## Mehrere Netze und VLANs
 

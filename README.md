@@ -348,18 +348,21 @@ Under “Privacy” on the settings page you choose who sees whether devices are
 
 | Choice | Value | Who sees the online status |
 |---|---|---|
-| Show to everyone | `all` (default) | everyone who opens wolweb |
+| Show to everyone (default) | `all` | everyone who opens wolweb |
 | Show only after unlocking | `unlocked` | only browsers unlocked with the [password for changes](#password-for-changes) and automations with `auth.api_token` – for example to troubleshoot. Without a password for changes nobody sees it. |
 | Show to nobody | `none` | nobody, not even after unlocking |
 
 Hidden means hidden everywhere, not just in the overview: cards show no status, no green dot and no “Wake again”,
 the online/offline filter disappears, groups only count their devices, and after waking there is no start timer.
 The server leaves the status out of `/api/v1/devices` and `/api/v1/groups`, live events, `/metrics` and the
-history; `…/status` endpoints answer 403 with `"hidden": true`; wake and group pages only send and no longer
-follow the start, and `?wait=` is ignored. Scan results reveal who is on the network too – with `unlocked` and
-`none` only unlocked browsers see them. wolweb still checks the devices in the background, for the automatic
-retry and notifications (choose the notification events separately). The HTTP Basic login does not count as
-unlocked, as for the password for changes.
+history; `…/status` endpoints answer 403 with `"hidden": true`. **Wake links are the exception:** whoever wakes
+a device via its wake or group link starts it anyway, so the page still shows whether it comes up (the wake
+answer carries a short-lived `watch` key that `…/status?watch=…` accepts for 15 minutes), and `?wait=` keeps
+working. Only the check beforehand whether the device is already running is skipped – it would reveal the status
+without waking. Scan results reveal who is on the network too – with `unlocked` and `none` only unlocked browsers
+see them. wolweb still checks the devices in the background, for the automatic retry and notifications (choose
+the notification events separately). The HTTP Basic login does not count as unlocked, as for the password for
+changes.
 
 ## Multiple networks and VLANs
 

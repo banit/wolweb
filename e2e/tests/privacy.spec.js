@@ -63,17 +63,22 @@ test("Nur nach dem Entsperren: Gäste sehen keinen Status, Entsperrte schon", as
   await guest.context().close();
 });
 
-test("Weckseite ohne Status: nur senden, keine Startverfolgung", async ({ page, browser, request }) => {
-  await onlineDevice(request, "NAS");
+test("Wecklink trotz ausgeblendetem Status: ohne Vorabprüfung, aber mit Startbestätigung", async ({ page, browser, request }) => {
+  await onlineDevice(request, "NAS", { group: "Büro" });
   await setPassword(page);
   await choose(page, "Nur nach dem Entsperren anzeigen");
   const guest = await (await browser.newContext({ locale: "de-DE" })).newPage();
+  // Gerät: Wer weckt, startet es ohnehin – die Seite zeigt, ob es hochkommt.
   await guest.goto("wake/NAS");
-  await expect(guest.locator('[data-step="check"] [data-detail]')).toHaveText("Online-Status ausgeblendet");
-  await expect(guest.locator("#wake-result")).toContainText("Weckruf gesendet");
-  await expect(guest.locator("#wake-result")).toContainText("Privatsphäre");
-  await expect(guest.locator("#tech-answer")).toHaveCount(0);
-  await expect(guest.locator("#wake")).toHaveAttribute("data-state", "sent");
+  await expect(guest.locator('[data-step="check"] [data-detail]')).toHaveText("Übersprungen (Privatsphäre)");
+  await expect(guest.locator("#wake")).toHaveAttribute("data-state", "online", { timeout: 15000 });
+  await expect(guest.locator('[data-step="online"]')).toHaveAttribute("data-s", "done");
+  // Gruppe ebenso
+  await guest.goto("wake-group/B%C3%BCro");
+  await expect(guest.locator("#group")).toHaveAttribute("data-state", "online", { timeout: 15000 });
+  // Die Übersicht bleibt ohne Status.
+  await guest.goto("./");
+  await expect(card(guest, "NAS")).toHaveAttribute("data-state", "hidden");
   await guest.context().close();
 });
 
@@ -93,6 +98,6 @@ test("Ohne Passwort weist die Seite darauf hin, dass dann niemand den Status sie
   await page.getByRole("radio", { name: "Nur nach dem Entsperren anzeigen" }).check();
   await expect(page.locator("#privacy-no-pw")).toBeVisible();
   await expect(page.getByRole("radio", { name: "Nur nach dem Entsperren anzeigen" })).toHaveAttribute("aria-describedby", /privacy-no-pw/);
-  await page.getByRole("radio", { name: "Für alle anzeigen" }).check();
+  await page.getByRole("radio", { name: "Für alle anzeigen (Standard)" }).check();
   await expect(page.locator("#privacy-no-pw")).toBeHidden();
 });
