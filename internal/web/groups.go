@@ -36,23 +36,109 @@ type groupView struct {
 	Members []deviceView `json:"members"`
 }
 
-func (s *Server) groupView(name string, members []store.Device, withKey bool) groupView {
+// groupView: ohne showStatus fehlt der Online-Status der Mitglieder (Privatsphäre).
+func (s *Server) groupView(name string, members []store.Device, withKey, showStatus bool) groupView {
 	g := groupView{Name: name, Path: "wake-group/" + pathEscape(name), Members: []deviceView{}}
 	if withKey {
 		g.Key = s.groupKey(name)
 	}
 	for _, d := range members {
-		g.Members = append(g.Members, s.view(d))
+		g.Members = append(g.Members, s.view(d, showStatus))
 	}
 	return g
 }
 
+// listGroups liefert alle Gruppen in ihrer Reihenfolge, auch leere.
 func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
 	out := []groupView{}
+	show := s.statusVisible(r)
 	for _, name := range s.store.Groups() {
-		out = append(out, s.groupView(name, s.store.GroupMembers(name), s.conf().Auth.WakeKeys))
+		out = append(out, s.groupView(name, s.store.GroupMembers(name), s.conf().Auth.WakeKeys, show))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+type groupInput struct {
+	Name    string   `json:"name"`
+	Members []string `json:"members"` // Geräte-IDs; fehlt es (null), bleiben die Mitglieder
+	// TakeOverName bestätigt, dass ein früherer Name einer anderen Gruppe übernommen wird – deren alte
+	// Gruppen-Wecklinks wecken danach diese.
+	TakeOverName bool `json:"take_over_name"`
+}
+
+func (s *Server) createGroup(w http.ResponseWriter, r *http.Request) {
+	var in groupInput
+	if err := readJSON(r, &in); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	g, err := s.store.CreateGroup(in.Name, in.Members, in.TakeOverName)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	log.Printf("Group created: %s (%d devices)", g.Name, len(in.Members))
+	s.devicesChanged()
+	writeJSON(w, http.StatusCreated, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.statusVisible(r)))
+}
+
+func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
+	var in groupInput
+	if err := readJSON(r, &in); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	old := r.PathValue("name")
+	g, err := s.store.UpdateGroup(old, in.Name, in.Members, in.TakeOverName)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	if !strings.EqualFold(old, g.Name) {
+		log.Printf("Group renamed: %s -> %s", old, g.Name)
+	} else {
+		log.Printf("Group changed: %s", g.Name)
+	}
+	s.devicesChanged()
+	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.statusVisible(r)))
+}
+
+func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteGroup(r.PathValue("name")); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	log.Printf("Group deleted: %s", r.PathValue("name"))
+	s.devicesChanged()
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// arrange übernimmt die Reihenfolge aus der Übersicht (Ziehen und Ablegen, Tastatur).
+func (s *Server) arrange(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Groups  []string          `json:"groups"`
+		Devices []store.Placement `json:"devices"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	if err := s.store.Arrange(in.Groups, in.Devices); err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	s.devicesChanged()
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// groupByName findet eine Gruppe samt Mitgliedern über ihren Namen oder einen früheren Namen.
+func (s *Server) groupByName(name string) (string, []store.Device, bool) {
+	g, ok := s.store.FindGroup(name)
+	if !ok {
+		return "", nil, false
+	}
+	members := s.store.GroupMembers(g.Name)
+	return g.Name, members, len(members) > 0
 }
 
 type groupResult struct {
@@ -60,6 +146,7 @@ type groupResult struct {
 	Message string       `json:"message"`
 	Group   string       `json:"group"`
 	Results []wakeResult `json:"results"`
+	Watch   string       `json:"watch,omitempty"` // wie bei wakeResult: Start verfolgen trotz ausgeblendetem Status
 }
 
 // wakeGroup weckt alle Geräte einer Gruppe; Erfolg nur, wenn jedes Paket rausging.
@@ -96,24 +183,30 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 }
 
 func (s *Server) wakeGroupAPI(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	members := s.store.GroupMembers(name)
-	if len(members) == 0 {
+	name, members, ok := s.groupByName(r.PathValue("name"))
+	if !ok {
 		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 		return
 	}
-	res, code := s.wakeGroup(r, members[0].Group, members, srcGroup)
+	res, code := s.wakeGroup(r, name, members, srcGroup)
+	if !s.statusVisible(r) { // die Übersicht verfolgt den Start jedes geweckten Mitglieds einzeln
+		for i := range res.Results {
+			if res.Results[i].Success {
+				res.Results[i].Watch = s.watchToken("device:" + res.Results[i].ID)
+			}
+		}
+	}
 	writeJSON(w, code, res)
 }
 
-// findGroupForLink: wie findForLink, mit dem abgeleiteten Gruppenschlüssel.
+// findGroupForLink: wie findForLink, mit dem abgeleiteten Gruppenschlüssel. Nach dem Umbenennen gilt
+// ein alter Link mit dem Schlüssel seines Namens weiter.
 func (s *Server) findGroupForLink(r *http.Request) (string, []store.Device, bool) {
-	members := s.store.GroupMembers(r.PathValue("name"))
-	if len(members) == 0 {
+	name, members, ok := s.groupByName(r.PathValue("name"))
+	if !ok {
 		return "", nil, false
 	}
-	name := members[0].Group
-	if s.needsKey(r) && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), []byte(s.groupKey(name))) != 1 {
+	if s.needsKey(r) && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), []byte(s.groupKey(r.PathValue("name")))) != 1 {
 		return "", nil, false
 	}
 	return name, members, true
@@ -127,8 +220,9 @@ func (s *Server) groupLink(w http.ResponseWriter, r *http.Request) {
 			s.render(w, r, http.StatusNotFound, "wake.html", pageData{Missing: r.PathValue("name")})
 			return
 		}
-		g := s.groupView(name, members, false)
-		pd := pageData{Group: &g, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds())}
+		show := s.statusVisible(r)
+		g := s.groupView(name, members, false, show)
+		pd := pageData{Group: &g, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !show}
 		if s.needsKey(r) {
 			pd.Key = s.groupKey(name)
 		}
@@ -151,8 +245,15 @@ func (s *Server) groupLinkPost(w http.ResponseWriter, r *http.Request) {
 	s.groupWakeNow(w, r, name, members, srcGroupPage)
 }
 
+// watchGroup: Ziel des watchToken einer Gruppe.
+func watchGroup(name string) string { return "group:" + name }
+
 func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name string, members []store.Device, source string) {
 	res, code := s.wakeGroup(r, name, members, source)
+	if code == http.StatusOK && source == srcGroupPage && !s.statusVisible(r) {
+		res.Watch = s.watchToken(watchGroup(name)) // die Gruppenseite verfolgt damit den Start
+	}
+	// Wer weckt, sieht auch bei ausgeblendetem Online-Status, ob die Geräte starten.
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); wait > 0 && code == http.StatusOK {
 		// Alle Geräte mit IP gleichzeitig abwarten.
 		var wg sync.WaitGroup
@@ -173,9 +274,13 @@ func (s *Server) groupWakeNow(w http.ResponseWriter, r *http.Request, name strin
 }
 
 func (s *Server) groupLinkStatus(w http.ResponseWriter, r *http.Request) {
-	_, members, ok := s.findGroupForLink(r)
+	name, members, ok := s.findGroupForLink(r)
 	if !ok {
 		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
+		return
+	}
+	if !s.statusVisible(r) && !s.watching(r, watchGroup(name)) {
+		s.statusHidden(w, r)
 		return
 	}
 	type memberStatus struct {

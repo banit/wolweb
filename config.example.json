@@ -5,6 +5,10 @@
   "bcastip": "",
   "read_only": false,
   "language": "en",
+  "accent": "indigo",
+  "privacy": {
+    "online_status": "all"
+  },
   "data_dir": "data",
   "discovery": {
     "networks": [],

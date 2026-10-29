@@ -21,10 +21,10 @@ enabled on the target computers (BIOS/UEFI, on Windows also for the network adap
    ```
 
    or without Docker: download the matching file from [Releases](https://github.com/banit/wolweb/releases)
-   (e.g. `wolweb-1.2.0-linux-arm64` for a Raspberry Pi 4/5) and run it:
+   (e.g. `wolweb-1.3.0-linux-arm64` for a Raspberry Pi 4/5) and run it:
 
    ```sh
-   chmod +x wolweb-1.2.0-linux-arm64 && sudo ./wolweb-1.2.0-linux-arm64
+   chmod +x wolweb-1.3.0-linux-arm64 && sudo ./wolweb-1.3.0-linux-arm64
    ```
 
 2. **Open** `http://<address>:8089` in a browser, e.g. `http://192.168.1.10:8089`.
@@ -89,7 +89,7 @@ IP from the network scan).
 
 | Field | Purpose |
 |---|---|
-| Group | Devices with the same group are shown together and can be woken together; existing groups are offered below the field. To assign several devices at once: “Select” in the overview, tick the devices, enter the group name. The group button says how many devices it wakes (“Wake all 4 devices”) |
+| Group | Devices with the same group are shown together and can be woken together; existing groups are offered below the field. To assign several devices at once: “Select” in the overview, tick the devices, enter the group name. The group button says how many devices it wakes (“Wake all 4 devices”). Groups themselves – create (also empty), rename, choose members, delete – are managed on the settings page under “Groups” or with the pencil on a group's header |
 | Schedule | Switch on “Wake automatically”, tap the days, pick a time – the dialog sums it up (“Monday to Friday at 07:30”) and shows the next wake-up and the time zone. “Pause” suspends the schedule without losing the times. Several times go under “More options” as text, e.g. `Mon-Fri 07:30; Sat,Sun 09:00`, `weekdays 6:45`, `daily 22:00` (German spellings such as `Mo-Fr` work too; `devices.json` always stores the canonical German form, the interface shows it in your language) |
 | *Advanced:* Broadcast address | target of the magic packet, only for special cases (otherwise automatic) |
 | *Advanced:* Network interface | send the packet through exactly this interface (machines in several networks) |
@@ -100,6 +100,12 @@ IP from the network scan).
 Schedules run in the local time of the machine or container (`TZ`, preset in `docker-compose.yml`). If it differs
 from the browser's time zone, the dialog says so and shows the time in yours. The card shows the next scheduled
 wake-up or “Schedule paused”.
+
+**Order:** “Sort” in the overview shows groups and devices as a plain list. Drag them by the handle (mouse, pen or
+finger – only the handle, so the page still scrolls on a phone) or use the arrow buttons; at the edge of a group a
+device moves on into the next one, also into empty groups and out to “Other devices”. Every change is saved right
+away. Until you sort, devices appear by name and groups in the order they were created; new devices go to the end
+of their group. The settings page can reorder groups with arrows as well.
 
 ## Fixed wake links
 
@@ -113,7 +119,8 @@ wake-up or “Schedule paused”.
 
 The name is not case-sensitive. After renaming, old links keep working: browsers are redirected to the new address,
 curl & co. wake directly (wolweb remembers up to ten former names per device; giving one of them to another device
-needs a confirmation, and from then on the link belongs to that device – an import picks a free name instead). The
+needs a confirmation, and from then on the link belongs to that device – an import picks a free name instead).
+Renamed groups keep their old group wake links too, each with the key it was handed out with. The
 “online” confirmation needs a known IP (entered or from the network
 scan). If the device is already running, the page says so and sends nothing. While waiting, it tells you how long it
 keeps checking (`status.wake_timeout`) and whether it will resend automatically. Without an answer, “Start not
@@ -180,7 +187,7 @@ published to `ghcr.io/banit/wolweb` (see `docker-compose.yml`). To build for sev
 ### Directly / Proxmox LXC
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.2.0" -o wolweb .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.3.0" -o wolweb .
 ```
 
 Copy it to `/opt/wolweb`, adapt `config.example.json` as `config.json`, copy `deploy/wolweb.service` to
@@ -188,7 +195,7 @@ Copy it to `/opt/wolweb`, adapt `config.example.json` as `config.json`, copy `de
 `systemctl enable --now wolweb`. The unit grants `CAP_NET_RAW` for ping and the ARP scan and nothing else.
 
 `wolweb -h` lists the command-line options (`-c` configuration file, `-d` devices.json of the original wolweb,
-`-healthcheck` for Docker).
+`-healthcheck` for Docker, `-reset-password` see [Password for changes](#password-for-changes)).
 
 ## Switching from the original wolweb
 
@@ -214,7 +221,7 @@ wolweb takes over the configuration and device list of the original
 - **Going back:** the old `devices.json` is left untouched; the old binary or image can be started again at any
   time.
 
-## Updating from 1.0.x / 1.1.x
+## Updating from 1.0.x / 1.1.x / 1.2.x
 
 Devices and settings are taken over automatically on the first start.
 
@@ -242,6 +249,20 @@ read the new files but drops what it does not know on its next save (SecureOn, w
 ports, history). To go back: stop wolweb, copy the files from the backup folder into `data/`, delete the files from
 `data/` that the backup does not contain (for 1.0.x `state.json` and `settings.json`), then start the old version.
 Changes made since the update are lost.
+
+**What changes with 1.3 – and whether you need to act:**
+
+- *Password for changes* (new, optional): nothing changes until you set one on the settings page. With a password,
+  viewing and waking stay open; editing, import and export, the network scan and the settings page need unlocking.
+  Automations with `auth.api_token` are not affected, the HTTP Basic login does not unlock. See
+  [Password for changes](#password-for-changes).
+- *Groups are entries of their own:* `devices.json` gets a `groups` list (name, order, former names) and devices an
+  `order`. Existing groups are taken over alphabetically, as before; new groups now go to the end, and an empty
+  group stays until you delete it (it used to disappear with its last device). `GET /api/v1/groups` lists empty
+  groups too, in their order. An older version drops `groups` and `order` on save – the backup (see above) holds
+  the state from before the update.
+- *Accent color* (new): default `indigo` as before.
+- *Privacy* (new): `privacy.online_status` can hide the online status; default `all` as before.
 
 **What changes with 1.2 – and whether you need to act:**
 
@@ -274,7 +295,9 @@ Changes made since the update are lost.
 
 The gear in the top right corner opens the settings page (`/settings`). There you can change the networks and VLANs,
 the network scan, the online check, wait times, notifications (with “Send test message”), public wake links, allowed
-host names and the default language. Changes apply immediately, without a restart.
+host names, who sees the online status ([Privacy](#privacy)), the default language and the accent color (17 colors,
+each in a light and a dark variant). Changes apply immediately, without a restart. Groups and the password for
+changes have sections of their own there that save right away.
 
 - **Order** (the later one wins): defaults, `config.json`, the settings page, environment variables.
 - **Stored** in `data/settings.json` – in the data directory, because it is always writable (`config.json` is often
@@ -285,10 +308,62 @@ host names and the default language. Changes apply immediately, without a restar
   the variable's name. If you prefer to manage it on the page, remove the variable.
 - **Not on the page**: address, port, path, data directory, read-only mode and credentials. Otherwise you could lock
   yourself out via the page – or, without login, simply set one.
-- Without login, anyone in the network can view and change the settings; the page points this out. In read-only mode
-  it can only be viewed.
+- Without login and without a [password for changes](#password-for-changes), anyone in the network can view and
+  change the settings; the page points this out. In read-only mode it can only be viewed.
 
 ![Settings: networks and VLANs with the machine's interfaces](docs/screenshots/settings.png)
+
+### Password for changes
+
+At the bottom of the settings page you can set a password for changes – no username needed. With a password:
+
+- **Viewing and waking stay open** to everyone in the network: overview, status, wake buttons, group wake and the
+  fixed wake links.
+- **Everything else needs unlocking**: adding, editing and deleting devices, assigning groups, import and export,
+  the network scan (“Find devices” and the scan results only appear after unlocking) and the settings page. The
+  lock in the top bar asks for the password; this browser then stays unlocked until it is closed or nothing is
+  edited for 12 hours (just leaving the overview open does not count). The same button locks again right away.
+- Changing or removing the password needs the current one; a new password ends the unlock of every other browser.
+  After 5 wrong attempts from one browser, wolweb makes it wait 30 s (doubling with every further miss, up to
+  15 min); behind a reverse proxy the last `X-Forwarded-For` entry tells browsers apart. After 30 wrong attempts in
+  total the wait applies to everyone, and only one password check runs at a time.
+- Only a PBKDF2-SHA256 hash is stored, in `data/state.json`; the unlock is a signed cookie (HttpOnly,
+  SameSite=Strict).
+- Automations with `auth.api_token` are not affected. The HTTP Basic login does not unlock – the whole household
+  often knows it, the password for changes is meant for fewer people.
+- **Forgotten?** Stop wolweb and start it once with `-reset-password`: it removes the password and exits.
+
+  ```sh
+  docker compose stop wolweb
+  docker compose run --rm wolweb -reset-password
+  docker compose start wolweb
+  ```
+
+  Without Docker: stop the service, run `wolweb -c config.json -reset-password` with the same configuration (so it
+  finds the data directory) and start the service again.
+
+### Privacy
+
+Under “Privacy” on the settings page you choose who sees whether devices are running (`privacy.online_status`):
+
+| Choice | Value | Who sees the online status |
+|---|---|---|
+| Show to everyone (default) | `all` | everyone who opens wolweb |
+| Show only after unlocking | `unlocked` | only browsers unlocked with the [password for changes](#password-for-changes) and automations with `auth.api_token` – for example to troubleshoot. Without a password for changes nobody sees it. |
+| Show to nobody | `none` | nobody, not even after unlocking |
+
+Hidden means hidden everywhere, not just in the overview: cards show no status, no green dot and no “Wake again”,
+the online/offline filter disappears and groups only count their devices. The server leaves the status out of
+`/api/v1/devices` and `/api/v1/groups`, live events, `/metrics` and the history; `…/status` endpoints answer 403
+with `"hidden": true`. **Waking is the exception:** whoever wakes a device – with the button in the overview or
+via its wake or group link – starts it anyway, so they still see whether it comes up. The overview card follows the
+start of that one device and then hides the status again; wake and group pages confirm the start as usual. The
+wake answer carries a short-lived `watch` key that `…/status?watch=…` accepts for that device or group for 15
+minutes, and `?wait=` keeps working. Only the check beforehand whether the device is already running is skipped –
+it would reveal the status without waking. Scan results reveal who is on the network too; with a password for
+changes only unlocked browsers see them, whatever the setting. wolweb still checks the devices in the background,
+for the automatic retry and notifications (choose the notification events separately). The HTTP Basic login does
+not count as unlocked, as for the password for changes.
 
 ## Multiple networks and VLANs
 
@@ -393,6 +468,7 @@ variable names are given, the first is the one of the original wolweb – both w
 | `bcastip` | `WOLWEBBCASTIP` / `WOLWEB_BCASTIP` | automatic | default target when neither the device nor a network provide one |
 | `read_only` | `WOLWEBREADONLY` / `WOLWEB_READONLY` | `false` | wake only, change nothing |
 | `language` | `WOLWEB_LANGUAGE` | `en` | `en` or `de`: language when neither the switch nor the browser name one (also for notifications) |
+| `accent` | `WOLWEB_ACCENT` | `indigo` | accent color of the interface (buttons, selection, highlights) on every page: indigo, blue, sky, cyan, teal, emerald, green, lime, amber, orange, red, rose, pink, fuchsia, purple, violet, slate – easiest picked on the settings page |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | devices (`devices.json`), runtime data (`state.json`), scan results (`discovered.json`) and changes made on the settings page (`settings.json`) |
 | `discovery.networks` | `WOLWEB_NETWORKS` | automatic | networks (CIDR, the variable comma separated); empty = the one home network automatically, with several a choice in the interface; also with a name: `{"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` means show, but do not scan |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off (at least `1m`) |
@@ -409,6 +485,7 @@ variable names are given, the first is the one of the original wolweb – both w
 | `notify.webhook` | `WOLWEB_WEBHOOK` | – | URL that receives every event as JSON via POST |
 | `notify.ntfy` | `WOLWEB_NTFY` | – | ntfy topic, e.g. `https://ntfy.sh/my-secret-topic` |
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | all | selection of `online`, `offline`, `wake`, `wake_failed` |
+| `privacy.online_status` | `WOLWEB_ONLINE_STATUS` | `all` | who sees whether devices are running: `all`, `unlocked` (only after unlocking) or `none` (see [Privacy](#privacy)) |
 
 `devices.json` only contains what you enter yourself; what wolweb observes (last woken, last online, the last 500
 wake attempts) is kept in `state.json`. The export at the bottom of the page backs up the devices and their wake-link
@@ -455,6 +532,8 @@ address accepted the message is of course still visible to anyone who may use th
 
 - **Login**: `auth.username`/`auth.password` (HTTP Basic, on the internet only behind HTTPS) and/or `auth.api_token`
   for automations.
+- **Password for changes**: viewing and waking stay open, changes need unlocking – see
+  [Password for changes](#password-for-changes).
 - **Public wake links** (`auth.public_wake`): with login enabled, `/wake/<name>` and the wake page stay reachable
   without login. So that nobody can wake devices by guessing names, `auth.wake_keys` additionally requires a key per
   device – “Copy wake link” appends it (`/wake/NAS?key=…`), and it can be renewed in the device dialog.
@@ -509,7 +588,9 @@ targets on a phone.
 ## API
 
 All changing requests need the header `X-WolWeb: 1` (protection against cross-site requests) or a bearer token;
-without it, the answer is 403 with a message for humans and the technical reason in `"error"`.
+without it, the answer is 403 with a message for humans and the technical reason in `"error"`. With a
+[password for changes](#password-for-changes), changing requests without unlock or token get 403 with
+`"locked": true`.
 
 | Method | Path | |
 |---|---|---|
@@ -522,7 +603,10 @@ without it, the answer is 403 with a message for humans and the technical reason
 | GET | `/api/v1/devices/{id}/status` | check now |
 | POST | `/api/v1/devices/{id}/wake-key` | create a new wake key |
 | GET | `/api/v1/schedule/preview?s=…` | check a schedule without saving: canonical form, next wake-up, server time zone |
-| GET | `/api/v1/groups` | groups with members (and the key of the group wake link) |
+| GET | `/api/v1/groups` | groups in their order, also empty ones, with members (and the key of the group wake link) |
+| POST | `/api/v1/groups` | create a group: `{"name": "Office", "members": [ids]}` (members optional) |
+| PUT / DELETE | `/api/v1/groups/{name}` | rename and/or set members (`{"name": …, "members": […]}`, without `members` they stay) / delete (the devices stay, without group) |
+| PUT | `/api/v1/order` | order as in the overview: `{"groups": [names], "devices": [{"group": "Office", "ids": […]}, {"group": "", "ids": […]}]}` – a device listed under another group moves there |
 | POST | `/api/v1/groups/{name}/wake` | wake all devices of a group |
 | GET | `/api/v1/history` | wake history, newest first (`?limit=`) |
 | GET / POST | `/api/v1/export`, `/api/v1/import` | download devices as JSON / take them over from a file; the answer lists every entry (`items`: `added` – possibly with `new_name` –, `skipped`, `error` with the reason), the interface shows the complete list |
@@ -533,6 +617,8 @@ without it, the answer is 403 with a message for humans and the technical reason
 | POST | `/api/v1/discovery/network` | save the network chosen for the scan |
 | GET / PUT / DELETE | `/api/v1/settings` | read / change / reset the settings of the settings page |
 | POST | `/api/v1/settings/test-notify` | send a test notification |
+| POST | `/api/v1/unlock`, `/api/v1/lock` | unlock this browser with `{"password": "…"}` (sets a cookie) / lock it again |
+| PUT | `/api/v1/password` | set, change or remove the password for changes: `{"current": "…", "password": "…"}` (empty `password` removes it) |
 | GET | `/wake/{name}`, `/health`, `/data/get` | as in the original |
 | GET / POST | `/wake-group/{name}` | group wake link |
 | GET | `/metrics` | metrics for Prometheus |
@@ -568,7 +654,7 @@ devices, addresses from 192.168.1.x / 10.0.0.x and locally administered MACs, ne
 
 GitHub Actions checks every push and pull request (gofmt, `go vet`, `go test -race`, builds for Linux
 amd64/arm64/armv7, Windows, macOS, browser tests, Docker image for three platforms). A tag `v*`
-(`git tag v1.2.0 && git push --tags`) creates a release with ready-made binaries and the image on ghcr.io – afterwards
+(`git tag v1.3.0 && git push --tags`) creates a release with ready-made binaries and the image on ghcr.io – afterwards
 set the package to public once under “Packages”.
 
 ## License

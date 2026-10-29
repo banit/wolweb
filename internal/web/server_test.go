@@ -528,7 +528,7 @@ func TestEnglish(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	if !strings.Contains(body, `<html lang="en">`) || !strings.Contains(body, "Scan network") || !strings.Contains(body, `data-lang="de"`) {
+	if !strings.Contains(body, `<html lang="en" `) || !strings.Contains(body, "Scan network") || !strings.Contains(body, `data-lang="de"`) {
 		t.Errorf("Seite nicht englisch:\n%.400s", body)
 	}
 	// Katalog als JSON in der Seite
@@ -850,7 +850,7 @@ func TestSchedulePaused(t *testing.T) {
 	if got := s.wakeDue(at); len(got) != 0 {
 		t.Errorf("pausiert geweckt: %v", got)
 	}
-	if v := s.view(d); v.NextWake != nil {
+	if v := s.view(d, true); v.NextWake != nil {
 		t.Errorf("pausiert, aber nächste Weckzeit %v", v.NextWake)
 	}
 	d, _ = st.Update(d.ID, store.Input{Name: "Büro", MAC: d.MAC, Schedule: d.Schedule, Broadcast: d.Broadcast}, nil)

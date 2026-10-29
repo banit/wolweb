@@ -22,6 +22,11 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	labels := func(id, name, mac string) string {
 		return fmt.Sprintf(`id="%s",name="%s",mac="%s"`, escapeLabel(id), escapeLabel(name), escapeLabel(mac))
 	}
+	// Privatsphäre: ohne Online-Status fehlen die Kennzahlen dazu (Prometheus kann das Token schicken).
+	show := s.statusVisible(r)
+	if !show {
+		states = nil
+	}
 	head("wolweb_device_up", "1 = online, 0 = offline (devices without a known IP are missing).", "gauge")
 	for _, d := range devices {
 		if st, ok := states[d.ID]; ok && st.State != "unknown" {
@@ -40,7 +45,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	head("wolweb_device_last_seen_timestamp_seconds", "Last seen online (Unix time).", "gauge")
 	for _, d := range devices {
-		if t := s.store.LastSeen(d.ID); !t.IsZero() {
+		if t := s.store.LastSeen(d.ID); !t.IsZero() && show {
 			fmt.Fprintf(&b, "wolweb_device_last_seen_timestamp_seconds{%s} %d\n", labels(d.ID, d.Name, d.MAC), t.Unix())
 		}
 	}

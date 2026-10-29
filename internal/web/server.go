@@ -45,8 +45,9 @@ type Server struct {
 	retry    retries
 	tmpl     *template.Template
 	limiter  wakeLimiter
-	rejected rejectedHosts // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
-	schedRan ranSchedules  // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
+	attempts attemptLimiter // Fehlversuche beim Entsperren
+	rejected rejectedHosts  // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
+	schedRan ranSchedules   // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
 	hub      hub
 
 	wakesMu sync.Mutex
@@ -125,30 +126,37 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+api+"info", s.info)
 	mux.HandleFunc("GET "+api+"events", s.events)
 	mux.HandleFunc("GET "+api+"devices", s.listDevices)
-	mux.HandleFunc("POST "+api+"devices", s.writable(s.createDevice))
-	mux.HandleFunc("POST "+api+"devices/group", s.writable(s.setGroup))
-	mux.HandleFunc("PUT "+api+"devices/{id}", s.writable(s.updateDevice))
-	mux.HandleFunc("DELETE "+api+"devices/{id}", s.writable(s.deleteDevice))
+	mux.HandleFunc("POST "+api+"devices", s.change(s.createDevice))
+	mux.HandleFunc("POST "+api+"devices/group", s.change(s.setGroup))
+	mux.HandleFunc("PUT "+api+"devices/{id}", s.change(s.updateDevice))
+	mux.HandleFunc("DELETE "+api+"devices/{id}", s.change(s.deleteDevice))
 	mux.HandleFunc("POST "+api+"devices/{id}/wake", s.wakeDevice)
 	mux.HandleFunc("GET "+api+"devices/{id}/status", s.deviceStatus)
-	mux.HandleFunc("POST "+api+"devices/{id}/wake-key", s.writable(s.rotateWakeKey))
+	mux.HandleFunc("POST "+api+"devices/{id}/wake-key", s.change(s.rotateWakeKey))
 	mux.HandleFunc("GET "+api+"schedule/preview", s.schedulePreview)
 	mux.HandleFunc("GET "+api+"groups", s.listGroups)
+	mux.HandleFunc("POST "+api+"groups", s.change(s.createGroup))
+	mux.HandleFunc("PUT "+api+"groups/{name}", s.change(s.updateGroup))
+	mux.HandleFunc("DELETE "+api+"groups/{name}", s.change(s.deleteGroup))
+	mux.HandleFunc("PUT "+api+"order", s.change(s.arrange))
 	mux.HandleFunc("POST "+api+"groups/{name}/wake", s.wakeGroupAPI)
 	mux.HandleFunc("GET "+api+"history", s.history)
-	mux.HandleFunc("GET "+api+"export", s.export)
-	mux.HandleFunc("POST "+api+"import", s.writable(s.importDevices))
+	mux.HandleFunc("GET "+api+"export", s.editable(s.export)) // mit Weckschlüsseln
+	mux.HandleFunc("POST "+api+"import", s.change(s.importDevices))
 	mux.HandleFunc("GET "+api+"discovery", s.discovery)
-	mux.HandleFunc("POST "+api+"discovery/scan", s.startScan)
-	mux.HandleFunc("POST "+api+"discovery/cancel", s.cancelScan)
-	mux.HandleFunc("POST "+api+"discovery/{mac}/ignore", s.writable(s.ignoreFound))
-	mux.HandleFunc("DELETE "+api+"discovery/{mac}", s.writable(s.forgetFound))
-	mux.HandleFunc("POST "+api+"discovery/network", s.withSettings(s.writable(s.chooseNetwork)))
+	mux.HandleFunc("POST "+api+"discovery/scan", s.editable(s.startScan))
+	mux.HandleFunc("POST "+api+"discovery/cancel", s.editable(s.cancelScan))
+	mux.HandleFunc("POST "+api+"discovery/{mac}/ignore", s.change(s.ignoreFound))
+	mux.HandleFunc("DELETE "+api+"discovery/{mac}", s.change(s.forgetFound))
+	mux.HandleFunc("POST "+api+"discovery/network", s.withSettings(s.change(s.chooseNetwork)))
 	mux.HandleFunc("GET "+base+"settings", s.withSettings(s.settingsPage))
-	mux.HandleFunc("GET "+api+"settings", s.withSettings(s.getSettings))
-	mux.HandleFunc("PUT "+api+"settings", s.withSettings(s.writable(s.putSettings)))
-	mux.HandleFunc("DELETE "+api+"settings", s.withSettings(s.writable(s.resetSettings)))
-	mux.HandleFunc("POST "+api+"settings/test-notify", s.withSettings(s.writable(s.testNotify)))
+	mux.HandleFunc("GET "+api+"settings", s.withSettings(s.editable(s.getSettings)))
+	mux.HandleFunc("PUT "+api+"settings", s.withSettings(s.change(s.putSettings)))
+	mux.HandleFunc("DELETE "+api+"settings", s.withSettings(s.change(s.resetSettings)))
+	mux.HandleFunc("POST "+api+"settings/test-notify", s.withSettings(s.change(s.testNotify)))
+	mux.HandleFunc("POST "+api+"unlock", s.unlock)
+	mux.HandleFunc("POST "+api+"lock", s.lock)
+	mux.HandleFunc("PUT "+api+"password", s.change(s.setPassword))
 
 	// Kompatibel zum Original: Geräteliste im alten Format
 	mux.HandleFunc("GET "+base+"data/get", s.legacyData)
@@ -183,11 +191,8 @@ func (s *Server) auth(next http.Handler) http.Handler {
 }
 
 func (s *Server) authorized(r *http.Request) bool {
-	eq := func(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
-	if t := s.conf().Auth.APIToken; t != "" {
-		if h, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && eq(strings.TrimSpace(h), t) {
-			return true
-		}
+	if s.tokenAuthorized(r) {
+		return true
 	}
 	if s.conf().Auth.Username != "" {
 		if u, p, ok := r.BasicAuth(); ok && eq(u, s.conf().Auth.Username) && eq(p, s.conf().Auth.Password) {
@@ -196,6 +201,15 @@ func (s *Server) authorized(r *http.Request) bool {
 	}
 	return false
 }
+
+// tokenAuthorized: Die Anfrage trägt das API-Token (Automationen).
+func (s *Server) tokenAuthorized(r *http.Request) bool {
+	t := s.conf().Auth.APIToken
+	h, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return t != "" && ok && eq(strings.TrimSpace(h), t)
+}
+
+func eq(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
 
 // csrf: Ändernde Anfragen brauchen den Kopf "X-WolWeb". Fremde Webseiten können ihn nicht ohne
 // CORS-Freigabe setzen; Automationen mit Token sind ausgenommen.
@@ -303,6 +317,8 @@ func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, http.StatusBadRequest, out)
 	case errors.Is(err, store.ErrNotFound):
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
+	case errors.Is(err, store.ErrGroupNotFound):
+		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 	case errors.Is(err, store.ErrConflict):
 		s.fail(w, r, http.StatusConflict, "err.conflict")
 	default:
@@ -324,9 +340,12 @@ type pageData struct {
 	Host    string // abgelehnter Hostname (blocked.html)
 	Group   *groupView
 
-	Lang      i18n.Lang         // Sprache der Seite
-	OtherLang i18n.Lang         // Ziel des Umschalters
-	I18N      map[string]string // Katalog für die Skripte (als JSON in der Seite)
+	Lang         i18n.Lang         // Sprache der Seite
+	OtherLang    i18n.Lang         // Ziel des Umschalters
+	I18N         map[string]string // Katalog für die Skripte (als JSON in der Seite)
+	StatusHidden bool              // Online-Status für diesen Aufruf ausgeblendet (Privatsphäre)
+	Accent       string            // Akzentfarbe (data-accent) und ihre Farbe für theme-color
+	ThemeColor   string
 }
 
 // T übersetzt in Vorlagen: {{.T "page.save"}}, {{.T "wake.title.starting" .Device.Name}}.
@@ -348,6 +367,8 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, name s
 		d.OtherLang = i18n.DE
 	}
 	d.I18N = i18n.Catalog(d.Lang)
+	d.Accent = s.conf().Accent
+	d.ThemeColor = config.AccentColor(d.Accent)
 	w.Header().Set("Content-Language", string(d.Lang))
 	w.Header().Add("Vary", "Accept-Language, Cookie")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -374,7 +395,8 @@ type deviceView struct {
 	NextWake   *time.Time    `json:"next_wake,omitempty"` // nächste Weckzeit laut Zeitplan
 }
 
-func (s *Server) view(d store.Device) deviceView {
+// view baut die Ansicht eines Geräts; ohne showStatus fehlt der Online-Status (Privatsphäre).
+func (s *Server) view(d store.Device, showStatus bool) deviceView {
 	v := deviceView{Device: d, WakeTarget: s.wakeTarget(d), WakePath: "wake/" + pathEscape(d.Name)}
 	if ip, _ := s.monitor.Target(d); ip.IsValid() {
 		v.CheckIP = ip.String()
@@ -383,7 +405,7 @@ func (s *Server) view(d store.Device) deviceView {
 		v.LastWake = &t
 	}
 	v.NextWake = nextWake(d)
-	if st, ok := s.monitor.Get(d.ID); ok {
+	if st, ok := s.monitor.Get(d.ID); ok && showStatus {
 		v.Status = &st
 	}
 	return v
@@ -429,9 +451,10 @@ func (s *Server) defaultBroadcast() string {
 
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	devices, _ := s.store.Devices()
+	show := s.statusVisible(r)
 	out := make([]deviceView, 0, len(devices))
 	for _, d := range devices {
-		out = append(out, s.view(d))
+		out = append(out, s.view(d, show))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -450,7 +473,7 @@ func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Device added: %s (%s)", d.Name, d.MAC)
 	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
-	writeJSON(w, http.StatusCreated, s.view(d))
+	writeJSON(w, http.StatusCreated, s.view(d, s.statusVisible(r)))
 }
 
 func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
@@ -470,7 +493,7 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Device changed: %s (%s)", d.Name, d.MAC)
 	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
-	writeJSON(w, http.StatusOK, s.view(d))
+	writeJSON(w, http.StatusOK, s.view(d, s.statusVisible(r)))
 }
 
 // setGroup ordnet mehrere Geräte auf einmal einer Gruppe zu (Mehrfachauswahl in der Übersicht);
@@ -500,8 +523,9 @@ func (s *Server) setGroup(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Group %q set for %d devices", group, len(devs))
 	s.devicesChanged()
 	out := make([]deviceView, 0, len(devs))
+	show := s.statusVisible(r)
 	for _, d := range devs {
-		out = append(out, s.view(d))
+		out = append(out, s.view(d, show))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"group": group, "devices": out})
 }
@@ -524,13 +548,17 @@ func (s *Server) rotateWakeKey(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("New wake key for %s", d.Name)
 	s.devicesChanged()
-	writeJSON(w, http.StatusOK, s.view(d))
+	writeJSON(w, http.StatusOK, s.view(d, s.statusVisible(r)))
 }
 
 func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.store.Get(r.PathValue("id"))
 	if !ok {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
+		return
+	}
+	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
+		s.statusHidden(w, r)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
@@ -553,6 +581,8 @@ type wakeResult struct {
 	Target  string `json:"target,omitempty"`
 	Online  *bool  `json:"online,omitempty"`
 	Already bool   `json:"already,omitempty"` // eben erst geweckt – kein neuer Weckruf, der Start läuft
+	// Watch: Bei ausgeblendetem Online-Status darf die Weckseite damit den Start verfolgen (privacy.go).
+	Watch string `json:"watch,omitempty"`
 }
 
 // caller beschreibt den Aufrufer für den Verlauf: IP-Adresse (hinter einem Reverse-Proxy samt
@@ -708,6 +738,9 @@ func (s *Server) wakeDevice(w http.ResponseWriter, r *http.Request) {
 		source = srcUI
 	}
 	res, code := s.wake(r, d, source, "")
+	if res.Success && !s.statusVisible(r) {
+		res.Watch = s.watchToken("device:" + d.ID) // wer weckt, darf den Start verfolgen (privacy.go)
+	}
 	writeJSON(w, code, res)
 }
 
@@ -746,8 +779,9 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, to, http.StatusTemporaryRedirect) // nicht dauerhaft: der Name kann neu vergeben werden
 			return
 		}
-		v := s.view(d)
-		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds())}
+		show := s.statusVisible(r)
+		v := s.view(d, show)
+		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !show}
 		if s.needsKey(r) {
 			pd.Key = d.WakeKey
 		}
@@ -759,6 +793,7 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, code := s.wake(r, d, srcLink, "")
+	// Wer weckt, sieht auch bei ausgeblendetem Online-Status, ob das Gerät startet.
 	if wait, _ := strconv.Atoi(r.URL.Query().Get("wait")); res.Success && wait > 0 {
 		if ip, _ := s.monitor.Target(d); !ip.IsValid() {
 			// Ohne IP lässt sich nichts prüfen – "online" bleibt weg statt eines falschen false.
@@ -798,6 +833,9 @@ func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, code := s.wake(r, d, srcPage, "")
+	if res.Success && !s.statusVisible(r) {
+		res.Watch = s.watchToken("device:" + d.ID) // die Weckseite verfolgt damit den Start
+	}
 	writeJSON(w, code, res)
 }
 
@@ -805,6 +843,10 @@ func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.findForLink(r)
 	if !ok {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
+		return
+	}
+	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
+		s.statusHidden(w, r)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
@@ -818,10 +860,14 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		limit = 200
 	}
 	events := s.store.History(limit)
+	show := s.statusVisible(r)
 	for i := range events {
 		events[i] = events[i].Localized(s.lang(r))
+		if !show { // ob und wann ein Gerät lief, gehört zum Online-Status
+			events[i].Checkable, events[i].WasOnline, events[i].Started = false, false, nil
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": events})
+	writeJSON(w, http.StatusOK, map[string]any{"events": events, "status_hidden": !show})
 }
 
 func (s *Server) export(w http.ResponseWriter, r *http.Request) {
@@ -876,7 +922,13 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"wake_retry":        int(s.rt().wakeRetry.Seconds()),
 		"ports":             s.conf().Status.Ports,
 		"wake_keys":         s.conf().Auth.WakeKeys && s.conf().AuthEnabled(),
-		"timezone":          localZone(), // Zeitpläne laufen in der Ortszeit des Servers
+		"timezone":          localZone(),         // Zeitpläne laufen in der Ortszeit des Servers
+		"status_hidden":     !s.statusVisible(r), // Privatsphäre: kein Online-Status für diese Anfrage
+		"found_hidden":      !s.foundVisible(r),  // … und keine Suchtreffer
+		"accent":            s.conf().Accent,
+		"theme_color":       config.AccentColor(s.conf().Accent),
+		"password":          s.store.HasPassword(), // Bearbeitungsschutz eingerichtet
+		"locked":            !s.unlocked(r),        // diese Anfrage darf nichts ändern
 	})
 }
 
@@ -886,12 +938,14 @@ type foundView struct {
 }
 
 func (s *Server) discovery(w http.ResponseWriter, r *http.Request) {
-	list := s.store.FoundList()
-	out := make([]foundView, 0, len(list))
-	for _, f := range list {
-		out = append(out, foundView{FoundEntry: f, Broadcast: discovery.BroadcastFor(f.IP)})
+	out := []foundView{}
+	hidden := !s.foundVisible(r) // Privatsphäre: Treffer verraten, wer im Netz ist
+	if !hidden {
+		for _, f := range s.store.FoundList() {
+			out = append(out, foundView{FoundEntry: f, Broadcast: discovery.BroadcastFor(f.IP)})
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"job": s.scanner.Job().Localized(s.lang(r)), "found": out})
+	writeJSON(w, http.StatusOK, map[string]any{"job": s.scanner.Job().Localized(s.lang(r)), "found": out, "hidden": hidden})
 }
 
 func (s *Server) startScan(w http.ResponseWriter, r *http.Request) {

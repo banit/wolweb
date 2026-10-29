@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{.Lang}}">
+<html lang="{{.Lang}}" data-accent="{{.Accent}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,12 +9,14 @@
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="static/manifest.json">
 <link rel="apple-touch-icon" href="static/icon-180.png">
-<meta name="theme-color" content="#4f46e5">
+<meta name="theme-color" content="{{.ThemeColor}}">
 <meta name="apple-mobile-web-app-title" content="wolweb">
 <link rel="stylesheet" href="static/app.css?v={{.Version}}">
 <script id="i18n" type="application/json">{{.I18N}}</script>
 <script src="static/theme.js?v={{.Version}}"></script>
 <script src="static/i18n.js?v={{.Version}}" defer></script>
+<script src="static/lock.js?v={{.Version}}" defer></script>
+<script src="static/groups.js?v={{.Version}}" defer></script>
 <script src="static/app.js?v={{.Version}}" defer></script>
 </head>
 <body class="app">
@@ -35,6 +37,9 @@
     </button>
     <button class="btn btn-ghost icon-only" id="theme-toggle" title="{{.T "page.theme"}}" aria-label="{{.T "page.theme"}}">
       <svg aria-hidden="true" class="ico"><use href="#i-moon"/></svg>
+    </button>
+    <button class="btn btn-ghost icon-only lock-toggle" id="lock-toggle" hidden>
+      <svg aria-hidden="true" class="ico"><use href="#i-lock"/></svg>
     </button>
     <a class="btn btn-ghost icon-only not-simple" id="open-settings" href="settings" title="{{.T "page.settings"}}" aria-label="{{.T "page.settings"}}" hidden>
       <svg aria-hidden="true" class="ico"><use href="#i-settings"/></svg>
@@ -63,9 +68,19 @@
     <button type="button" class="btn btn-ghost not-simple" id="select-toggle" aria-pressed="false" hidden>
       <svg aria-hidden="true" class="ico"><use href="#i-check"/></svg><span>{{.T "page.sel.toggle"}}</span>
     </button>
+    <button type="button" class="btn btn-ghost not-simple" id="sort-toggle" aria-pressed="false" hidden>
+      <svg aria-hidden="true" class="ico"><use href="#i-sort"/></svg><span>{{.T "page.sort.toggle"}}</span>
+    </button>
   </div>
 
   <section id="devices" aria-label="{{.T "page.devices"}}" tabindex="-1"></section>
+
+  <!-- Sortieren: Hinweis und „Fertig“; Ansagen für Screenreader -->
+  <div class="select-bar sort-bar" id="sort-bar" role="region" aria-label="{{.T "page.sort.title"}}" hidden>
+    <span class="sort-hint">{{.T "page.sort.hint"}}</span>
+    <button type="button" class="btn btn-primary" id="sort-done"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.sel.done"}}</button>
+  </div>
+  <p class="sr-only" id="sort-status" role="status"></p>
 
   <!-- Mehrfachauswahl: mehrere Geräte auf einmal einer Gruppe zuordnen -->
   <div class="select-bar" id="select-bar" role="region" aria-label="{{.T "page.sel.title"}}" hidden>
@@ -91,7 +106,7 @@
 
   <footer class="page-foot not-simple">
     <button class="btn btn-ghost btn-sm" id="open-history"><svg aria-hidden="true" class="ico"><use href="#i-clock"/></svg>{{.T "page.history"}}</button>
-    <a class="btn btn-ghost btn-sm" href="api/v1/export" download><svg aria-hidden="true" class="ico"><use href="#i-download"/></svg>{{.T "page.export"}}</a>
+    <a class="btn btn-ghost btn-sm" id="export-link" href="api/v1/export" download><svg aria-hidden="true" class="ico"><use href="#i-download"/></svg>{{.T "page.export"}}</a>
     <button class="btn btn-ghost btn-sm" id="import-btn"><svg aria-hidden="true" class="ico"><use href="#i-upload"/></svg>{{.T "page.import"}}</button>
     <input type="file" id="import-file" accept="application/json,.json" hidden>
     <span class="spacer"></span>
@@ -323,6 +338,8 @@
   </form>
 </dialog>
 
+{{template "group-dialog" .}}
+{{template "unlock" .}}
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>
 </html>

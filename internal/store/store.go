@@ -43,7 +43,10 @@ type Device struct {
 	SchedulePaused bool   `json:"schedule_paused,omitempty"`
 	Vendor         string `json:"vendor,omitempty"`
 	// Aliases sind frühere Namen: Wecklinks mit dem alten Namen gelten nach dem Umbenennen weiter.
-	Aliases   []string  `json:"aliases,omitempty"`
+	Aliases []string `json:"aliases,omitempty"`
+	// Order ist der Platz in der Gruppe, von Hand sortiert (1, 2, …); 0 = nicht sortiert, nach dem
+	// Namen hinter den sortierten.
+	Order     int       `json:"order,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -90,6 +93,7 @@ type Store struct {
 	mu         sync.RWMutex
 	dir        string
 	devices    []Device
+	groups     []Group // in ihrer Reihenfolge (groups.go)
 	found      map[string]*Found
 	revision   int64
 	state      stateFile
@@ -103,6 +107,7 @@ type devicesFile struct {
 	// Datei von 1.0.x (ohne state.json) oder 1.1.x.
 	Writer  string   `json:"writer,omitempty"`
 	Devices []Device `json:"devices"`
+	Groups  []Group  `json:"groups,omitempty"`
 }
 
 // AppVersion ist die Version dieses Programms (setzt main). Wechselt sie, sichert Open die Dateien
@@ -179,6 +184,7 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 			return nil, nil, fmt.Errorf("%s: %w", path, err)
 		}
 		s.devices, migratedWake = devs, lw
+		s.groups = decodeGroups(b)
 		notes = append(notes, problemNotes(path, problems)...)
 		// Die Dateien werden gleich im neuen Format geschrieben. Eine ältere Version (1.0.x, das
 		// Original-wolweb) verwürfe dabei, was sie nicht kennt – vorher alles sichern, damit der
@@ -266,6 +272,10 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 			s.devices[i].WakeKey, missingKey = newWakeKey(), true
 		}
 	}
+	// Bis 1.2 gab es Gruppen nur als Namen am Gerät: Einträge anlegen (alphabetisch, wie bisher gezeigt).
+	nGroups := len(s.groups)
+	s.groups = syncGroups(s.devices, s.groups)
+	missingKey = missingKey || len(s.groups) != nGroups
 	// last_wake erst nach dem Speichern von state.json aus devices.json entfernen. Nach einem
 	// Versionswechsel einmal neu schreiben, damit die Datei die neue Version nennt (und die
 	// Sicherung nicht bei jedem Start erneut entsteht).
@@ -390,7 +400,7 @@ func writeAtomic(path string, v any) error { return atomicfile.WriteJSON(path, v
 
 // saveDevices muss unter s.mu (Schreibsperre) oder vor der Freigabe des Stores aufgerufen werden.
 func (s *Store) saveDevices() error {
-	return writeAtomic(filepath.Join(s.dir, "devices.json"), devicesFile{Version: 2, Writer: AppVersion, Devices: s.devices})
+	return writeAtomic(filepath.Join(s.dir, "devices.json"), devicesFile{Version: 2, Writer: AppVersion, Devices: s.devices, Groups: s.groups})
 }
 
 func (s *Store) saveFound() error {
@@ -411,13 +421,26 @@ func compareIP(a, b string) int {
 	return pa.Compare(pb)
 }
 
-// Devices liefert eine Kopie der Liste (nach Name sortiert) und die aktuelle Revision.
+// Devices liefert eine Kopie der Liste in der Reihenfolge der Übersicht (von Hand sortierte zuerst,
+// dann nach Name) und die aktuelle Revision.
 func (s *Store) Devices() ([]Device, int64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := slices.Clone(s.devices)
-	slices.SortFunc(out, func(a, b Device) int { return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) })
+	slices.SortFunc(out, compareDevices)
 	return out, s.revision
+}
+
+func compareDevices(a, b Device) int {
+	switch {
+	case a.Order > 0 && b.Order > 0 && a.Order != b.Order:
+		return a.Order - b.Order
+	case a.Order > 0 && b.Order == 0:
+		return -1
+	case a.Order == 0 && b.Order > 0:
+		return 1
+	}
+	return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 }
 
 func (s *Store) Get(id string) (Device, bool) {
@@ -466,18 +489,24 @@ func IsAlias(d Device, name string) bool {
 
 const maxAliases = 10
 
-// renamed führt die früheren Namen fort: Der bisherige Name kommt dazu, der neue fällt heraus.
-// Groß-/Kleinschreibung zählt nicht als Umbenennen – Links finden das Gerät ohnehin.
-func renamed(old Device, name string) []string {
-	out := slices.DeleteFunc(slices.Clone(old.Aliases), func(a string) bool {
-		return strings.EqualFold(a, name) || strings.EqualFold(a, old.Name)
-	})
-	if !strings.EqualFold(old.Name, name) {
-		out = append(out, old.Name)
+// formerNames führt die früheren Namen (von Geräten wie Gruppen) beim Umbenennen von oldName nach
+// name fort: Der bisherige Name kommt dazu, der neue fällt heraus, höchstens maxAliases bleiben.
+// Groß-/Kleinschreibung zählt nicht als Umbenennen – Links finden das Ziel ohnehin.
+func formerNames(aliases []string, oldName, name string) []string {
+	out := withoutAlias(aliases, oldName)
+	out = withoutAlias(out, name)
+	if !strings.EqualFold(oldName, name) {
+		out = append(out, oldName)
 	}
 	if len(out) > maxAliases {
 		out = out[len(out)-maxAliases:]
 	}
+	return out
+}
+
+// withoutAlias liefert aliases ohne name (Groß-/Kleinschreibung egal); leer ist nil.
+func withoutAlias(aliases []string, name string) []string {
+	out := slices.DeleteFunc(slices.Clone(aliases), func(a string) bool { return strings.EqualFold(a, name) })
 	if len(out) == 0 {
 		return nil
 	}
@@ -510,10 +539,7 @@ func releaseAlias(list []Device, name, exceptID string) {
 		if list[i].ID == exceptID || !slices.ContainsFunc(list[i].Aliases, func(a string) bool { return strings.EqualFold(a, name) }) {
 			continue
 		}
-		list[i].Aliases = slices.DeleteFunc(slices.Clone(list[i].Aliases), func(a string) bool { return strings.EqualFold(a, name) })
-		if len(list[i].Aliases) == 0 {
-			list[i].Aliases = nil
-		}
+		list[i].Aliases = withoutAlias(list[i].Aliases, name)
 	}
 }
 
@@ -632,11 +658,10 @@ func (s *Store) SetGroup(ids []string, group string) ([]Device, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, d := range s.devices {
-		if group != "" && strings.EqualFold(d.Group, group) {
-			group = d.Group
-			break
-		}
+	if i := groupIndex(s.groups, group); i >= 0 {
+		group = s.groups[i].Name
+	} else if i := aliasIndex(s.groups, group, -1); i >= 0 && group != "" {
+		group = s.groups[i].Name // früherer Name: die Gruppe, die ihn trägt (siehe syncGroups)
 	}
 	next := slices.Clone(s.devices)
 	var changed []Device
@@ -646,39 +671,18 @@ func (s *Store) SetGroup(ids []string, group string) ([]Device, error) {
 		if i < 0 {
 			return nil, ErrNotFound
 		}
+		if !strings.EqualFold(next[i].Group, group) {
+			next[i].Order = 0 // in der neuen Gruppe hinten
+		}
 		if next[i].Group != group {
 			next[i].Group, next[i].UpdatedAt = group, now
 		}
 		changed = append(changed, next[i])
 	}
-	prev := s.devices
-	s.devices = next
-	if err := s.saveDevices(); err != nil {
-		s.devices = prev
+	if err := s.commitGroups(next, syncGroups(next, s.groups)); err != nil {
 		return nil, err
 	}
-	s.revision++
 	return changed, nil
-}
-
-// Groups liefert die Gruppennamen (ohne Rücksicht auf Groß-/Kleinschreibung zusammengefasst,
-// in der Schreibweise des ersten Geräts), sortiert.
-func (s *Store) Groups() []string {
-	devs, _ := s.Devices()
-	var out []string
-	for _, d := range devs {
-		if d.Group != "" && !slices.ContainsFunc(out, func(g string) bool { return strings.EqualFold(g, d.Group) }) {
-			out = append(out, d.Group)
-		}
-	}
-	slices.SortFunc(out, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
-	return out
-}
-
-// GroupMembers liefert die Geräte einer Gruppe (Groß-/Kleinschreibung egal), nach Name sortiert.
-func (s *Store) GroupMembers(group string) []Device {
-	devs, _ := s.Devices()
-	return slices.DeleteFunc(devs, func(d Device) bool { return d.Group == "" || !strings.EqualFold(d.Group, group) })
 }
 
 func (s *Store) nameTaken(name, exceptID string) bool { return nameTakenIn(s.devices, name, exceptID) }
@@ -709,15 +713,13 @@ func (s *Store) Create(in Input) (Device, error) {
 	}
 	now := time.Now().UTC()
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
-	prev := s.devices
-	s.devices = append(slices.Clone(s.devices), d)
-	releaseAlias(s.devices, d.Name, d.ID)
-	if err := s.saveDevices(); err != nil {
-		s.devices = prev
+	next := append(slices.Clone(s.devices), d)
+	releaseAlias(next, d.Name, d.ID)
+	groups := syncGroups(next, s.groups)
+	if err := s.commitGroups(next, groups); err != nil {
 		return d, err
 	}
-	s.revision++
-	return d, nil
+	return next[len(next)-1], nil
 }
 
 // Update ändert ein Gerät. ifUpdated (Zeitstempel updated_at, den der Client kannte) schützt
@@ -744,17 +746,17 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 		return d, err
 	}
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = old.ID, old.CreatedAt, time.Now().UTC(), old.WakeKey
-	d.Aliases = renamed(old, d.Name)
-	prev := s.devices
-	s.devices = slices.Clone(s.devices)
-	s.devices[i] = d
-	releaseAlias(s.devices, d.Name, d.ID)
-	if err := s.saveDevices(); err != nil {
-		s.devices = prev
+	d.Aliases = formerNames(old.Aliases, old.Name, d.Name)
+	if strings.EqualFold(d.Group, old.Group) {
+		d.Order = old.Order // Platz behalten; in einer anderen Gruppe kommt es hinten an
+	}
+	next := slices.Clone(s.devices)
+	next[i] = d
+	releaseAlias(next, d.Name, d.ID)
+	if err := s.commitGroups(next, syncGroups(next, s.groups)); err != nil {
 		return d, err
 	}
-	s.revision++
-	return d, nil
+	return next[i], nil
 }
 
 func (s *Store) Delete(id string) error {
@@ -803,10 +805,11 @@ func (s *Store) RotateWakeKey(id string) (Device, error) {
 // ohnehin am Gerät). Der Export ist damit so vertraulich wie devices.json und state.json.
 func (s *Store) Export() ([]byte, error) {
 	devs, _ := s.Devices()
+	groups := s.GroupList()
 	s.mu.RLock()
 	secret := s.state.Secret
 	s.mu.RUnlock()
-	b, err := json.MarshalIndent(exportFile{devicesFile: devicesFile{Version: 2, Devices: devs}, Secret: secret}, "", "  ")
+	b, err := json.MarshalIndent(exportFile{devicesFile: devicesFile{Version: 2, Devices: devs, Groups: groups}, Secret: secret}, "", "  ")
 	return append(b, '\n'), err
 }
 
@@ -895,6 +898,9 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 				d.Aliases = append(d.Aliases, a)
 			}
 		}
+		if restore {
+			d.Order = max(src.Order, 0) // Reihenfolge der Sicherung
+		}
 		releaseAlias(next, d.Name, "")
 		next = append(next, d)
 		res.Added++
@@ -907,13 +913,10 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 	if res.Added == 0 {
 		return res, nil
 	}
-	prev := s.devices
-	s.devices = next
-	if err := s.saveDevices(); err != nil {
-		s.devices = prev
+	// Gruppen der Datei mit Reihenfolge und früheren Namen übernehmen, soweit es sie noch nicht gibt.
+	if err := s.commitGroups(next, syncGroups(next, mergeGroups(slices.Clone(s.groups), decodeGroups(b)))); err != nil {
 		return ImportResult{}, err
 	}
-	s.revision++
 	if sec, err := hex.DecodeString(exp.Secret); restore && err == nil && len(sec) >= 16 && exp.Secret != s.state.Secret {
 		old := s.state.Secret
 		s.state.Secret = exp.Secret

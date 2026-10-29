@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{.Lang}}">
+<html lang="{{.Lang}}" data-accent="{{.Accent}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,7 +9,7 @@
 <base href="{{.Base}}">
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="static/icon-180.png">
-<meta name="theme-color" content="#4f46e5">
+<meta name="theme-color" content="{{.ThemeColor}}">
 <meta name="apple-mobile-web-app-title" content="{{if .Device}}{{.Device.Name}}{{else}}wolweb{{end}}">
 <link rel="stylesheet" href="static/app.css?v={{.Version}}">
 <script id="i18n" type="application/json">{{.I18N}}</script>
@@ -21,6 +21,7 @@
 {{template "icons"}}
 <main class="wake-card" id="wake"
   {{with .Device}}data-name="{{.Name}}" data-path="{{.WakePath}}" data-has-ip="{{if .CheckIP}}1{{end}}" data-target="{{.WakeTarget}}"{{end}} data-key="{{.Key}}"
+  {{if .StatusHidden}}data-status-hidden="1"{{end}}
   data-timeout="{{.Timeout}}" data-retry="{{.Retry}}" data-state="{{if .Device}}start{{else}}missing{{end}}">
 {{if .Device}}
   <div class="wake-visual">

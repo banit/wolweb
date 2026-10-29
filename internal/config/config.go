@@ -28,10 +28,12 @@ type Config struct {
 	ReadOnly  bool      `json:"read_only"`
 	DataDir   string    `json:"data_dir"`
 	Language  string    `json:"language"` // "de" oder "en": Sprache, wenn Browser bzw. Anfrage keine nennt
+	Accent    string    `json:"accent"`   // Akzentfarbe der Oberfläche (accent.go)
 	Discovery Discovery `json:"discovery"`
 	Status    Status    `json:"status"`
 	Auth      Auth      `json:"auth"`
 	Notify    Notify    `json:"notify"`
+	Privacy   Privacy   `json:"privacy"`
 	// AllowedHosts sind zusätzliche Hostnamen, unter denen wolweb aufgerufen werden darf (Schutz
 	// vor DNS-Rebinding), z. B. "wol.example.com" oder "*.example.com"; "*" schaltet die Prüfung ab.
 	AllowedHosts []string `json:"allowed_hosts"`
@@ -129,6 +131,21 @@ type Notify struct {
 	Events []string `json:"events"`
 }
 
+// Privacy: was die Oberfläche zeigt.
+type Privacy struct {
+	// OnlineStatus: wer sieht, ob Geräte laufen – "all" (alle), "unlocked" (nur wer mit dem Passwort
+	// für Änderungen entsperrt hat oder das API-Token nutzt) oder "none" (niemand). Geprüft wird
+	// immer (Wiederholung, Benachrichtigungen); es geht nur um die Anzeige.
+	OnlineStatus string `json:"online_status"`
+}
+
+// Werte für Privacy.OnlineStatus.
+const (
+	StatusAll      = "all"
+	StatusUnlocked = "unlocked"
+	StatusNone     = "none"
+)
+
 type Auth struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -148,6 +165,8 @@ func Default() Config {
 		VDir:     "/",
 		DataDir:  "data",
 		Language: "en",
+		Accent:   DefaultAccent,
+		Privacy:  Privacy{OnlineStatus: StatusAll},
 		Discovery: Discovery{
 			Interval: "30m",
 			MaxHosts: 1024,
@@ -194,6 +213,7 @@ var envKeys = []struct {
 	{"read_only", []string{"WOLWEBREADONLY", "WOLWEB_READONLY"}},
 	{"data_dir", []string{"WOLWEB_DATA_DIR"}},
 	{"language", []string{"WOLWEB_LANGUAGE"}},
+	{"accent", []string{"WOLWEB_ACCENT"}},
 	{"discovery.networks", []string{"WOLWEB_NETWORKS"}},
 	{"discovery.interval", []string{"WOLWEB_SCAN_INTERVAL"}},
 	{"status.interval", []string{"WOLWEB_STATUS_INTERVAL"}},
@@ -207,6 +227,7 @@ var envKeys = []struct {
 	{"notify.webhook", []string{"WOLWEB_WEBHOOK"}},
 	{"notify.ntfy", []string{"WOLWEB_NTFY"}},
 	{"notify.events", []string{"WOLWEB_NOTIFY_EVENTS"}},
+	{"privacy.online_status", []string{"WOLWEB_ONLINE_STATUS"}},
 	{"allowed_hosts", []string{"WOLWEB_ALLOWED_HOSTS"}},
 }
 
@@ -232,11 +253,12 @@ func applyEnv(c *Config) map[string]string {
 // werden wie bisher übergangen (und sperren dann auch nichts).
 func setEnv(c *Config, key, v string) bool {
 	str := map[string]*string{
-		"host": &c.Host, "vdir": &c.VDir, "bcastip": &c.BcastIP, "data_dir": &c.DataDir, "language": &c.Language,
+		"host": &c.Host, "vdir": &c.VDir, "bcastip": &c.BcastIP, "data_dir": &c.DataDir, "language": &c.Language, "accent": &c.Accent,
 		"discovery.interval": &c.Discovery.Interval, "status.interval": &c.Status.Interval,
 		"status.wake_timeout": &c.Status.WakeTimeout, "status.wake_retry": &c.Status.WakeRetry,
 		"auth.username": &c.Auth.Username, "auth.password": &c.Auth.Password, "auth.api_token": &c.Auth.APIToken,
 		"notify.webhook": &c.Notify.Webhook, "notify.ntfy": &c.Notify.Ntfy,
+		"privacy.online_status": &c.Privacy.OnlineStatus,
 	}
 	boolean := map[string]*bool{"read_only": &c.ReadOnly, "auth.public_wake": &c.Auth.PublicWake, "auth.wake_keys": &c.Auth.WakeKeys}
 	if p, ok := str[key]; ok {
@@ -310,6 +332,19 @@ func (c *Config) normalize() error {
 		return invalid("language", "cfg.language", c.Language)
 	} else {
 		c.Language = string(i18n.EN)
+	}
+	switch c.Privacy.OnlineStatus = strings.ToLower(strings.TrimSpace(c.Privacy.OnlineStatus)); c.Privacy.OnlineStatus {
+	case "":
+		c.Privacy.OnlineStatus = StatusAll
+	case StatusAll, StatusUnlocked, StatusNone:
+	default:
+		return invalid("privacy.online_status", "cfg.online_status", c.Privacy.OnlineStatus)
+	}
+	c.Accent = strings.ToLower(strings.TrimSpace(c.Accent))
+	if c.Accent == "" {
+		c.Accent = DefaultAccent
+	} else if !slices.Contains(accentNames(), c.Accent) {
+		return invalid("accent", "cfg.accent", c.Accent, strings.Join(accentNames(), ", "))
 	}
 	v := "/" + strings.Trim(strings.TrimSpace(c.VDir), "/")
 	if v != "/" {

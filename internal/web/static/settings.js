@@ -39,7 +39,7 @@
     $("#toasts").append(t);
     setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 250); }, kind === "err" ? 7000 : 4200);
   }
-  async function api(method, url, body) {
+  async function api(method, url, body, again) {
     const opts = { method, cache: "no-store", headers: { "Accept": "application/json", "X-WolWeb": "1" } };
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
@@ -48,6 +48,10 @@
     const res = await fetch("api/v1/" + url, opts);
     let data = null;
     try { data = await res.json(); } catch (e) { /* keine JSON-Antwort */ }
+    // Entsperrung abgelaufen (Passwort für Änderungen): nachfragen und die Anfrage wiederholen.
+    if (res.status === 403 && data && data.locked && !again && view && await window.wolwebLock.unlock()) {
+      return api(method, url, body, true);
+    }
     if (!res.ok) throw Object.assign(new Error((data && data.message) || t("ui.unexpected_response", res.status)), { data: data || {}, status: res.status });
     return data;
   }
@@ -56,6 +60,7 @@
     $("#confirm-title").textContent = title;
     $("#confirm-text").textContent = text;
     $("#confirm-ok").textContent = ok;
+    d.returnValue = ""; // sonst gälte Escape als „ok“, wenn die letzte Rückfrage bestätigt wurde
     d.showModal();
     return new Promise((resolve) => d.addEventListener("close", () => resolve(d.returnValue === "ok"), { once: true }));
   }
@@ -86,6 +91,8 @@
     setField("auth.wake_keys", s.auth.wake_keys);
     setField("allowed_hosts", (s.allowed_hosts || []).join("\n"));
     setField("language", s.language);
+    setField("privacy.online_status", s.privacy.online_status);
+    renderAccents(s.accent);
     renderEvents(s.notify.events || []);
     renderRejected(v.rejected_hosts || []);
     nets = (v.networks || []).map((n) => ({ cidr: n.cidr, name: n.name || "", vlan: n.vlan || "", scan: n.scan, orig: n }));
@@ -94,7 +101,7 @@
 
     const src = v.file_found ? t("set.source.file", v.file) : t("set.source.defaults");
     $("#set-source").textContent = src + (v.stored.length ? " · " + tn("set.stored", v.stored.length) : "");
-    $("#set-no-auth").hidden = v.auth;
+    $("#set-no-auth").hidden = v.auth || v.password;
     $("#set-read-only").hidden = !v.read_only;
     $("#set-reset").hidden = !v.stored.length || v.read_only;
     $("#set-save").hidden = v.read_only;
@@ -117,6 +124,10 @@
     }
     $("#net-add").disabled = !!locked("discovery.networks") || v.read_only;
     $("#notify-test").disabled = v.read_only;
+    renderPassword();
+    renderPrivacyNote();
+    loadGroups();
+    showLockscreen(false);
     setDirty(false);
   }
 
@@ -142,6 +153,15 @@
     note.hidden = false;
     f.focus();
   }
+
+  // Akzentfarben als Farbfelder; die Wahl gilt sofort als Vorschau, gespeichert mit „Speichern“.
+  function renderAccents(current) {
+    $("#accent-swatches").replaceChildren(...view.accents.map((a) => el("label", { class: "swatch", "data-accent": a.name, title: t("set.accent." + a.name) },
+      el("input", { type: "radio", name: "accent", value: a.name, checked: a.name === current, "aria-label": t("set.accent." + a.name) }),
+      el("span", { "aria-hidden": "true" }))));
+    document.documentElement.dataset.accent = current;
+  }
+  $("#accent-swatches").addEventListener("change", (e) => { document.documentElement.dataset.accent = e.target.value; });
 
   function renderEvents(selected) {
     const box = $("#event-checks");
@@ -292,6 +312,8 @@
     if (!checked.length) throw { key: "notify.events", message: t("set.err.events") };
     return {
       language: form.elements.language.value,
+      accent: (form.querySelector('input[name="accent"]:checked') || {}).value || view.settings.accent,
+      privacy: { online_status: form.elements["privacy.online_status"].value || view.settings.privacy.online_status },
       bcastip: v("bcastip"),
       allowed_hosts: splitList(form.elements.allowed_hosts.value),
       discovery: { networks, interval: v("discovery.interval") },
@@ -345,14 +367,192 @@
     }
   });
 
+  // „Nur nach dem Entsperren“ ohne Passwort heißt: niemand sieht den Status – darauf hinweisen.
+  function renderPrivacyNote() {
+    const show = !!view && !view.password && form.elements["privacy.online_status"].value === "unlocked";
+    $("#privacy-no-pw").hidden = !show;
+    // nur ansagen, was zu sehen ist (ein verborgenes, aber verknüpftes Element läse der Screenreader mit)
+    form.querySelector('input[name="privacy.online_status"][value="unlocked"]')
+      .setAttribute("aria-describedby", show ? "hint-privacy-unlocked privacy-no-pw" : "hint-privacy-unlocked");
+  }
+  form.addEventListener("change", (e) => { if (e.target.name === "privacy.online_status") renderPrivacyNote(); });
+
+  // ---------- Passwort für Änderungen ----------
+  const pwForm = $("#pw-form");
+  function renderPassword() {
+    const on = view.password;
+    $("#pw-section").hidden = false;
+    $("#pw-state").textContent = on ? t("set.pw.on") : t("set.pw.off");
+    $("#pw-state").className = "pw-state " + (on ? "ok" : "warn");
+    pwForm.hidden = view.read_only;
+    $("#pw-current-field").hidden = !on;
+    $("#pw-save-text").textContent = on ? t("set.pw.change") : t("set.pw.set");
+    $("#pw-remove").hidden = !on;
+    pwError();
+    const btn = $("#lock-toggle");
+    btn.hidden = !on; // auch im Nur-Lesen-Betrieb: die Seite selbst braucht die Entsperrung
+    window.wolwebLock.button(btn, false);
+  }
+  // pwError zeigt eine Meldung am Feld (name) oder löscht alle.
+  function pwError(name, message) {
+    for (const i of pwForm.querySelectorAll("[aria-invalid]")) i.removeAttribute("aria-invalid");
+    const box = $("#pw-error");
+    box.textContent = message || "";
+    box.hidden = !message;
+    for (const i of pwForm.querySelectorAll("input")) {
+      const ids = (i.getAttribute("aria-describedby") || "").split(" ").filter((x) => x && x !== "pw-error");
+      if (message && i.name === name) ids.unshift("pw-error");
+      if (ids.length) i.setAttribute("aria-describedby", ids.join(" "));
+      else i.removeAttribute("aria-describedby");
+    }
+    if (!message) return;
+    const f = pwForm.elements[name];
+    if (f) {
+      f.setAttribute("aria-invalid", "true");
+      f.focus();
+    } else {
+      box.focus();
+    }
+  }
+  async function savePassword(password) {
+    const current = view.password ? pwForm.elements.current.value : "";
+    const btn = password ? $("#pw-save") : $("#pw-remove");
+    btn.disabled = true;
+    try {
+      await api("PUT", "password", { current, password });
+      view.password = !!password;
+      renderPrivacyNote();
+      for (const i of pwForm.querySelectorAll("input")) i.value = "";
+      $("#set-no-auth").hidden = view.auth || view.password;
+      renderPassword();
+      if (password) toast("ok", t("set.pw.saved"), t("set.pw.saved_text"));
+      else toast("ok", t("set.pw.removed"), t("set.pw.removed_text"));
+      $("#pw-state").focus();
+    } catch (err) {
+      const field = err.data && err.data.field;
+      pwError(field === "current" || field === "password" ? field : "", err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  pwForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const f = pwForm.elements;
+    if (view.password && !f.current.value) return pwError("current", t("set.pw.current_missing"));
+    if (!f.password.value) return pwError("password", t("set.pw.missing"));
+    if (f.password.value !== f.repeat.value) return pwError("repeat", t("set.pw.mismatch"));
+    savePassword(f.password.value);
+  });
+  $("#pw-remove").addEventListener("click", async () => {
+    if (!pwForm.elements.current.value) return pwError("current", t("set.pw.current_missing"));
+    if (!(await confirmDialog(t("set.pw.remove_q"), t("set.pw.remove_text"), t("set.pw.remove")))) return;
+    savePassword("");
+  });
+
+  // ---------- Gruppen ----------
+  let groups = [], devices = [];
+  async function loadGroups(focus) {
+    try {
+      [groups, devices] = await Promise.all([api("GET", "groups"), api("GET", "devices")]);
+    } catch (err) {
+      toast("err", t("set.load_failed"), err.message);
+      return;
+    }
+    renderGroups(focus);
+  }
+  // renderGroups zeichnet die Liste; focus nennt danach den Knopf, der den Fokus bekommt ("name|aktion").
+  function renderGroups(focus) {
+    const off = !editable();
+    $("#grp-section").hidden = false;
+    $("#grp-list").replaceChildren(...groups.map((g, i) => el("li", { class: "grp-row", "data-name": g.name },
+      el("div", { class: "grp-main" },
+        el("strong", { text: g.name }),
+        el("span", { class: "muted small", text: tn("ui.n_devices", g.members.length) })),
+      off ? null : el("div", { class: "grp-actions" },
+        el("button", { type: "button", class: "btn btn-ghost icon-only", "data-act": "up", disabled: i === 0, title: t("set.grp.up_x", g.name), "aria-label": t("set.grp.up_x", g.name), onclick: () => moveGroup(i, -1) }, icon("arrow-up")),
+        el("button", { type: "button", class: "btn btn-ghost icon-only", "data-act": "down", disabled: i === groups.length - 1, title: t("set.grp.down_x", g.name), "aria-label": t("set.grp.down_x", g.name), onclick: () => moveGroup(i, 1) }, icon("arrow-down")),
+        el("button", { type: "button", class: "btn btn-ghost icon-only", "data-act": "edit", title: t("set.grp.edit_x", g.name), "aria-label": t("set.grp.edit_x", g.name), onclick: () => editGroup(g) }, icon("edit"))))));
+    $("#grp-empty").hidden = groups.length > 0;
+    $("#grp-add").hidden = off;
+    if (focus) {
+      const [name, act] = focus.split("|");
+      const row = [...$("#grp-list").children].find((r) => r.dataset.name === name);
+      let btn = row && row.querySelector('[data-act="' + act + '"]');
+      if (btn && btn.disabled) btn = row.querySelector('[data-act="' + (act === "up" ? "down" : "up") + '"]');
+      (btn || $("#grp-add")).focus();
+    }
+  }
+  async function moveGroup(i, dir) {
+    const order = groups.map((g) => g.name);
+    const [name] = order.splice(i, 1);
+    order.splice(i + dir, 0, name);
+    try {
+      await api("PUT", "order", { groups: order });
+    } catch (err) {
+      toast("err", t("set.save_failed"), err.message);
+      return;
+    }
+    await loadGroups(name + "|" + (dir < 0 ? "up" : "down"));
+    $("#grp-status").textContent = t("set.grp.moved", name, i + dir + 1, order.length);
+  }
+  function editGroup(g) {
+    window.wolwebGroups.open({
+      group: g, devices, api, toast,
+      onSaved: (name) => loadGroups(name ? name + "|edit" : "|add"),
+    });
+  }
+  $("#grp-add").addEventListener("click", () => window.wolwebGroups.open({
+    group: null, devices, api, toast,
+    onSaved: (name) => loadGroups(name + "|edit"),
+  }));
+
+  // ---------- Sperren ----------
+  // Gesperrt zeigt die Seite nur den Hinweis mit „Entsperren“ – die Einstellungen gibt der Server
+  // erst danach heraus.
+  function showLockscreen(on) {
+    $("#set-lockscreen").hidden = !on;
+    for (const id of ["#set-intro", "#settings-form", "#pw-section", "#grp-section"]) $(id).hidden = on;
+    if (on) {
+      for (const id of ["#set-no-auth", "#set-read-only"]) $(id).hidden = true;
+      $("#set-source").textContent = t("set.lockscreen.title");
+      $("#lock-toggle").hidden = true;
+      setDirty(false);
+    }
+  }
+  async function unlockAndLoad() {
+    if (await window.wolwebLock.unlock()) {
+      await load();
+      toast("ok", t("ui.lock.unlocked"), t("ui.lock.unlocked_text"));
+      form.focus();
+    }
+  }
+  $("#lockscreen-unlock").addEventListener("click", unlockAndLoad);
+  $("#lock-toggle").addEventListener("click", async () => {
+    try { await window.wolwebLock.lock(); } catch (e) { toast("err", t("ui.lock.failed"), e.message); return; }
+    view = null;
+    showLockscreen(true);
+    toast("ok", t("ui.lock.locked"), t("ui.lock.locked_text"));
+    $("#lockscreen-unlock").focus();
+  });
+
   // Sprunglink: "#settings-form" löst sich wegen <base> gegen die Basisadresse auf – selbst springen.
   $(".skip-link").addEventListener("click", (e) => {
     e.preventDefault();
     form.focus();
   });
 
-  api("GET", "settings").then(render).catch((err) => {
-    $("#set-source").textContent = t("set.load_failed");
-    toast("err", t("set.load_failed"), err.message);
-  });
+  async function load() {
+    try {
+      render(await api("GET", "settings"));
+    } catch (err) {
+      if (err.data && err.data.locked) {
+        showLockscreen(true);
+        return false;
+      }
+      $("#set-source").textContent = t("set.load_failed");
+      toast("err", t("set.load_failed"), err.message);
+    }
+    return true;
+  }
+  load().then((ok) => { if (!ok) unlockAndLoad(); }); // gesperrt: gleich nach dem Passwort fragen
 })();

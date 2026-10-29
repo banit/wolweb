@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{.Lang}}">
+<html lang="{{.Lang}}" data-accent="{{.Accent}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,7 +9,7 @@
 <base href="{{.Base}}">
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="static/icon-180.png">
-<meta name="theme-color" content="#4f46e5">
+<meta name="theme-color" content="{{.ThemeColor}}">
 <meta name="apple-mobile-web-app-title" content="{{.Group.Name}}">
 <link rel="stylesheet" href="static/app.css?v={{.Version}}">
 <script id="i18n" type="application/json">{{.I18N}}</script>
@@ -19,7 +19,7 @@
 </head>
 <body class="wake-page">
 {{template "icons"}}
-<main class="wake-card" id="group" data-name="{{.Group.Name}}" data-path="{{.Group.Path}}" data-key="{{.Key}}"
+<main class="wake-card" id="group" data-name="{{.Group.Name}}" data-path="{{.Group.Path}}" data-key="{{.Key}}" {{if .StatusHidden}}data-status-hidden="1"{{end}}
   data-timeout="{{.Timeout}}" data-retry="{{.Retry}}" data-state="start">
   <div class="wake-visual">
     <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>

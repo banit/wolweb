@@ -22,10 +22,10 @@ Netzwerkkarte).
    ```
 
    oder ohne Docker: die passende Datei unter [Releases](https://github.com/banit/wolweb/releases) laden
-   (z. B. `wolweb-1.2.0-linux-arm64` für einen Raspberry Pi 4/5) und starten:
+   (z. B. `wolweb-1.3.0-linux-arm64` für einen Raspberry Pi 4/5) und starten:
 
    ```sh
-   chmod +x wolweb-1.2.0-linux-arm64 && sudo ./wolweb-1.2.0-linux-arm64
+   chmod +x wolweb-1.3.0-linux-arm64 && sudo ./wolweb-1.3.0-linux-arm64
    ```
 
 2. **Öffnen:** `http://<Adresse>:8089` im Browser, z. B. `http://192.168.1.10:8089`.
@@ -94,7 +94,7 @@ aus der Netzwerksuche).
 
 | Feld | Wofür |
 |---|---|
-| Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken; vorhandene Gruppen stehen unter dem Feld zum Antippen. Mehrere Geräte auf einmal zuordnen: in der Übersicht „Auswählen“, Geräte ankreuzen, Gruppenname eingeben. Der Gruppenknopf nennt, wie viele er weckt („Alle 4 Geräte wecken“) |
+| Gruppe | Geräte mit gleicher Gruppe stehen zusammen und lassen sich gemeinsam wecken; vorhandene Gruppen stehen unter dem Feld zum Antippen. Mehrere Geräte auf einmal zuordnen: in der Übersicht „Auswählen“, Geräte ankreuzen, Gruppenname eingeben. Der Gruppenknopf nennt, wie viele er weckt („Alle 4 Geräte wecken“). Die Gruppen selbst – anlegen (auch leer), umbenennen, Mitglieder wählen, löschen – verwaltest du auf der Einstellungsseite unter „Gruppen“ oder mit dem Stift am Gruppenkopf |
 | Zeitplan | „Automatisch wecken“ einschalten, Wochentage antippen, Uhrzeit wählen – der Dialog zeigt dazu „Montag bis Freitag um 07:30 Uhr“, das nächste Wecken und die Zeitzone. „Pausieren“ setzt den Zeitplan aus, ohne die Zeiten zu vergessen. Mehrere Zeiten gehen unter „Weitere Möglichkeiten“ als Text, z. B. `Mo-Fr 07:30; Sa,So 09:00`, `werktags 6:45`, `täglich 22:00` (englisch wie `Mon-Fri 07:30` geht auch; gespeichert wird einheitlich die deutsche Form) |
 | *Erweitert:* Broadcast-Adresse | Ziel des Magic Packets, nur für Sonderfälle (sonst automatisch) |
 | *Erweitert:* Netzwerkschnittstelle | Paket über genau diese Schnittstelle senden (Rechner mit mehreren Netzen) |
@@ -105,6 +105,13 @@ aus der Netzwerksuche).
 Zeitpläne gelten in der Ortszeit des Rechners bzw. Containers (`TZ`, in `docker-compose.yml` voreingestellt).
 Weicht sie von der Zeitzone des Browsers ab, sagt der Dialog das und nennt die Uhrzeit bei dir. Die Karte zeigt die
 nächste geplante Weckzeit oder „Zeitplan pausiert“.
+
+**Reihenfolge:** „Sortieren“ in der Übersicht zeigt Gruppen und Geräte als schlichte Liste. Ziehen geht am Griff (Maus,
+Stift oder Finger – nur am Griff, damit die Seite auf dem Handy weiter blättert), alternativ mit den Pfeilknöpfen;
+am Rand einer Gruppe wandert ein Gerät in die nächste, auch in leere Gruppen und zu „Weitere Geräte“. Jede Änderung
+wird sofort gespeichert. Solange nichts sortiert ist, stehen Geräte nach Namen und Gruppen in der Reihenfolge, in
+der sie angelegt wurden; neue Geräte kommen ans Ende ihrer Gruppe. Gruppen lassen sich auch auf der
+Einstellungsseite mit Pfeilen umstellen.
 
 ## Feste Wecklinks
 
@@ -119,7 +126,8 @@ nächste geplante Weckzeit oder „Zeitplan pausiert“.
 Der Name ist nicht von Groß-/Kleinschreibung abhängig. Nach dem Umbenennen gelten alte Links weiter: Browser
 werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich je Gerät bis zu zehn frühere Namen;
 einen davon einem anderen Gerät zu geben, muss man bestätigen, danach gehört der Link dem neuen Gerät – ein Import
-wählt stattdessen einen freien Namen). Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
+wählt stattdessen einen freien Namen). Auch umbenannte Gruppen behalten ihre alten Gruppen-Wecklinks, jeweils mit
+dem Schlüssel, mit dem sie herausgegeben wurden. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
 ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts. Während
 des Wartens nennt sie, wie lange geprüft wird (`status.wake_timeout`) und ob automatisch erneut gesendet wird. Kommt
 keine Antwort, bleibt „Start nicht bestätigt“ mit dem Naheliegenden stehen (Strom, Netzwerkkabel, blockierte
@@ -187,7 +195,7 @@ Fertige Images für amd64, arm64 (Raspberry Pi 4/5) und armv7 baut GitHub bei je
 ### Direkt / Proxmox-LXC
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.2.0" -o wolweb .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=1.3.0" -o wolweb .
 ```
 
 Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `deploy/wolweb.service` nach
@@ -195,7 +203,7 @@ Nach `/opt/wolweb` kopieren, `config.example.json` als `config.json` anpassen, `
 `systemctl enable --now wolweb`. Die Unit gewährt nur `CAP_NET_RAW` für Ping und ARP-Scan, sonst nichts.
 
 `wolweb -h` zeigt die Kommandozeilenoptionen (`-c` Konfigurationsdatei, `-d` devices.json des ursprünglichen wolweb,
-`-healthcheck` für Docker).
+`-healthcheck` für Docker, `-reset-password` siehe [Passwort für Änderungen](#passwort-für-änderungen)).
 
 ## Umstieg vom ursprünglichen wolweb
 
@@ -221,7 +229,7 @@ wolweb übernimmt Konfiguration und Geräteliste des ursprünglichen
 - **Zurück:** Die alte `devices.json` bleibt unverändert; das alte Programm bzw. Image lässt sich jederzeit wieder
   starten.
 
-## Update von 1.0.x / 1.1.x
+## Update von 1.0.x / 1.1.x / 1.2.x
 
 Geräte und Einstellungen werden beim ersten Start automatisch übernommen.
 
@@ -252,6 +260,20 @@ Geräte und Einstellungen werden beim ersten Start automatisch übernommen.
 Dateien aus dem Sicherungsordner nach `data/` kopieren, Dateien, die in der Sicherung fehlen (bei 1.0.x
 `state.json` und `settings.json`), aus `data/` löschen, dann die alte Version starten. Was seit dem Update
 geändert wurde, fehlt danach.
+
+**Was sich mit 1.3 ändert – und ob du etwas tun musst:**
+
+- *Passwort für Änderungen* (neu, freiwillig): Solange keins gesetzt ist, ändert sich nichts. Mit Passwort bleiben
+  Ansehen und Wecken frei; Bearbeiten, Import und Export, die Netzwerksuche und die Einstellungsseite gibt es erst
+  nach dem Entsperren. Automationen mit `auth.api_token` sind nicht betroffen, die Anmeldung per HTTP Basic
+  entsperrt nicht. Siehe [Passwort für Änderungen](#passwort-für-änderungen).
+- *Gruppen sind eigene Einträge:* `devices.json` bekommt eine Liste `groups` (Name, Reihenfolge, frühere Namen),
+  Geräte ein Feld `order`. Vorhandene Gruppen werden alphabetisch übernommen, wie bisher angezeigt; neue Gruppen
+  kommen jetzt ans Ende, und eine leere Gruppe bleibt, bis du sie löschst (bisher verschwand sie mit ihrem letzten
+  Gerät). `GET /api/v1/groups` nennt auch leere Gruppen, in ihrer Reihenfolge. Eine ältere Version verwirft
+  `groups` und `order` beim Speichern – die Sicherung (siehe oben) enthält den Stand vor dem Update.
+- *Akzentfarbe* (neu): Standard `indigo` wie bisher.
+- *Privatsphäre* (neu): `privacy.online_status` blendet den Online-Status aus; Standard `all` wie bisher.
 
 **Was sich mit 1.2 ändert – und ob du etwas tun musst:**
 
@@ -286,7 +308,9 @@ geändert wurde, fehlt danach.
 
 Das Zahnrad oben rechts öffnet die Einstellungsseite (`/settings`). Dort lassen sich die Netze und VLANs,
 Netzwerksuche, Online-Prüfung, Wartezeiten, Benachrichtigungen (mit „Testnachricht senden“), öffentliche Wecklinks,
-erlaubte Hostnamen und die Standardsprache ändern. Änderungen gelten sofort, ohne Neustart.
+erlaubte Hostnamen, wer den Online-Status sieht ([Privatsphäre](#privatsphäre)), die Standardsprache und die
+Akzentfarbe ändern (17 Farben, jeweils hell und dunkel). Änderungen gelten sofort, ohne Neustart. Gruppen und das
+Passwort für Änderungen haben dort eigene Bereiche, die sofort speichern.
 
 - **Reihenfolge** (das Spätere gewinnt): Standardwerte, `config.json`, die Einstellungsseite, Umgebungsvariablen.
 - **Gespeichert** wird in `data/settings.json` – im Datenverzeichnis, weil das immer beschreibbar ist (`config.json`
@@ -297,10 +321,65 @@ erlaubte Hostnamen und die Standardsprache ändern. Änderungen gelten sofort, o
   ausgegraut mit dem Namen der Variable. Wer es lieber auf der Seite pflegt, nimmt die Variable heraus.
 - **Nicht auf der Seite**: Adresse, Port, Pfad, Datenverzeichnis, Nur-Lesen und die Zugangsdaten. Über die Seite
   könnte man sich sonst aussperren – oder ohne Anmeldung einfach eine setzen.
-- Ohne Anmeldung kann jeder im Netz die Einstellungen sehen und ändern; die Seite weist darauf hin. Im
-  Nur-Lesen-Modus lässt sie sich nur ansehen.
+- Ohne Anmeldung und ohne [Passwort für Änderungen](#passwort-für-änderungen) kann jeder im Netz die Einstellungen
+  sehen und ändern; die Seite weist darauf hin. Im Nur-Lesen-Modus lässt sie sich nur ansehen.
 
 ![Einstellungen: Netze und VLANs mit Schnittstellen des Rechners](docs/screenshots/settings.png)
+
+### Passwort für Änderungen
+
+Unten auf der Einstellungsseite lässt sich ein Passwort für Änderungen setzen – ohne Benutzernamen. Mit Passwort:
+
+- **Ansehen und Wecken bleiben frei** für alle im Netz: Übersicht, Status, Weckknöpfe, Gruppen wecken und die festen
+  Wecklinks.
+- **Alles andere erst nach dem Entsperren**: Geräte anlegen, bearbeiten und löschen, Gruppen zuordnen, Import und
+  Export, die Netzwerksuche („Geräte suchen“ und die Suchtreffer erscheinen erst nach dem Entsperren) und die
+  Einstellungsseite. Das Schloss in der Kopfzeile fragt nach dem Passwort; danach bleibt dieser Browser entsperrt,
+  bis er geschlossen wird oder 12 Stunden lang nichts bearbeitet wird (eine bloß offene Übersicht zählt nicht).
+  Derselbe Knopf sperrt sofort wieder.
+- Ändern oder Entfernen verlangt das bisherige Passwort; ein neues Passwort beendet die Entsperrung aller anderen
+  Browser. Nach 5 Fehlversuchen aus einem Browser heißt es für ihn 30 s warten (mit jedem weiteren Fehlversuch
+  doppelt so lange, höchstens 15 Minuten); hinter einem Reverse-Proxy unterscheidet der letzte Eintrag von
+  `X-Forwarded-For` die Browser. Nach 30 Fehlversuchen insgesamt gilt die Wartezeit für alle, und es läuft immer nur
+  eine Passwortprüfung zur Zeit.
+- Gespeichert wird nur ein PBKDF2-SHA256-Hash in `data/state.json`; die Entsperrung ist ein signiertes Cookie
+  (HttpOnly, SameSite=Strict).
+- Automationen mit `auth.api_token` sind nicht betroffen. Die Anmeldung per HTTP Basic entsperrt nicht – die kennt
+  oft der ganze Haushalt, das Passwort für Änderungen ist für weniger Leute gedacht.
+- **Vergessen?** wolweb anhalten und einmal mit `-reset-password` starten: Das entfernt das Passwort und beendet sich.
+
+  ```sh
+  docker compose stop wolweb
+  docker compose run --rm wolweb -reset-password
+  docker compose start wolweb
+  ```
+
+  Ohne Docker: den Dienst anhalten, `wolweb -c config.json -reset-password` mit derselben Konfiguration ausführen
+  (damit es das Datenverzeichnis findet) und den Dienst wieder starten.
+
+### Privatsphäre
+
+Unter „Privatsphäre“ auf der Einstellungsseite legst du fest, wer sieht, ob Geräte laufen (`privacy.online_status`):
+
+| Auswahl | Wert | Wer sieht den Online-Status |
+|---|---|---|
+| Für alle anzeigen (Standard) | `all` | jeder, der wolweb aufruft |
+| Nur nach dem Entsperren anzeigen | `unlocked` | nur Browser, die mit dem [Passwort für Änderungen](#passwort-für-änderungen) entsperrt sind, und Automationen mit `auth.api_token` – etwa zur Fehlersuche. Ohne Passwort für Änderungen sieht ihn niemand. |
+| Für niemanden anzeigen | `none` | niemand, auch nicht nach dem Entsperren |
+
+Ausgeblendet heißt überall, nicht nur in der Übersicht: Die Karten zeigen keinen Status, keinen grünen Punkt und
+kein „Erneut wecken“, der Filter Online/Offline entfällt, und Gruppen nennen nur die Zahl ihrer Geräte. Der Server
+lässt den Status aus `/api/v1/devices` und `/api/v1/groups`, den Live-Ereignissen, `/metrics` und dem Verlauf weg;
+die `…/status`-Aufrufe antworten 403 mit `"hidden": true`. **Ausnahme Wecken:** Wer ein Gerät weckt – per Knopf in
+der Übersicht oder über seinen Weck- oder Gruppenlink –, startet es ohnehin und sieht deshalb weiter, ob es
+hochkommt. Die Karte in der Übersicht verfolgt den Start dieses einen Geräts und blendet den Status danach wieder
+aus; Weck- und Gruppenseiten bestätigen den Start wie gewohnt. Die Weckantwort bringt dafür einen kurzlebigen
+Schlüssel `watch` mit, den `…/status?watch=…` 15 Minuten lang für dieses Gerät bzw. diese Gruppe annimmt, und
+`?wait=` funktioniert weiter. Nur die Vorabprüfung, ob das Gerät schon läuft, entfällt – sie verriete den Status,
+ohne zu wecken. Auch die Suchtreffer verraten, wer im Netz ist; mit Passwort für Änderungen sehen sie nur
+Entsperrte, egal wie eingestellt. Geprüft wird im Hintergrund weiter, für die automatische Wiederholung und die
+Benachrichtigungen (deren Ereignisse wählst du getrennt). Die Anmeldung per HTTP Basic zählt
+nicht als entsperrt, wie beim Passwort für Änderungen.
 
 ## Mehrere Netze und VLANs
 
@@ -407,6 +486,7 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `bcastip` | `WOLWEBBCASTIP` / `WOLWEB_BCASTIP` | automatisch | Standardziel, wenn weder Gerät noch Netz eins liefern |
 | `read_only` | `WOLWEBREADONLY` / `WOLWEB_READONLY` | `false` | nur wecken, nichts ändern |
 | `language` | `WOLWEB_LANGUAGE` | `en` | `en` oder `de`: Sprache, wenn weder Umschalter noch Browser eine nennen (auch für Benachrichtigungen) |
+| `accent` | `WOLWEB_ACCENT` | `indigo` | Akzentfarbe der Oberfläche (Knöpfe, Auswahl, Markierungen) auf allen Seiten: indigo, blue, sky, cyan, teal, emerald, green, lime, amber, orange, red, rose, pink, fuchsia, purple, violet, slate – am einfachsten auf der Einstellungsseite gewählt |
 | `data_dir` | `WOLWEB_DATA_DIR` | `data` | Geräte (`devices.json`), Laufzeitdaten (`state.json`), Suchergebnisse (`discovered.json`) und Änderungen der Einstellungsseite (`settings.json`) |
 | `discovery.networks` | `WOLWEB_NETWORKS` | automatisch | Netze (CIDR, Variable kommagetrennt); leer = das eine Heimnetz automatisch, bei mehreren Auswahl in der Oberfläche; auch mit Namen: `{"cidr": "10.0.0.0/24", "name": "IoT", "vlan": 20, "scan": false}` – `scan: false` heißt anzeigen, aber nicht durchsuchen |
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus (mindestens `1m`) |
@@ -423,6 +503,7 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `notify.webhook` | `WOLWEB_WEBHOOK` | – | URL, die jedes Ereignis als JSON per POST bekommt |
 | `notify.ntfy` | `WOLWEB_NTFY` | – | ntfy-Thema, z. B. `https://ntfy.sh/mein-geheimes-thema` |
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | alle | Auswahl aus `online`, `offline`, `wake`, `wake_failed` |
+| `privacy.online_status` | `WOLWEB_ONLINE_STATUS` | `all` | wer sieht, ob Geräte laufen: `all`, `unlocked` (nur nach dem Entsperren) oder `none` (siehe [Privatsphäre](#privatsphäre)) |
 
 `devices.json` enthält nur, was man selbst einträgt; was wolweb beobachtet (zuletzt geweckt, zuletzt online, die
 letzten 500 Weckversuche) steht in `state.json`. Der Export unten auf der Seite sichert die Geräte samt
@@ -469,6 +550,8 @@ braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_
 
 - **Anmeldung**: `auth.username`/`auth.password` (HTTP Basic, im Internet nur hinter HTTPS) und/oder `auth.api_token`
   für Automationen.
+- **Passwort für Änderungen**: Ansehen und Wecken bleiben frei, Ändern erst nach dem Entsperren – siehe
+  [Passwort für Änderungen](#passwort-für-änderungen).
 - **Öffentliche Wecklinks** (`auth.public_wake`): Mit Anmeldung bleiben `/wake/<Name>` und die Weckseite ohne Login
   erreichbar. Damit niemand Geräte über erratene Namen weckt, verlangt `auth.wake_keys` zusätzlich einen Schlüssel
   je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern.
@@ -524,7 +607,9 @@ Touch-Ziele auf einem Handy.
 ## API
 
 Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site-Requests) oder ein Bearer-Token;
-fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in `"error"`.
+fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in `"error"`. Mit
+[Passwort für Änderungen](#passwort-für-änderungen) bekommen ändernde Aufrufe ohne Entsperrung oder Token 403 mit
+`"locked": true`.
 
 | Methode | Pfad | |
 |---|---|---|
@@ -537,7 +622,10 @@ fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in
 | GET | `/api/v1/devices/{id}/status` | sofort prüfen |
 | POST | `/api/v1/devices/{id}/wake-key` | neuen Weckschlüssel erzeugen |
 | GET | `/api/v1/schedule/preview?s=…` | Zeitplan prüfen, ohne zu speichern: einheitliche Schreibweise, nächste Weckzeit, Zeitzone des Servers |
-| GET | `/api/v1/groups` | Gruppen mit Mitgliedern (und Schlüssel des Gruppen-Wecklinks) |
+| GET | `/api/v1/groups` | Gruppen in ihrer Reihenfolge, auch leere, mit Mitgliedern (und Schlüssel des Gruppen-Wecklinks) |
+| POST | `/api/v1/groups` | Gruppe anlegen: `{"name": "Büro", "members": [IDs]}` (Mitglieder optional) |
+| PUT / DELETE | `/api/v1/groups/{name}` | umbenennen und/oder Mitglieder setzen (`{"name": …, "members": […]}`, ohne `members` bleiben sie) / löschen (die Geräte bleiben, ohne Gruppe) |
+| PUT | `/api/v1/order` | Reihenfolge wie in der Übersicht: `{"groups": [Namen], "devices": [{"group": "Büro", "ids": […]}, {"group": "", "ids": […]}]}` – steht ein Gerät bei einer anderen Gruppe, wechselt es dorthin |
 | POST | `/api/v1/groups/{name}/wake` | alle Geräte einer Gruppe wecken |
 | GET | `/api/v1/history` | Weckverlauf, neueste zuerst (`?limit=`) |
 | GET / POST | `/api/v1/export`, `/api/v1/import` | Geräte als JSON herunterladen / aus einer Datei übernehmen; die Antwort nennt jeden Eintrag (`items`: `added` – ggf. mit `new_name` –, `skipped`, `error` mit Grund), die Oberfläche zeigt die vollständige Liste |
@@ -548,6 +636,8 @@ fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in
 | POST | `/api/v1/discovery/network` | für die Suche gewähltes Netz speichern |
 | GET / PUT / DELETE | `/api/v1/settings` | Einstellungen der Einstellungsseite lesen / ändern / zurücksetzen |
 | POST | `/api/v1/settings/test-notify` | Testbenachrichtigung senden |
+| POST | `/api/v1/unlock`, `/api/v1/lock` | diesen Browser mit `{"password": "…"}` entsperren (setzt ein Cookie) / wieder sperren |
+| PUT | `/api/v1/password` | Passwort für Änderungen setzen, ändern oder entfernen: `{"current": "…", "password": "…"}` (leeres `password` entfernt es) |
 | GET | `/wake/{name}`, `/health`, `/data/get` | wie im Original |
 | GET / POST | `/wake-group/{name}` | Gruppen-Wecklink |
 | GET | `/metrics` | Kennzahlen für Prometheus |
@@ -579,7 +669,7 @@ Die Screenshots in `docs/screenshots/` erzeugt `node screenshots.js` (im Ordner 
 Geräten, Adressen aus 192.168.1.x / 10.0.0.x und lokal verwalteten MACs, nie mit echten Daten des Rechners.
 
 GitHub Actions prüft jeden Push und Pull Request (gofmt, `go vet`, `go test -race`, Builds für Linux amd64/arm64/
-armv7, Windows, macOS, Browsertests, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.2.0 && git push --tags`)
+armv7, Windows, macOS, Browsertests, Docker-Image für drei Plattformen). Ein Tag `v*` (`git tag v1.3.0 && git push --tags`)
 erzeugt ein Release mit fertigen Programmen und das Image auf ghcr.io – das Paket danach einmal unter
 „Packages“ auf öffentlich stellen.
 

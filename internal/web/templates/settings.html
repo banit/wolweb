@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{.Lang}}">
+<html lang="{{.Lang}}" data-accent="{{.Accent}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,11 +8,13 @@
 <title>{{.T "set.title"}} · Wake on LAN</title>
 <base href="{{.Base}}">
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#4f46e5">
+<meta name="theme-color" content="{{.ThemeColor}}">
 <link rel="stylesheet" href="static/app.css?v={{.Version}}">
 <script id="i18n" type="application/json">{{.I18N}}</script>
 <script src="static/theme.js?v={{.Version}}"></script>
 <script src="static/i18n.js?v={{.Version}}" defer></script>
+<script src="static/lock.js?v={{.Version}}" defer></script>
+<script src="static/groups.js?v={{.Version}}" defer></script>
 <script src="static/settings.js?v={{.Version}}" defer></script>
 </head>
 <body class="app">
@@ -26,9 +28,23 @@
       <p class="muted" id="set-source">{{.T "page.loading"}}</p>
     </div>
   </div>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost icon-only lock-toggle" id="lock-toggle" hidden>
+      <svg aria-hidden="true" class="ico"><use href="#i-lock"/></svg>
+    </button>
+  </div>
 </header>
 
 <main class="container settings">
+  <!-- Gesperrt: erst nach dem Passwort zeigt der Server die Einstellungen -->
+  <section class="set-section lockscreen" id="set-lockscreen" aria-labelledby="lockscreen-title" hidden>
+    <h2 id="lockscreen-title">{{.T "set.lockscreen.title"}}</h2>
+    <p class="muted">{{.T "set.lockscreen.text"}}</p>
+    <div class="row gap-start">
+      <button type="button" class="btn btn-primary" id="lockscreen-unlock"><svg aria-hidden="true" class="ico"><use href="#i-unlock"/></svg>{{.T "ui.lock.unlock"}}</button>
+    </div>
+  </section>
+
   <p class="notice" id="set-intro">{{.T "set.intro"}}</p>
   <p class="notice warn" id="set-no-auth" hidden>{{.T "set.no_auth"}}</p>
   <p class="notice" id="set-read-only" hidden>{{.T "set.read_only"}}</p>
@@ -156,6 +172,29 @@ ip link set eth0.20 up</code></pre>
       <p class="muted small">{{.T "set.sec.credentials"}}</p>
     </section>
 
+    <!-- Privatsphäre -->
+    <section class="set-section" aria-labelledby="sec-privacy">
+      <h2 id="sec-privacy">{{.T "set.privacy.title"}}</h2>
+      <fieldset class="checks" data-key="privacy.online_status">
+        <legend>{{.T "set.privacy.status"}}</legend>
+        <div class="radio-list">
+          <label class="check">
+            <input type="radio" name="privacy.online_status" value="all" aria-describedby="hint-privacy-all">
+            <span>{{.T "set.privacy.all"}}<small class="muted" id="hint-privacy-all">{{.T "set.privacy.all_hint"}}</small></span>
+          </label>
+          <label class="check">
+            <input type="radio" name="privacy.online_status" value="unlocked" aria-describedby="hint-privacy-unlocked">
+            <span>{{.T "set.privacy.unlocked"}}<small class="muted" id="hint-privacy-unlocked">{{.T "set.privacy.unlocked_hint"}}</small>
+              <small class="warn-note" id="privacy-no-pw" hidden>{{.T "set.privacy.unlocked_no_pw"}}</small></span>
+          </label>
+          <label class="check">
+            <input type="radio" name="privacy.online_status" value="none" aria-describedby="hint-privacy-none">
+            <span>{{.T "set.privacy.none"}}<small class="muted" id="hint-privacy-none">{{.T "set.privacy.none_hint"}}</small></span>
+          </label>
+        </div>
+      </fieldset>
+    </section>
+
     <!-- Allgemein -->
     <section class="set-section" aria-labelledby="sec-general">
       <h2 id="sec-general">{{.T "set.general.title"}}</h2>
@@ -167,6 +206,11 @@ ip link set eth0.20 up</code></pre>
         </select>
         <small class="muted" id="hint-language">{{.T "set.general.language_hint"}}</small>
       </label>
+      <fieldset class="accent-field" data-key="accent" aria-describedby="hint-accent">
+        <legend>{{.T "set.general.accent"}}</legend>
+        <div class="swatches" id="accent-swatches"></div>
+        <small class="muted" id="hint-accent">{{.T "set.general.accent_hint"}}</small>
+      </fieldset>
     </section>
 
     <p class="form-error" id="set-error" role="alert" hidden></p>
@@ -177,6 +221,47 @@ ip link set eth0.20 up</code></pre>
       <button type="submit" class="btn btn-primary" id="set-save"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.save"}}</button>
     </div>
   </form>
+
+  <!-- Gruppen: gelten sofort, nicht über „Speichern“ -->
+  <section class="set-section" id="grp-section" aria-labelledby="sec-groups" hidden>
+    <h2 id="sec-groups">{{.T "set.grp.title"}}</h2>
+    <p class="muted small">{{.T "set.grp.intro"}}</p>
+    <ul class="grp-list" id="grp-list"></ul>
+    <p class="muted small" id="grp-empty" hidden>{{.T "set.grp.empty"}}</p>
+    <p class="sr-only" id="grp-status" role="status"></p>
+    <div class="row gap-start">
+      <button type="button" class="btn btn-secondary" id="grp-add"><svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg>{{.T "set.grp.add"}}</button>
+    </div>
+  </section>
+
+  <!-- Passwort für Änderungen: gilt sofort, nicht über „Speichern“ -->
+  <section class="set-section" id="pw-section" aria-labelledby="sec-password" hidden>
+    <h2 id="sec-password">{{.T "set.pw.title"}}</h2>
+    <p class="muted small">{{.T "set.pw.intro"}}</p>
+    <p class="pw-state" id="pw-state" tabindex="-1"></p>
+    <form id="pw-form" class="pw-form" novalidate>
+      <label class="field" id="pw-current-field">
+        <span>{{.T "set.pw.current"}}</span>
+        <input type="password" name="current" autocomplete="current-password" maxlength="128">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "set.pw.new"}}</span>
+          <input type="password" name="password" autocomplete="new-password" maxlength="128" aria-describedby="pw-hint">
+        </label>
+        <label class="field">
+          <span>{{.T "set.pw.repeat"}}</span>
+          <input type="password" name="repeat" autocomplete="new-password" maxlength="128" aria-describedby="pw-hint">
+        </label>
+      </div>
+      <small class="muted" id="pw-hint">{{.T "set.pw.hint"}}</small>
+      <p class="form-error" id="pw-error" role="alert" tabindex="-1" hidden></p>
+      <div class="row gap-start">
+        <button type="submit" class="btn btn-primary" id="pw-save"><svg aria-hidden="true" class="ico"><use href="#i-lock"/></svg><span id="pw-save-text">{{.T "set.pw.set"}}</span></button>
+        <button type="button" class="btn btn-ghost" id="pw-remove" hidden><svg aria-hidden="true" class="ico"><use href="#i-trash"/></svg>{{.T "set.pw.remove"}}</button>
+      </div>
+    </form>
+  </section>
 </main>
 
 <!-- Bestätigen -->
@@ -194,6 +279,8 @@ ip link set eth0.20 up</code></pre>
   </form>
 </dialog>
 
+{{template "group-dialog" .}}
+{{template "unlock" .}}
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>
 </html>

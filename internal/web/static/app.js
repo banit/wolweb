@@ -16,11 +16,13 @@
     search: "",
     waking: new Map(), // id -> { start }
     unconfirmed: new Set(), // Geräte, deren Start nach dem Wecken nicht bestätigt wurde – bis sie antworten
+    watch: new Map(), // id -> Schlüssel aus der Weckantwort: Start verfolgen trotz ausgeblendetem Status
     editing: null,
     fresh: null, // { id, adopted } – eben angelegtes Gerät: die Karte zeigt die nächsten Schritte
     naming: null, // MAC eines Suchtreffers ohne Namen, für den gerade ein Name abgefragt wird
     namingValue: "",
     selecting: false, // Mehrfachauswahl für Gruppen
+    sorting: false, // Reihenfolge von Gruppen und Geräten ändern
     selected: new Set(),
     live: false, // Live-Verbindung (Server-Sent Events) steht – dann kaum noch Abfragen
   };
@@ -50,7 +52,10 @@
     svg.append(use);
     return svg;
   }
-  async function api(method, url, body, raw) {
+  // Ändern geht nicht im Nur-Lesen-Betrieb und nicht, solange der Bearbeitungsschutz gesperrt ist.
+  const editable = () => !state.info.read_only && !state.info.locked;
+
+  async function api(method, url, body, raw, again) {
     const opts = { method, cache: "no-store", headers: { "Accept": "application/json", "X-WolWeb": "1" } };
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
@@ -59,6 +64,14 @@
     const res = await fetch("api/v1/" + url, opts);
     let data = null;
     try { data = await res.json(); } catch (e) { /* leer */ }
+    // Gesperrt (Passwort für Änderungen): nach dem Passwort fragen und die Anfrage wiederholen.
+    if (res.status === 403 && data && data.locked && !again) {
+      if (await window.wolwebLock.unlock()) {
+        setLocked(false);
+        return api(method, url, body, raw, true);
+      }
+      setLocked(true);
+    }
     if (!res.ok || !data) {
       const err = new Error((data && data.message) || t("ui.unexpected_response", res.status));
       err.status = res.status;
@@ -140,8 +153,16 @@
       do {
         devicesAgain = false;
         try {
-          const devices = await api("GET", "devices");
-          state.groups = devices.some((d) => d.group) ? await api("GET", "groups") : [];
+          // Geräte und Gruppen (auch leere – für den Gerätedialog und zum Sortieren) kommen getrennt. Wurde
+          // dazwischen eine Gruppe umbenannt, passen sie nicht zusammen: dann noch einmal holen, sonst
+          // fehlten Geräte in der Übersicht oder landeten beim Sortieren ohne Gruppe.
+          let devices, groups;
+          for (let i = 0; i < 3; i++) {
+            [devices, groups] = await Promise.all([api("GET", "devices"), api("GET", "groups")]);
+            const known = new Set(groups.map((g) => g.name.toLowerCase()));
+            if (devices.every((d) => !d.group || known.has(d.group.toLowerCase()))) break;
+          }
+          state.groups = groups;
           state.devices = devices;
           renderDevices();
         } catch (e) {
@@ -154,8 +175,12 @@
     return devicesLoading;
   }
 
+  // Privatsphäre: Der Server zeigt diesem Browser keinen Online-Status (Einstellung „Privatsphäre“).
+  const statusOff = () => !!state.info.status_hidden;
+
   function deviceState(d) {
-    if (state.waking.has(d.id)) return "waking";
+    if (state.waking.has(d.id)) return "waking"; // auch bei ausgeblendetem Status: wer weckt, sieht den Start
+    if (statusOff()) return "hidden";
     return (d.status && d.status.state) || (d.check_ip ? "offline" : "unknown");
   }
 
@@ -172,7 +197,13 @@
     const grid = $("#devices");
     const total = state.devices.length;
     const online = state.devices.filter((d) => deviceState(d) === "online").length;
-    $("#summary").textContent = total === 0 ? t("ui.no_devices") : t("ui.summary", tn("ui.n_devices", total), online);
+    $("#summary").textContent = total === 0 ? t("ui.no_devices") : statusOff() ? tn("ui.n_devices", total) : t("ui.summary", tn("ui.n_devices", total), online);
+    // Ohne Online-Status gibt es nichts zu filtern.
+    $("#filter").hidden = statusOff();
+    if (statusOff() && state.filter !== "all") {
+      state.filter = "all";
+      for (const b of $("#filter").children) b.setAttribute("aria-pressed", String(b.dataset.filter === "all"));
+    }
     for (const b of $("#filter").children) {
       const f = b.dataset.filter;
       const n = f === "all" ? total : f === "online" ? online : total - online;
@@ -180,10 +211,12 @@
     }
     const list = state.devices.filter(matches);
     for (const d of state.devices) if (deviceState(d) === "online") state.unconfirmed.delete(d.id); // doch noch gestartet
-    $("#select-toggle").hidden = state.info.read_only || total < 2;
+    $("#select-toggle").hidden = !editable() || total < 2 || state.sorting;
+    $("#sort-toggle").hidden = !editable() || (total < 2 && state.groups.length < 2);
     for (const id of state.selected) if (!state.devices.some((d) => d.id === id)) state.selected.delete(id);
     $("#empty").hidden = total !== 0;
-    $("#empty-filter").hidden = total === 0 || list.length !== 0;
+    $("#empty-filter").hidden = total === 0 || list.length !== 0 || state.sorting;
+    if (state.sorting) return renderSort();
     const existing = new Map([...grid.querySelectorAll(".card")].map((c) => [c.dataset.id, c]));
     const cards = (devs) => devs.map((d) => {
       const card = buildCard(d);
@@ -196,7 +229,7 @@
     });
     // Mit Gruppen: je Gruppe ein Abschnitt mit Kopf (Wecken, Link), danach die übrigen Geräte.
     let next;
-    if (!state.groups.length) {
+    if (!state.groups.some((g) => g.members.length)) {
       next = [el("div", { class: "grid" }, cards(list))];
     } else {
       next = [];
@@ -216,11 +249,26 @@
     const nameID = "gn-" + groupIDs(g.name);
     return el("div", { class: "group-head", "data-id": "gruppe:" + g.name },
       el("h2", { id: nameID, text: g.name }),
-      el("span", { class: "muted", text: t("ui.x_of_y_online", online, members.length) }),
+      el("span", { class: "muted", text: statusOff() ? tn("ui.n_devices", members.length) : t("ui.x_of_y_online", online, members.length) }),
       el("span", { class: "spacer" }),
       // Die Reichweite steht auf dem Knopf – alle Mitglieder, auch wenn die Suche gerade einige ausblendet.
       el("button", { class: "btn btn-secondary btn-sm", "aria-describedby": nameID, "data-focus": "wake", onclick: () => wakeGroup(g) }, icon("power"), el("span", { text: tn("ui.wake_all", members.length) })),
-      state.simple ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.copy_group_link"), "aria-label": t("ui.copy_group_link"), "aria-describedby": nameID, "data-focus": "copy", onclick: () => copyURL(groupURL(g), t("ui.group_link_copied"), t("ui.copy_group_link")) }, icon("link")));
+      state.simple ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.copy_group_link"), "aria-label": t("ui.copy_group_link"), "aria-describedby": nameID, "data-focus": "copy", onclick: () => copyURL(groupURL(g), t("ui.group_link_copied"), t("ui.copy_group_link")) }, icon("link")),
+      state.simple || !editable() ? null : el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.grp.edit"), "aria-label": t("ui.grp.edit"), "aria-describedby": nameID, "data-focus": "edit-group", onclick: () => editGroup(g) }, icon("edit")));
+  }
+
+  // editGroup öffnet den Gruppendialog (groups.js): umbenennen, Mitglieder, löschen.
+  function editGroup(g) {
+    window.wolwebGroups.open({
+      group: g, devices: state.devices, api, toast,
+      onSaved: async (name) => {
+        await loadDevices();
+        const head = name && [...document.querySelectorAll("#devices .group-head")].find((h) => h.dataset.id === "gruppe:" + name);
+        const btn = head && head.querySelector('[data-focus="edit-group"]');
+        if (btn) btn.focus();
+        else $("#devices").focus();
+      },
+    });
   }
 
   // groupIDs vergibt je Gruppenname eine feste Nummer für IDs (Namen dürfen Leerzeichen enthalten).
@@ -259,6 +307,7 @@
       // Ping/Port/ms nur in der normalen Ansicht – die einfache bleibt bei „Online“.
       return [el("span", { class: "pill online", text: t("ui.online") }), state.simple ? null : el("span", { text: methodText(st.method) + (st.rtt_ms ? " · " + st.rtt_ms + " ms" : "") })];
     }
+    if (s === "hidden") return [el("span", { text: d.last_wake ? t("ui.last_woken", ago(d.last_wake)) : "" })];
     if (s === "unknown") {
       return [el("span", { class: "pill unknown", text: t("ui.no_status") }), el("span", { text: t("ui.no_ip_known") })];
     }
@@ -269,7 +318,7 @@
 
   function buildCard(d) {
     const simple = state.simple; // einfache Ansicht: nur Name, Status und der Weckknopf
-    const ro = state.info.read_only || simple;
+    const ro = !editable() || simple;
     const s = deviceState(d);
     const ip = d.ip || d.check_ip;
     // Die Knöpfe heißen auf jeder Karte gleich ("Wecken") – der Gerätename als Beschreibung sagt
@@ -365,6 +414,12 @@
       toast("err", t("ui.wake_failed"), (e.data && e.data.error) || e.message);
       return;
     }
+    if (res.watch) state.watch.set(d.id, res.watch);
+    if (statusOff() && !res.watch) { // ohne Schlüssel kein Start zu sehen
+      toast("sent", t("ui.packet_sent"), t("ui.sent_hidden", d.name));
+      loadDevices();
+      return;
+    }
     if (!d.check_ip) {
       toast("sent", t("ui.packet_sent"), t("ui.sent_no_ip", d.name, res.target)); // gesendet ≠ gestartet
       loadDevices();
@@ -384,12 +439,14 @@
       return;
     }
     const failed = res.results.filter((r) => !r.success);
-    const checking = res.results.some((r) => r.success && (state.devices.find((x) => x.id === r.id) || {}).check_ip);
+    for (const r of res.results) if (r.watch) state.watch.set(r.id, r.watch);
+    const canWatch = (r) => !statusOff() || state.watch.has(r.id);
+    const checking = res.results.some((r) => r.success && canWatch(r) && (state.devices.find((x) => x.id === r.id) || {}).check_ip);
     toast(failed.length ? "warn" : "sent", t("ui.group_x", g.name), res.message +
       (failed.length ? " " + t("ui.errors_for", failed.map((r) => r.device).join(", ")) : checking ? " " + t("ui.group_checking") : ""));
     for (const r of res.results) {
       const d = state.devices.find((x) => x.id === r.id);
-      if (r.success && d && d.check_ip) track(d, true);
+      if (r.success && d && d.check_ip && canWatch(r)) track(d, true);
     }
     loadDevices();
   }
@@ -404,9 +461,9 @@
     while (Date.now() < deadline) {
       await sleep(2000);
       try {
-        const st = await api("GET", "devices/" + encodeURIComponent(d.id) + "/status");
+        const st = await api("GET", statusPath(d));
         const cur = state.devices.find((x) => x.id === d.id);
-        if (cur) cur.status = st;
+        if (cur && !statusOff()) cur.status = st;
         if (st.state === "online") {
           state.waking.delete(d.id);
           renderDevices();
@@ -434,11 +491,16 @@
         el("button", { class: "btn btn-ghost btn-sm icon-only", title: t("ui.next.dismiss"), "aria-label": t("ui.next.dismiss"), "data-focus": "dismiss-warn",
           onclick: () => { state.unconfirmed.delete(d.id); renderDevices(); focusCard(d.id); } }, icon("x"))));
   }
+  // statusPath: Status eines Geräts – bei ausgeblendetem Status mit dem Schlüssel aus der Weckantwort.
+  function statusPath(d) {
+    const w = state.watch.get(d.id);
+    return "devices/" + encodeURIComponent(d.id) + "/status" + (w ? "?watch=" + encodeURIComponent(w) : "");
+  }
   async function recheck(d) {
     let st = null;
-    try { st = await api("GET", "devices/" + encodeURIComponent(d.id) + "/status"); } catch (e) { /* keine Antwort */ }
+    try { st = await api("GET", statusPath(d)); } catch (e) { /* keine Antwort */ }
     const cur = state.devices.find((x) => x.id === d.id);
-    if (cur && st) cur.status = st;
+    if (cur && st && !statusOff()) cur.status = st;
     if (st && st.state === "online") {
       state.unconfirmed.delete(d.id);
       toast("ok", t("ui.x_is_online", d.name), t("wake.result.late_text", d.name));
@@ -501,6 +563,248 @@
   $("#select-bar").addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") { setSelecting(false); $("#select-toggle").focus(); }
   });
+
+  // ---------- Sortieren: Gruppen und Geräte ziehen oder mit den Pfeilen verschieben ----------
+  // Im Sortiermodus zeigt die Übersicht alle Geräte (ohne Suche und Filter) als schlichte Einträge, je
+  // Gruppe ein Abschnitt – auch leere, damit man Geräte hineinziehen kann. Gezogen wird nur am Griff
+  // (auf dem Handy lässt sich so weiter blättern); für jede Bewegung gibt es auch Pfeilknöpfe, die am
+  // Rand einer Gruppe in die nächste wechseln (ohne Ziehen bedienbar, WCAG 2.5.7). Jede Änderung wird
+  // gleich gespeichert.
+  let layout = null; // [{ group, ids }] wie angezeigt; group "" = ohne Gruppe, steht zuletzt
+  let drag = null; // laufendes Ziehen
+  let sortSaving = null; // laufendes Speichern
+  let sortPending = null; // Stand, der noch zum Server muss (festgehalten im Moment der Änderung)
+
+  function layoutFromState() {
+    const lists = state.groups.map((g) => ({ group: g.name, ids: [] }));
+    const rest = { group: "", ids: [] };
+    for (const d of state.devices) {
+      const l = d.group ? lists.find((x) => x.group.toLowerCase() === d.group.toLowerCase()) : null;
+      (l || rest).ids.push(d.id);
+    }
+    return [...lists, rest];
+  }
+
+  function setSorting(on) {
+    if (on && state.selecting) setSelecting(false);
+    state.sorting = on;
+    layout = null;
+    $("#sort-toggle").setAttribute("aria-pressed", String(on));
+    $("#sort-bar").hidden = !on;
+    document.body.classList.toggle("sorting", on);
+    $("#search").disabled = on; // sortiert wird die ganze Liste
+    for (const b of $("#filter").children) b.disabled = on;
+    renderDevices();
+  }
+  $("#sort-toggle").addEventListener("click", () => setSorting(!state.sorting));
+  $("#sort-done").addEventListener("click", () => { setSorting(false); $("#sort-toggle").focus(); });
+  $("#sort-bar").addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { setSorting(false); $("#sort-toggle").focus(); }
+  });
+
+  function moveButtons(name, first, last, up, down, labels) {
+    return [
+      el("button", { class: "btn btn-ghost btn-sm icon-only", "data-focus": "up", disabled: first, title: t(labels[0], name), "aria-label": t(labels[0], name), onclick: up }, icon("arrow-up")),
+      el("button", { class: "btn btn-ghost btn-sm icon-only", "data-focus": "down", disabled: last, title: t(labels[1], name), "aria-label": t(labels[1], name), onclick: down }, icon("arrow-down")),
+    ];
+  }
+
+  function renderSort() {
+    if (drag) return; // nicht mitten im Ziehen neu zeichnen
+    if (!layout || !sortSaving) layout = layoutFromState();
+    const byId = new Map(state.devices.map((d) => [d.id, d]));
+    for (const l of layout) l.ids = l.ids.filter((id) => byId.has(id)); // inzwischen gelöscht
+    const grouped = layout.length > 1;
+    const groupCount = layout.length - 1;
+    const lastList = layout.length - 1;
+    const sections = layout.map((l, gi) => {
+      const rest = l.group === "";
+      const headID = "sg-" + gi;
+      const head = !grouped ? null : el("div", { class: "group-head sort-head" },
+        rest ? null : el("span", { class: "drag-handle", "data-drag": "group", title: t("ui.sort.drag_x", l.group), "aria-hidden": "true" }, icon("grip")),
+        el("h2", { id: headID, text: rest ? t("ui.other_devices") : l.group }),
+        el("span", { class: "muted", text: tn("ui.n_devices", l.ids.length) }),
+        el("span", { class: "spacer" }),
+        rest ? null : moveButtons(l.group, gi === 0, gi === groupCount - 1, () => moveGroup(gi, -1), () => moveGroup(gi, 1), ["ui.sort.group_up_x", "ui.sort.group_down_x"]));
+      const items = l.ids.map((id, i) => {
+        const d = byId.get(id);
+        return el("li", { class: "sort-item", "data-id": d.id },
+          el("span", { class: "drag-handle", "data-drag": "device", title: t("ui.sort.drag_x", d.name), "aria-hidden": "true" }, icon("grip")),
+          el("span", { class: "dev-icon" }, icon(d.icon || "desktop")),
+          el("strong", { text: d.name, title: d.name }),
+          el("span", { class: "spacer" }),
+          // „Nach vorn“ geht überall außer ganz vorn – auch in eine leere Gruppe davor.
+          moveButtons(d.name, gi === 0 && i === 0, gi === lastList && i === l.ids.length - 1,
+            () => moveDevice(d.id, -1), () => moveDevice(d.id, 1), ["ui.sort.up_x", "ui.sort.down_x"]));
+      });
+      return el("section", { class: "sort-group" + (rest ? " rest" : ""), "data-id": rest ? "rest" : "gruppe:" + l.group, "data-group": l.group, "aria-labelledby": grouped ? headID : null },
+        head,
+        el("ul", { class: "sort-list", "aria-labelledby": grouped ? headID : null, "aria-label": grouped ? null : t("page.devices") },
+          items, items.length ? null : el("li", { class: "sort-empty muted", text: t("ui.sort.drop_here") })));
+    });
+    keepFocus($("#devices"), () => $("#devices").replaceChildren(...sections));
+    // Am Anfang oder Ende angekommen: Der Knopf ist jetzt aus – den anderen nehmen.
+    const a = document.activeElement;
+    if (a === document.body) {
+      const btn = lastMoved && $("#devices").querySelector('[data-id="' + CSS.escape(lastMoved) + '"] button:not(:disabled)');
+      if (btn) btn.focus({ preventScroll: true });
+    }
+  }
+  let lastMoved = null;
+
+  function position(id) {
+    for (const l of layout) {
+      const i = l.ids.indexOf(id);
+      if (i < 0) continue;
+      const d = state.devices.find((x) => x.id === id);
+      if (l.group) return t("ui.sort.pos", d.name, i + 1, l.ids.length, l.group);
+      return layout.length > 1 ? t("ui.sort.pos_rest", d.name, i + 1, l.ids.length) : t("ui.sort.pos_flat", d.name, i + 1, l.ids.length);
+    }
+    return "";
+  }
+  function announce(text) { $("#sort-status").textContent = text; }
+
+  // moveDevice verschiebt um einen Platz; am Rand geht es ans Ende der vorigen bzw. an den Anfang der
+  // nächsten Gruppe (auch in leere).
+  function moveDevice(id, dir) {
+    let li = layout.findIndex((l) => l.ids.includes(id));
+    let i = layout[li].ids.indexOf(id);
+    layout[li].ids.splice(i, 1);
+    if (dir < 0 && i === 0) {
+      li--;
+      i = layout[li].ids.length;
+    } else if (dir > 0 && i === layout[li].ids.length) {
+      li++;
+      i = 0;
+    } else {
+      i += dir;
+    }
+    layout[li].ids.splice(i, 0, id);
+    lastMoved = id;
+    changed(id);
+  }
+  function moveGroup(gi, dir) {
+    const [g] = layout.splice(gi, 1);
+    layout.splice(gi + dir, 0, g);
+    lastMoved = "gruppe:" + g.group;
+    renderAndSave();
+    announce(t("ui.sort.group_pos", g.group, gi + dir + 1, layout.length - 1));
+  }
+  function changed(id) {
+    renderAndSave();
+    announce(position(id));
+  }
+  function renderAndSave() {
+    const saving = saveLayout();
+    renderSort();
+    return saving;
+  }
+
+  // saveLayout speichert den angezeigten Stand. Kommen währenddessen weitere Änderungen, folgt der
+  // neueste – auch wenn der Sortiermodus inzwischen geschlossen ist. Solange gespeichert und neu
+  // geladen wird, zeichnet die Ansicht nach dem eigenen Stand (sonst spränge ein eben verschobenes
+  // Gerät kurz zurück); danach wieder nach dem Server, nach einem Fehler also wie vorher.
+  function saveLayout() {
+    sortPending = { groups: layout.filter((l) => l.group).map((l) => l.group), devices: layout.map((l) => ({ group: l.group, ids: [...l.ids] })) };
+    if (sortSaving) return sortSaving;
+    sortSaving = (async () => {
+      try {
+        do {
+          while (sortPending) {
+            const body = sortPending;
+            sortPending = null;
+            try {
+              await api("PUT", "order", body);
+            } catch (e) {
+              sortPending = null;
+              toast("err", t("ui.sort.failed"), e.message);
+            }
+          }
+          await loadDevices();
+        } while (sortPending);
+      } finally {
+        sortSaving = null;
+      }
+      if (state.sorting) renderDevices();
+    })();
+    return sortSaving;
+  }
+
+  // Ziehen mit Maus, Stift oder Finger (Pointer Events) – nur am Griff.
+  function layoutFromDOM() {
+    return [...$("#devices").querySelectorAll(".sort-group")].map((sec) => ({
+      group: sec.dataset.group, ids: [...sec.querySelectorAll(".sort-item")].map((n) => n.dataset.id),
+    }));
+  }
+  $("#devices").addEventListener("pointerdown", (e) => {
+    const h = e.target.closest(".drag-handle");
+    if (!h || !state.sorting || e.button !== 0 || drag) return;
+    const kind = h.dataset.drag;
+    const item = h.closest(kind === "group" ? ".sort-group" : ".sort-item");
+    e.preventDefault();
+    item.classList.add("dragging"); // eine gezogene Gruppe zeigt nur ihren Kopf
+    const r = item.getBoundingClientRect();
+    const ph = el(kind === "group" ? "div" : "li", { class: "drop-placeholder" });
+    ph.style.height = r.height + "px";
+    item.after(ph);
+    item.style.width = r.width + "px";
+    item.style.left = r.left + "px";
+    item.style.top = r.top + "px";
+    drag = { item, kind, ph, dx: e.clientX - r.left, dy: e.clientY - r.top, before: JSON.stringify(layoutFromDOM()) };
+    h.setPointerCapture(e.pointerId);
+  });
+  function placeholderAt(x, y) {
+    const under = document.elementFromPoint(x, y);
+    if (!under) return;
+    const ph = drag.ph;
+    if (drag.kind === "group") {
+      const sec = under.closest(".sort-group");
+      if (!sec || sec === drag.item) return;
+      if (sec.classList.contains("rest")) return sec.before(ph); // „Weitere Geräte“ bleiben zuletzt
+      const r = sec.getBoundingClientRect();
+      if (y < r.top + Math.min(r.height / 2, 40)) sec.before(ph);
+      else sec.after(ph);
+      return;
+    }
+    const it = under.closest(".sort-item");
+    if (it && it !== drag.item) {
+      const r = it.getBoundingClientRect();
+      const across = r.width < it.parentElement.getBoundingClientRect().width * 0.6; // mehrere Spalten
+      const before = across ? x < r.left + r.width / 2 : y < r.top + r.height / 2;
+      it.parentElement.insertBefore(ph, before ? it : it.nextSibling);
+      return;
+    }
+    const sec = under.closest(".sort-group");
+    const list = sec && sec.querySelector(".sort-list");
+    if (list && ph.parentElement !== list) list.append(ph); // Kopf oder freie Fläche einer Gruppe: ans Ende
+  }
+  window.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    drag.item.style.left = e.clientX - drag.dx + "px";
+    drag.item.style.top = e.clientY - drag.dy + "px";
+    if (e.clientY < 70) window.scrollBy(0, -14);
+    else if (e.clientY > innerHeight - 70) window.scrollBy(0, 14);
+    placeholderAt(e.clientX, e.clientY);
+  });
+  function endDrag(apply) {
+    const { item, ph, kind, before } = drag;
+    item.classList.remove("dragging");
+    item.style.width = item.style.left = item.style.top = "";
+    if (apply) ph.replaceWith(item);
+    else ph.remove();
+    drag = null;
+    if (!apply) return renderSort();
+    const next = layoutFromDOM();
+    if (JSON.stringify(next) === before) return renderSort(); // nur angetippt
+    layout = next;
+    lastMoved = item.dataset.id;
+    renderAndSave();
+    if (kind === "group") announce(t("ui.sort.group_pos", item.dataset.group, layout.findIndex((l) => l.group === item.dataset.group) + 1, layout.length - 1));
+    else announce(position(item.dataset.id));
+  }
+  window.addEventListener("pointerup", () => { if (drag) endDrag(true); });
+  window.addEventListener("pointercancel", () => { if (drag) endDrag(false); });
+  document.addEventListener("keydown", (e) => { if (drag && e.key === "Escape") endDrag(false); });
 
   // ---------- Dialog Gerät ----------
   const dlg = $("#device-dialog");
@@ -906,6 +1210,7 @@
     try {
       const data = await api("GET", "discovery");
       state.found = data.found;
+      state.foundHidden = !!data.hidden;
       state.job = data.job;
       renderDiscovery();
       if (data.job.running && !state.live) discoveryTimer = setTimeout(loadDiscovery, 1000);
@@ -986,9 +1291,10 @@
     const list = $("#found-list");
     const items = state.found.filter((f) => classify(f) === state.foundFilter);
     keepFocus(list, () => list.replaceChildren(...items.map(buildFound)));
+    $("#found-filter").hidden = !!state.foundHidden;
     const empty = $("#found-empty");
     empty.hidden = items.length !== 0;
-    empty.textContent = state.foundFilter === "new"
+    empty.textContent = state.foundHidden ? t("ui.found.hidden") : state.foundFilter === "new"
       ? (state.found.length ? t("ui.found.none_new") : t("ui.found.no_scan"))
       : state.foundFilter === "known" ? t("ui.found.none_known") : t("ui.found.none_ignored");
   }
@@ -1009,7 +1315,7 @@
   }
 
   function buildFound(f) {
-    const ro = state.info.read_only;
+    const ro = !editable();
     const kind = classify(f);
     const title = f.hostname || vendorText(f.vendor) || t("ui.found.unknown");
     const actions = [];
@@ -1142,8 +1448,12 @@
   }
   async function openHistory() {
     const d = $("#history-dialog");
-    let events = [];
-    try { events = (await api("GET", "history?limit=200")).events || []; } catch (e) { toast("err", t("ui.history_unavailable"), e.message); return; }
+    let events = [], statusHidden = false; // ohne Online-Status keine Angaben zum Start
+    try {
+      const res = await api("GET", "history?limit=200");
+      events = res.events || [];
+      statusHidden = !!res.status_hidden;
+    } catch (e) { toast("err", t("ui.history_unavailable"), e.message); return; }
     const fmt = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     $("#history-list").replaceChildren(...events.map((ev) => {
       const r = outcome(ev);
@@ -1153,7 +1463,7 @@
         ev.user && t("ui.hist.user", ev.user),
         ev.client && t("ui.hist.client", ev.client),
         ev.target && t("ui.hist.target", ev.target),
-        ev.success && !ev.checkable && t("ui.hist.no_ip"),
+        ev.success && !ev.checkable && !statusHidden && t("ui.hist.no_ip"),
         ev.error && t("ui.hist.error", ev.error),
       ].filter(Boolean);
       return el("li", { class: r.kind },
@@ -1252,6 +1562,7 @@
     document.documentElement.classList.toggle("simple", state.simple);
     try { localStorage.setItem("wolweb-view", state.simple ? "simple" : "normal"); } catch (e) { /* egal */ }
     updateViewToggle();
+    if (state.sorting) setSorting(false);
     renderDevices();
   });
   updateViewToggle();
@@ -1287,9 +1598,18 @@
     clearTimeout(reloadTimer);
     reloadTimer = setTimeout(loadDevices, 250);
   }
+  let es = null; // Live-Verbindung
+  // reconnectEvents verbindet neu, wenn sich Entsperrung ändert: Der Server merkt sich beim
+  // Verbinden, ob diese Verbindung den Online-Status sehen darf.
+  function reconnectEvents() {
+    if (!es) return;
+    es.close();
+    state.live = false;
+    connectEvents();
+  }
   function connectEvents() {
     if (!window.EventSource) return;
-    const es = new EventSource("api/v1/events"); // verbindet sich bei Abbruch selbst neu
+    es = new EventSource("api/v1/events"); // verbindet sich bei Abbruch selbst neu
     es.addEventListener("open", () => {
       if (!state.live) loadDevicesSoon(); // Verpasstes nachholen
       state.live = true;
@@ -1316,15 +1636,69 @@
   // applyInfo übernimmt, was von den Einstellungen abhängt (auch nach einer Änderung im Betrieb).
   function applyInfo() {
     $("#open-settings").hidden = !state.info.settings;
+    if (state.info.accent) { // auf der Einstellungsseite geändert: gleich übernehmen
+      document.documentElement.dataset.accent = state.info.accent;
+      $('meta[name="theme-color"]').setAttribute("content", state.info.theme_color);
+    }
+    applyLock();
     // Broadcast-Vorschläge im Gerätedialog: die eingetragenen Netze
     $("#broadcast-list").replaceChildren(...(state.info.segments || []).map((s) => el("option", { value: s.broadcast, label: s.label })));
   }
   async function reloadInfo() {
     try { state.info = await api("GET", "info"); } catch (e) { return; }
-    applyInfo();
+    applyInfo(); // jetzt gesperrt (Passwort in einem anderen Fenster gesetzt)? applyLock beendet Sortieren und Auswahl
     renderDevices();
     renderDiscovery();
   }
+
+  // ---------- Bearbeitungsschutz ----------
+  // applyLock blendet aus, was gerade nicht geht (Nur-Lesen oder gesperrt), beendet Sortieren und
+  // Auswahl und zeigt das Schloss.
+  function applyLock() {
+    const off = !editable();
+    if (off && state.sorting) setSorting(false);
+    if (off && state.selecting) setSelecting(false);
+    $("#add-device").hidden = off;
+    $("#import-btn").hidden = off;
+    // Gerätesuche nur für wer bearbeiten darf: mit Passwort erst nach dem Entsperren.
+    const noScan = !!state.info.locked;
+    $("#open-discovery").hidden = noScan;
+    for (const b of document.querySelectorAll('[data-action="discovery"]')) b.hidden = noScan;
+    if (noScan && drawerOpen()) closeDrawer();
+    // Der Export enthält das Geheimnis der Installation und braucht die Entsperrung; Nur-Lesen allein sperrt ihn nicht.
+    $("#export-link").hidden = !!state.info.locked;
+    for (const b of document.querySelectorAll('[data-action="add"]')) b.hidden = off;
+    // Auch im Nur-Lesen-Betrieb: Entsperren gibt dort Export und Netzwerksuche frei.
+    const btn = $("#lock-toggle");
+    btn.hidden = !state.info.password;
+    window.wolwebLock.button(btn, !!state.info.locked);
+  }
+  // setLocked übernimmt den Zustand des Schlosses. Ein offener Dialog bleibt offen, damit Eingaben
+  // nicht verloren gehen – beim Speichern fragt die Seite wieder nach dem Passwort.
+  function setLocked(on) {
+    if (!!state.info.locked === on) return;
+    state.info.locked = on;
+    applyLock();
+    renderDevices();
+    renderDiscovery();
+    // Entsperrt sieht man je nach Privatsphäre-Einstellung mehr (Online-Status, Suchtreffer).
+    reconnectEvents();
+    reloadInfo();
+    loadDevices();
+    loadDiscovery();
+  }
+  $("#lock-toggle").addEventListener("click", async () => {
+    if (state.info.locked) {
+      if (!(await window.wolwebLock.unlock())) return;
+      setLocked(false);
+      toast("ok", t("ui.lock.unlocked"), t("ui.lock.unlocked_text"));
+    } else {
+      try { await window.wolwebLock.lock(); } catch (e) { toast("err", t("ui.lock.failed"), e.message); return; }
+      setLocked(true);
+      toast("ok", t("ui.lock.locked"), t("ui.lock.locked_text"));
+    }
+    $("#lock-toggle").focus();
+  });
 
   // ---------- Start ----------
   async function init() {
@@ -1334,11 +1708,6 @@
     try {
       state.info = await api("GET", "info");
     } catch (e) { /* Standardwerte */ }
-    if (state.info.read_only) {
-      $("#add-device").hidden = true;
-      $("#import-btn").hidden = true;
-      for (const b of document.querySelectorAll('[data-action="add"]')) b.hidden = true;
-    }
     if (state.info.version) $("#version").textContent = "wolweb " + state.info.version;
     applyInfo();
     await loadDevices();

@@ -320,7 +320,7 @@ func TestGroupsAndSchedule(t *testing.T) {
 	s.Create(Input{Name: "B", MAC: "00:00:00:00:00:02", Group: "homelab"})
 	s.Create(Input{Name: "C", MAC: "00:00:00:00:00:03", Group: "Büro"})
 	s.Create(Input{Name: "D", MAC: "00:00:00:00:00:04"})
-	if g := s.Groups(); len(g) != 2 || g[0] != "Büro" || g[1] != "Homelab" {
+	if g := s.Groups(); len(g) != 2 || g[0] != "Homelab" || g[1] != "Büro" { // in der Reihenfolge des Anlegens
 		t.Errorf("Gruppen: %q", g)
 	}
 	if m := s.GroupMembers("HOMELAB"); len(m) != 2 || m[0].Name != "A" || m[1].Name != "B" {

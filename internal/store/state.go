@@ -72,8 +72,10 @@ func (ev Event) Localized(l i18n.Lang) Event {
 const HistoryMax = 500
 
 type stateFile struct {
-	Version  int                  `json:"version"`
-	Secret   string               `json:"secret,omitempty"`
+	Version int    `json:"version"`
+	Secret  string `json:"secret,omitempty"`
+	// Password ist der Hash des Passworts für Änderungen (siehe password.go), leer = keins.
+	Password string               `json:"edit_password,omitempty"`
 	LastWake map[string]time.Time `json:"last_wake,omitempty"`
 	LastSeen map[string]time.Time `json:"last_seen,omitempty"`
 	History  []Event              `json:"history,omitempty"`
