@@ -29,6 +29,7 @@ func (s *Server) Apply(cfg config.Config) {
 	old := s.rt()
 	s.cur.Store(s.newLive(cfg))
 	old.notify.Close()
+	s.applyRecording(cfg)
 	scan, check, _, _ := cfg.Durations()
 	s.monitor.SetPorts(cfg.Status.Ports)
 	s.monitor.SetInterval(check)

@@ -64,7 +64,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	s.wakesMu.Lock()
 	keys := make([][2]string, 0, len(s.wakes))
-	if vis.wakes { // auch der Zähler verrät, wann geweckt wurde
+	if vis.wakes && s.recording() { // auch der Zähler verrät, wann geweckt wurde
 		for k := range s.wakes {
 			keys = append(keys, k)
 		}

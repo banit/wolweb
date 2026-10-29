@@ -99,6 +99,10 @@ type Store struct {
 	state      stateFile
 	stateDirty bool
 	rewrite    bool // nach einem Versionswechsel devices.json einmal neu schreiben
+	// Aufzeichnung (state.go): noRecord – Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ werden
+	// nicht gespeichert; keep – so lange bleiben sie, 0 = ohne Zeitgrenze.
+	noRecord bool
+	keep     time.Duration
 }
 
 type devicesFile struct {

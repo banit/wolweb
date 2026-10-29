@@ -147,3 +147,34 @@ test("„Zuletzt geweckt“ und Verlauf: eigene Auswahl, nur nach dem Entsperren
   await expect(guest.locator("#history-list li").first()).toContainText("PC");
   await guest.context().close();
 });
+
+test("Aufzeichnung: Aufbewahrung einstellen, Ausschalten löscht den Verlauf nach Rückfrage", async ({ page, request }) => {
+  const d = await offlineDevice(request, "PC");
+  expect((await request.post("api/v1/devices/" + d.id + "/wake", { headers: HEADERS })).ok()).toBeTruthy();
+  await page.goto("settings");
+  const days = page.getByRole("spinbutton", { name: "Aufbewahren (Tage)" });
+  const record = page.getByRole("checkbox", { name: "Weckverlauf und „zuletzt online“ aufzeichnen" });
+  await expect(days).toHaveValue("30");
+  await expect(record).toBeChecked();
+  // Ungültige Dauer: Meldung am Feld, nichts gespeichert
+  await days.fill("400");
+  await page.click("#set-save");
+  await expect(page.locator("#set-error")).toHaveText("Aufbewahrung: eine ganze Zahl von 1 bis 365 Tagen.");
+  await expect(days).toHaveAttribute("aria-invalid", "true");
+  await expect(days).toBeFocused();
+  // Ausschalten fragt nach; Abbrechen ändert nichts.
+  await days.fill("30");
+  await record.uncheck();
+  await page.click("#set-save");
+  await expect(page.locator("#confirm-title")).toHaveText("Aufzeichnung ausschalten?");
+  await page.locator("#confirm-dialog").evaluate((dlg) => dlg.close());
+  expect((await (await request.get("api/v1/history")).json()).events).not.toHaveLength(0); // auch aus früheren Tests
+  await page.click("#set-save");
+  await page.click("#confirm-ok");
+  await expect(page.locator("#toasts")).toContainText("Gespeichert");
+  expect((await (await request.get("api/v1/history")).json()).events).toHaveLength(0);
+  await page.goto("./");
+  await expect(card(page, "PC").locator(".pill.offline")).toBeVisible({ timeout: 15000 });
+  await expect(card(page, "PC")).not.toContainText("geweckt");
+  await expect(page.locator("#open-history")).toBeHidden();
+});

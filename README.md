@@ -270,6 +270,9 @@ Changes made since the update are lost.
 - *Accent color* (new): default `indigo` as before.
 - *Privacy* (new): `privacy.online_status` can hide the online status, `privacy.wake_history` when devices were
   woken; both default to `all` as before.
+- *History expires* (new): the wake history, “last woken” and “last online” are now deleted after 30 days
+  (`privacy.retention_days`, up to 365); `privacy.recording: "off"` stores none of them. On the first start, older
+  history entries disappear – the backup (see above) still has them.
 
 **What changes with 1.2 – and whether you need to act:**
 
@@ -379,6 +382,14 @@ three levels and `all` as default – so nothing changes until you pick another 
 in the API and the metrics `wolweb_device_last_wake_timestamp_seconds` and `wolweb_wakes_total`. With `unlocked`,
 unlocked browsers and the API token still see all of it. Waking is not affected: whoever wakes a device follows
 their own wake-up call as usual, and the history is still recorded – switch back and it shows up again.
+
+**Recording and retention** (`privacy.recording`, `privacy.retention_days`): the wake history, “last woken” and
+“last online” are personal data – who woke a device when, and when a workstation was running. wolweb deletes them
+after the set number of days (1 to 365, default 30): the pages leave older entries out right away, and `state.json`
+is cleaned up every five minutes. Unticking “Record the wake history and “last online”” (`recording: "off"`) deletes
+them at once, after a confirmation, and stores none of them from then on; the “History” button disappears. Waking and
+the start confirmation keep working either way. The server log (`docker logs wolweb`, `journalctl -u wolweb`) is not
+affected – Docker or journald keep it; limit it there if needed.
 
 ## Multiple networks and VLANs
 
@@ -502,9 +513,11 @@ variable names are given, the first is the one of the original wolweb – both w
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | all | selection of `online`, `offline`, `wake`, `wake_failed` |
 | `privacy.online_status` | `WOLWEB_ONLINE_STATUS` | `all` | who sees whether devices are running: `all`, `unlocked` (only after unlocking) or `none` (see [Privacy](#privacy)) |
 | `privacy.wake_history` | `WOLWEB_WAKE_HISTORY` | `all` | who sees when devices were woken (“woken … ago”, history): `all`, `unlocked` or `none` |
+| `privacy.recording` | `WOLWEB_RECORDING` | `on` | `off` = store no wake history, “last woken” or “last online” (and delete what is there) |
+| `privacy.retention_days` | `WOLWEB_RETENTION_DAYS` | `30` | after how many days the wake history, “last woken” and “last online” are deleted (1–365) |
 
-`devices.json` only contains what you enter yourself; what wolweb observes (last woken, last online, the last 500
-wake attempts) is kept in `state.json`. The export at the bottom of the page backs up the devices and their wake-link
+`devices.json` only contains what you enter yourself; what wolweb observes (last woken, last online, up to 500 wake
+attempts of the last `privacy.retention_days` days) is kept in `state.json`. The export at the bottom of the page backs up the devices and their wake-link
 keys. For a complete backup or a move to another machine, stop wolweb and copy the whole data directory and your
 `config.json` – and keep any environment variables you use for configuration.
 
@@ -974,6 +987,9 @@ geändert wurde, fehlt danach.
 - *Akzentfarbe* (neu): Standard `indigo` wie bisher.
 - *Privatsphäre* (neu): `privacy.online_status` blendet den Online-Status aus, `privacy.wake_history`, wann Geräte
   geweckt wurden; Standard jeweils `all` wie bisher.
+- *Verlauf verfällt* (neu): Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ werden jetzt nach 30 Tagen gelöscht
+  (`privacy.retention_days`, bis 365); `privacy.recording: "off"` speichert nichts davon. Beim ersten Start
+  verschwinden ältere Einträge des Verlaufs – die Sicherung (siehe oben) enthält sie noch.
 
 **Was sich mit 1.2 ändert – und ob du etwas tun musst:**
 
@@ -1089,6 +1105,15 @@ Geräte geweckt wurden: „geweckt vor …“ auf den Karten, den Knopf „Verla
 `wolweb_wakes_total`. Bei `unlocked` sehen entsperrte Browser und das API-Token alles weiter. Das Wecken bleibt
 unberührt: Wer ein Gerät weckt, verfolgt seinen Weckruf wie gewohnt, und der Verlauf wird weiter aufgezeichnet –
 stellst du zurück, ist er wieder zu sehen.
+
+**Aufzeichnung und Aufbewahrung** (`privacy.recording`, `privacy.retention_days`): Weckverlauf, „zuletzt geweckt“ und
+„zuletzt online“ sind personenbezogen – wer wann ein Gerät geweckt hat, wann ein Arbeitsplatz lief. wolweb löscht sie
+nach der eingestellten Zahl von Tagen (1 bis 365, Standard 30): Die Seiten lassen Älteres sofort weg, `state.json`
+wird alle fünf Minuten bereinigt. Ohne Haken bei „Weckverlauf und „zuletzt online“ aufzeichnen“
+(`recording: "off"`) löscht wolweb sie nach einer Rückfrage sofort und speichert ab dann nichts davon; der Knopf
+„Verlauf“ entfällt. Wecken und Startbestätigung funktionieren in beiden Fällen weiter. Das Server-Log
+(`docker logs wolweb`, `journalctl -u wolweb`) ist davon nicht betroffen – das führen Docker bzw. journald; dort lässt
+es sich bei Bedarf begrenzen.
 
 ## Mehrere Netze und VLANs
 
@@ -1214,9 +1239,11 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | alle | Auswahl aus `online`, `offline`, `wake`, `wake_failed` |
 | `privacy.online_status` | `WOLWEB_ONLINE_STATUS` | `all` | wer sieht, ob Geräte laufen: `all`, `unlocked` (nur nach dem Entsperren) oder `none` (siehe [Privatsphäre](#privatsphäre)) |
 | `privacy.wake_history` | `WOLWEB_WAKE_HISTORY` | `all` | wer sieht, wann Geräte geweckt wurden („geweckt vor …“, Verlauf): `all`, `unlocked` oder `none` |
+| `privacy.recording` | `WOLWEB_RECORDING` | `on` | `off` = keinen Weckverlauf, kein „zuletzt geweckt“ und kein „zuletzt online“ speichern (Vorhandenes wird gelöscht) |
+| `privacy.retention_days` | `WOLWEB_RETENTION_DAYS` | `30` | nach wie vielen Tagen Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ gelöscht werden (1–365) |
 
-`devices.json` enthält nur, was man selbst einträgt; was wolweb beobachtet (zuletzt geweckt, zuletzt online, die
-letzten 500 Weckversuche) steht in `state.json`. Der Export unten auf der Seite sichert die Geräte samt
+`devices.json` enthält nur, was man selbst einträgt; was wolweb beobachtet (zuletzt geweckt, zuletzt online, bis
+zu 500 Weckversuche der letzten `privacy.retention_days` Tage) steht in `state.json`. Der Export unten auf der Seite sichert die Geräte samt
 Wecklink-Schlüsseln. Für eine vollständige Sicherung oder einen Umzug wolweb stoppen und das ganze Datenverzeichnis
 und die `config.json` kopieren – und die Umgebungsvariablen aufheben, mit denen wolweb eingestellt ist.
 

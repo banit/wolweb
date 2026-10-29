@@ -93,6 +93,8 @@
     setField("language", s.language);
     setField("privacy.online_status", s.privacy.online_status);
     setField("privacy.wake_history", s.privacy.wake_history);
+    setField("privacy.recording", s.privacy.recording !== "off");
+    setField("privacy.retention_days", s.privacy.retention_days);
     renderAccents(s.accent);
     renderEvents(s.notify.events || []);
     renderRejected(v.rejected_hosts || []);
@@ -311,12 +313,16 @@
     });
     const checked = [...form.querySelectorAll('input[name="event"]:checked')].map((c) => c.value);
     if (!checked.length) throw { key: "notify.events", message: t("set.err.events") };
+    const days = v("privacy.retention_days");
+    if (!/^\d+$/.test(days) || days < 1 || days > 365) throw { key: "privacy.retention_days", message: t("set.err.retention") };
     return {
       language: form.elements.language.value,
       accent: (form.querySelector('input[name="accent"]:checked') || {}).value || view.settings.accent,
       privacy: {
         online_status: form.elements["privacy.online_status"].value || view.settings.privacy.online_status,
         wake_history: form.elements["privacy.wake_history"].value || view.settings.privacy.wake_history,
+        recording: form.elements["privacy.recording"].checked ? "on" : "off",
+        retention_days: Number(days),
       },
       bcastip: v("bcastip"),
       allowed_hosts: splitList(form.elements.allowed_hosts.value),
@@ -333,6 +339,13 @@
     clearErrors();
     let body;
     try { body = collect(); } catch (err) { showError(err.key, err.message); return; }
+    // Abschalten oder Verkürzen löscht den Verlauf sofort – vorher fragen.
+    const was = view.settings.privacy, now = body.privacy;
+    if (now.recording === "off" && was.recording !== "off") {
+      if (!(await confirmDialog(t("set.privacy.recording_off_q"), t("set.privacy.recording_off_text"), t("set.privacy.recording_off_ok")))) return;
+    } else if (now.recording !== "off" && now.retention_days < was.retention_days) {
+      if (!(await confirmDialog(t("set.privacy.retention_q"), t("set.privacy.retention_text", now.retention_days), t("set.privacy.retention_ok")))) return;
+    }
     const btn = $("#set-save");
     btn.disabled = true;
     try {
