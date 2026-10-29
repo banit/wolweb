@@ -11,7 +11,8 @@ import (
 )
 
 func TestOlderCheckDoesNotOverwriteNewer(t *testing.T) {
-	m := New(nil, nil, 0)
+	st, _, _ := store.Open(t.TempDir(), "") // Get liest „zuletzt online“ aus dem Speicher
+	m := New(st, nil, 0)
 	d := store.Device{ID: "x", Name: "PC"}
 	now := time.Now()
 	m.set(d, State{State: "online", started: now})

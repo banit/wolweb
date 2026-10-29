@@ -89,6 +89,7 @@ func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.
 		wakes: map[[2]string]int{},
 	}
 	s.cur.Store(s.newLive(cfg))
+	s.applyRecording(cfg)
 	// Live-Updates (und Benachrichtigungen) hängen an Monitor und Suche – daher vor deren Start.
 	mon.OnChange = s.statusChanged
 	sc.OnUpdate = s.scanChanged
@@ -929,10 +930,10 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"wake_retry":        int(s.rt().wakeRetry.Seconds()),
 		"ports":             s.conf().Status.Ports,
 		"wake_keys":         s.conf().Auth.WakeKeys && s.conf().AuthEnabled(),
-		"timezone":          localZone(),        // Zeitpläne laufen in der Ortszeit des Servers
-		"status_hidden":     !vis.status,        // Privatsphäre: kein Online-Status für diese Anfrage
-		"history_hidden":    !vis.wakes,         // … kein „Zuletzt geweckt“ und kein Verlauf
-		"found_hidden":      !s.foundVisible(r), // … und keine Suchtreffer
+		"timezone":          localZone(),                  // Zeitpläne laufen in der Ortszeit des Servers
+		"status_hidden":     !vis.status,                  // Privatsphäre: kein Online-Status für diese Anfrage
+		"history_hidden":    !vis.wakes || !s.recording(), // … kein „Zuletzt geweckt“ und kein Verlauf
+		"found_hidden":      !s.foundVisible(r),           // … und keine Suchtreffer
 		"accent":            s.conf().Accent,
 		"theme_color":       config.AccentColor(s.conf().Accent),
 		"password":          s.store.HasPassword(), // Bearbeitungsschutz eingerichtet

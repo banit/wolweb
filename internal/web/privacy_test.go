@@ -345,3 +345,42 @@ func TestWakeHistoryIndependentOfStatus(t *testing.T) {
 		t.Errorf("ungültiger Wert: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// Aufzeichnung aus: kein Verlauf, kein „zuletzt geweckt“, kein „zuletzt online“ – Wecken und
+// Startbestätigung laufen weiter.
+func TestRecordingOff(t *testing.T) {
+	s, h, _ := settingsServer(t, `{"privacy": {"recording": "off"}}`)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	d, _ := s.store.Create(store.Input{Name: "NAS", MAC: "02:00:00:00:00:01", IP: "127.0.0.1", Ports: []int{l.Addr().(*net.TCPAddr).Port}, Broadcast: udpSink(t)})
+	b := &browser{t: t, h: h}
+	if rec := b.do("GET", "/wake/NAS?wait=5", ""); !strings.Contains(rec.Body.String(), `"online":true`) {
+		t.Fatalf("Wecken mit Startbestätigung: %d %s", rec.Code, rec.Body)
+	}
+	if st := s.monitor.Check(context.Background(), d); st.State != "online" || !st.LastSeen.IsZero() {
+		t.Errorf("Status: %+v", st)
+	}
+	devs := b.do("GET", "/api/v1/devices", "").Body.String()
+	if strings.Contains(devs, `"last_wake"`) || strings.Contains(devs, `"last_seen"`) {
+		t.Errorf("Geräteliste: %s", devs)
+	}
+	var hist struct{ Events []store.Event }
+	json.Unmarshal(b.do("GET", "/api/v1/history", "").Body.Bytes(), &hist)
+	var info struct {
+		HistoryHidden bool `json:"history_hidden"`
+	}
+	json.Unmarshal(b.do("GET", "/api/v1/info", "").Body.Bytes(), &info)
+	if len(hist.Events) != 0 || !info.HistoryHidden {
+		t.Errorf("Verlauf %+v, ausgeblendet %v", hist.Events, info.HistoryHidden)
+	}
+	if m := b.do("GET", "/metrics", "").Body.String(); strings.Contains(m, "wolweb_wakes_total{") || strings.Contains(m, "wolweb_device_last_seen_timestamp_seconds{") {
+		t.Errorf("Kennzahlen:\n%s", m)
+	}
+	// Ein fehlendes Feld schaltet nicht ab: leer heißt „an“.
+	if rec := b.do("PUT", "/api/v1/settings", `{"privacy": {"online_status": "all"}}`); rec.Code != http.StatusOK || s.conf().Privacy.Recording != "on" || s.conf().Privacy.RetentionDays != 30 {
+		t.Errorf("Standard: %d %+v", rec.Code, s.conf().Privacy)
+	}
+}

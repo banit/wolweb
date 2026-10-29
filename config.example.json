@@ -8,7 +8,9 @@
   "accent": "indigo",
   "privacy": {
     "online_status": "all",
-    "wake_history": "all"
+    "wake_history": "all",
+    "recording": "on",
+    "retention_days": 30
   },
   "data_dir": "data",
   "discovery": {

@@ -211,6 +211,18 @@ ip link set eth0.20 up</code></pre>
           </label>
         </div>
       </fieldset>
+      <fieldset class="checks record">
+        <legend>{{.T "set.privacy.record"}}</legend>
+        <label class="check" data-key="privacy.recording">
+          <input type="checkbox" name="privacy.recording" aria-describedby="hint-recording">
+          <span>{{.T "set.privacy.recording"}}<small class="muted" id="hint-recording">{{.T "set.privacy.recording_hint"}}</small></span>
+        </label>
+        <label class="field" data-key="privacy.retention_days">
+          <span>{{.T "set.privacy.retention"}}</span>
+          <input type="number" name="privacy.retention_days" class="mono" min="1" max="365" step="1" inputmode="numeric" autocomplete="off" placeholder="30" aria-describedby="hint-retention">
+          <small class="muted" id="hint-retention">{{.T "set.privacy.retention_hint"}}</small>
+        </label>
+      </fieldset>
     </section>
 
     <!-- Allgemein -->

@@ -698,6 +698,8 @@ input:disabled, textarea:disabled, select:disabled { background: var(--surface-2
 .pw-state.ok::before { background: var(--ok); }
 .pw-form { display: grid; gap: .8rem; }
 .radio-list { display: grid; gap: .75rem; }
+.checks.record { display: grid; gap: .9rem; }
+.checks.record input[type="number"] { max-width: 9rem; }
 .check .warn-note { display: block; margin-top: .25rem; }
 .accent-field { border: 0; padding: 0; margin: 0; min-width: 0; }
 .accent-field legend { font-size: .85rem; font-weight: 600; padding: 0; margin-bottom: .45rem; }

@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -97,6 +98,19 @@ func (s *Server) watching(r *http.Request, target string) bool {
 		return false
 	}
 	return hmac.Equal([]byte(sig), []byte(s.watchSig(target, exp)))
+}
+
+// recording: wolweb speichert Weckverlauf, „zuletzt geweckt“ und „zuletzt online“
+// (privacy.recording). Ausgeschaltet bleibt der Verlauf leer, und der Knopf dazu entfällt.
+func (s *Server) recording() bool { return s.conf().Privacy.Recording != config.RecordingOff }
+
+// applyRecording gibt Aufzeichnung und Aufbewahrung an den Speicher weiter; der löscht sofort, was
+// nicht mehr aufbewahrt wird.
+func (s *Server) applyRecording(cfg config.Config) {
+	keep := time.Duration(cfg.Privacy.RetentionDays) * 24 * time.Hour
+	if err := s.store.SetRecording(cfg.Privacy.Recording != config.RecordingOff, keep); err != nil {
+		log.Printf("Saving runtime data: %v", err)
+	}
 }
 
 // hidden antwortet, dass diese Angaben für die Anfrage ausgeblendet sind (key: die Meldung dazu).

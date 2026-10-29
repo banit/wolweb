@@ -26,6 +26,8 @@ services:
       # WOLWEB_ACCENT: "teal"                  # accent color (indigo, blue, sky, teal, green, orange, rose, violet, slate …)
       # WOLWEB_ONLINE_STATUS: "unlocked"       # who sees whether devices run: all (default), unlocked, none
       # WOLWEB_WAKE_HISTORY: "unlocked"        # who sees when devices were woken (history): all (default), unlocked, none
+      # WOLWEB_RECORDING: "off"                # off = store no wake history, "last woken" or "last online"
+      # WOLWEB_RETENTION_DAYS: "30"            # days until the wake history and "last online" are deleted (1-365)
       # WOLWEB_USER: "admin"
       # WOLWEB_PASSWORD: "please-change"
       # WOLWEB_TOKEN: "long-random-token"      # for Home Assistant & co.

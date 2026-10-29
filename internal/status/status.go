@@ -150,20 +150,19 @@ func (m *Monitor) Check(ctx context.Context, d store.Device) State {
 	}
 	r := m.prober.Check(ctx, ip, ports, hint)
 	st := State{State: "offline", IP: ip.String(), IPSource: src, CheckedAt: time.Now().UTC(), started: started}
-	st.LastSeen = prev.LastSeen
-	if st.LastSeen.IsZero() { // nach einem Neustart: gespeicherter Wert
-		st.LastSeen = m.store.LastSeen(d.ID)
-	}
 	if r.Online {
 		// Antwortet unter der IP ein anderes Gerät (andere MAC in der Nachbartabelle), zählt das nicht.
 		if mac := discovery.NeighborMAC(ip); mac != nil && !strings.EqualFold(mac.String(), d.MAC) {
 			st.Conflict = strings.ToUpper(mac.String())
 			st.Note = i18n.T(i18n.EN, "notify.conflict", ip.String(), st.Conflict)
 		} else {
-			st.State, st.Method, st.RTTMillis, st.LastSeen = "online", r.Method, r.RTT.Milliseconds(), st.CheckedAt
+			st.State, st.Method, st.RTTMillis = "online", r.Method, r.RTT.Milliseconds()
 			m.store.SeenAt(d.ID, st.CheckedAt)
 		}
 	}
+	// „Zuletzt online“ kommt aus dem Speicher: Ist die Aufzeichnung aus oder der Zeitpunkt älter
+	// als die Aufbewahrung, bleibt es leer.
+	st.LastSeen = m.store.LastSeen(d.ID)
 	// Nur speichern, wenn das Gerät inzwischen nicht geändert wurde (sonst überschreibt eine
 	// langsame Prüfung der alten IP das Ergebnis der neuen).
 	if cur, ok := m.store.Get(d.ID); ctx.Err() == nil && ok {
@@ -234,6 +233,9 @@ func (m *Monitor) Get(id string) (State, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	s, ok := m.states[id]
+	if ok {
+		s.LastSeen = m.store.LastSeen(id) // gilt sofort, auch wenn die Aufzeichnung eben abgeschaltet wurde
+	}
 	return s, ok
 }
 
@@ -242,6 +244,7 @@ func (m *Monitor) All() map[string]State {
 	defer m.mu.RUnlock()
 	out := make(map[string]State, len(m.states))
 	for k, v := range m.states {
+		v.LastSeen = m.store.LastSeen(k)
 		out[k] = v
 	}
 	return out

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -128,6 +129,9 @@ func (s *Store) RecordWake(evs ...Event) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.noRecord {
+		return nil
+	}
 	// Erst als ungespeichert markieren: Scheitert das Schreiben (Platte voll, Rechte), holt
 	// FlushState es nach, statt dass der Verlauf beim Beenden verloren geht.
 	s.stateDirty = true
@@ -171,11 +175,12 @@ func (s *Store) ConfirmStart(id string, at time.Time, window time.Duration) bool
 	return changed
 }
 
-// LastWake liefert den Zeitpunkt des letzten erfolgreichen Weckens (Null, wenn nie).
+// LastWake liefert den Zeitpunkt des letzten erfolgreichen Weckens (Null, wenn nie – oder nicht
+// mehr aufbewahrt).
 func (s *Store) LastWake(id string) time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.state.LastWake[id]
+	return s.kept(s.state.LastWake[id])
 }
 
 // SeenAt merkt sich, wann ein Gerät zuletzt online war. Gespeichert wird gesammelt (FlushState),
@@ -183,28 +188,36 @@ func (s *Store) LastWake(id string) time.Time {
 func (s *Store) SeenAt(id string, t time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if t.After(s.state.LastSeen[id]) {
+	if !s.noRecord && t.After(s.state.LastSeen[id]) {
 		s.state.LastSeen[id] = t
 		s.stateDirty = true
 	}
 }
 
-// LastSeen liefert, wann ein Gerät zuletzt online war (auch über Neustarts hinweg).
+// LastSeen liefert, wann ein Gerät zuletzt online war (auch über Neustarts hinweg; Null, wenn
+// nicht aufbewahrt).
 func (s *Store) LastSeen(id string) time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.state.LastSeen[id]
+	return s.kept(s.state.LastSeen[id])
 }
 
-// History liefert die letzten limit Einträge, neueste zuerst.
+// History liefert die letzten limit Einträge, neueste zuerst (nur, was noch aufbewahrt wird).
 func (s *Store) History(limit int) []Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	h := s.state.History
+	if s.noRecord {
+		h = nil
+	}
+	if s.keep > 0 {
+		cut := time.Now().Add(-s.keep)
+		h = slices.DeleteFunc(slices.Clone(h), func(ev Event) bool { return ev.Time.Before(cut) })
+	}
 	if limit > 0 && len(h) > limit {
 		h = h[len(h)-limit:]
 	}
-	out := slices.Clone(h)
+	out := append([]Event{}, h...) // leer als [] statt null
 	slices.Reverse(out)
 	return out
 }
@@ -227,8 +240,9 @@ func (s *Store) FlushState() error {
 	return s.saveState()
 }
 
-// RunFlush schreibt alle fünf Minuten die gesammelten Laufzeitdaten. Beim Beenden ruft main
-// FlushState selbst auf (synchron, damit nichts verloren geht).
+// RunFlush löscht alle fünf Minuten, was nicht mehr aufbewahrt wird, und schreibt die gesammelten
+// Laufzeitdaten. Beim Beenden ruft main FlushState selbst auf (synchron, damit nichts verloren
+// geht).
 func (s *Store) RunFlush(ctx context.Context) {
 	t := time.NewTicker(5 * time.Minute)
 	defer t.Stop()
@@ -237,7 +251,60 @@ func (s *Store) RunFlush(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			s.mu.Lock()
+			if s.pruneLocked(time.Now()) {
+				s.stateDirty = true
+			}
+			s.mu.Unlock()
 			_ = s.FlushState()
 		}
 	}
+}
+
+// --- Aufzeichnung: Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ ---
+//
+// Diese Daten sind personenbezogen (wer wann geweckt hat, wann ein Arbeitsplatz lief). Sie lassen
+// sich abschalten und verfallen nach einer einstellbaren Zahl von Tagen (privacy.recording,
+// privacy.retention_days). Die Abfragen blenden Abgelaufenes sofort aus; aus state.json gelöscht
+// wird es beim Einstellen und danach alle fünf Minuten (RunFlush).
+
+// SetRecording legt fest, ob aufgezeichnet wird und wie lange (keep, 0 = ohne Zeitgrenze).
+// Ausgeschaltet oder abgelaufen wird sofort gelöscht und gespeichert.
+func (s *Store) SetRecording(on bool, keep time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.noRecord, s.keep = !on, keep
+	if !s.pruneLocked(time.Now()) {
+		return nil
+	}
+	return s.saveState()
+}
+
+// kept: t, solange es aufbewahrt wird, sonst Null. Unter s.mu (Lesesperre genügt).
+func (s *Store) kept(t time.Time) time.Time {
+	if s.noRecord || (s.keep > 0 && t.Before(time.Now().Add(-s.keep))) {
+		return time.Time{}
+	}
+	return t
+}
+
+// pruneLocked löscht, was nicht (mehr) aufbewahrt wird, und meldet, ob sich etwas änderte. Unter
+// s.mu (Schreibsperre).
+func (s *Store) pruneLocked(now time.Time) bool {
+	n := len(s.state.History) + len(s.state.LastWake) + len(s.state.LastSeen)
+	if s.noRecord {
+		s.state.History = nil
+		clear(s.state.LastWake)
+		clear(s.state.LastSeen)
+		return n > 0
+	}
+	if s.keep <= 0 {
+		return false
+	}
+	cut := now.Add(-s.keep)
+	old := func(t time.Time) bool { return t.Before(cut) }
+	s.state.History = slices.DeleteFunc(s.state.History, func(ev Event) bool { return old(ev.Time) })
+	maps.DeleteFunc(s.state.LastWake, func(_ string, t time.Time) bool { return old(t) })
+	maps.DeleteFunc(s.state.LastSeen, func(_ string, t time.Time) bool { return old(t) })
+	return len(s.state.History)+len(s.state.LastWake)+len(s.state.LastSeen) != n
 }

@@ -141,7 +141,25 @@ type Privacy struct {
 	// Verlauf und die Metriken dazu; dieselben Werte wie OnlineStatus. Aufgezeichnet wird der
 	// Verlauf immer.
 	WakeHistory string `json:"wake_history"`
+	// Recording: ob wolweb den Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ überhaupt
+	// speichert – "on" (Standard) oder "off". Text statt Wahrheitswert, damit ein fehlendes Feld
+	// nicht als „aus“ gilt und alles löscht.
+	Recording string `json:"recording"`
+	// RetentionDays: so viele Tage bleiben diese Daten, Älteres löscht wolweb (1–365, Standard 30).
+	RetentionDays int `json:"retention_days"`
 }
+
+// Werte für Privacy.Recording.
+const (
+	RecordingOn  = "on"
+	RecordingOff = "off"
+)
+
+// DefaultRetentionDays und MaxRetentionDays begrenzen Privacy.RetentionDays.
+const (
+	DefaultRetentionDays = 30
+	MaxRetentionDays     = 365
+)
 
 // Werte für Privacy.OnlineStatus und Privacy.WakeHistory.
 const (
@@ -170,7 +188,7 @@ func Default() Config {
 		DataDir:  "data",
 		Language: "en",
 		Accent:   DefaultAccent,
-		Privacy:  Privacy{OnlineStatus: StatusAll, WakeHistory: StatusAll},
+		Privacy:  Privacy{OnlineStatus: StatusAll, WakeHistory: StatusAll, Recording: RecordingOn, RetentionDays: DefaultRetentionDays},
 		Discovery: Discovery{
 			Interval: "30m",
 			MaxHosts: 1024,
@@ -233,6 +251,8 @@ var envKeys = []struct {
 	{"notify.events", []string{"WOLWEB_NOTIFY_EVENTS"}},
 	{"privacy.online_status", []string{"WOLWEB_ONLINE_STATUS"}},
 	{"privacy.wake_history", []string{"WOLWEB_WAKE_HISTORY"}},
+	{"privacy.recording", []string{"WOLWEB_RECORDING"}},
+	{"privacy.retention_days", []string{"WOLWEB_RETENTION_DAYS"}},
 	{"allowed_hosts", []string{"WOLWEB_ALLOWED_HOSTS"}},
 }
 
@@ -264,6 +284,7 @@ func setEnv(c *Config, key, v string) bool {
 		"auth.username": &c.Auth.Username, "auth.password": &c.Auth.Password, "auth.api_token": &c.Auth.APIToken,
 		"notify.webhook": &c.Notify.Webhook, "notify.ntfy": &c.Notify.Ntfy,
 		"privacy.online_status": &c.Privacy.OnlineStatus, "privacy.wake_history": &c.Privacy.WakeHistory,
+		"privacy.recording": &c.Privacy.Recording,
 	}
 	boolean := map[string]*bool{"read_only": &c.ReadOnly, "auth.public_wake": &c.Auth.PublicWake, "auth.wake_keys": &c.Auth.WakeKeys}
 	if p, ok := str[key]; ok {
@@ -290,6 +311,12 @@ func setEnv(c *Config, key, v string) bool {
 		c.Notify.Events = splitList(v)
 	case "allowed_hosts":
 		c.AllowedHosts = splitList(v)
+	case "privacy.retention_days":
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return false // wie unlesbare Wahrheitswerte: übergehen
+		}
+		c.Privacy.RetentionDays = n
 	default:
 		return false
 	}
@@ -352,6 +379,19 @@ func (c *Config) normalize() error {
 		default:
 			return invalid(p.key, p.msg, *p.v)
 		}
+	}
+	switch c.Privacy.Recording = strings.ToLower(strings.TrimSpace(c.Privacy.Recording)); c.Privacy.Recording {
+	case "":
+		c.Privacy.Recording = RecordingOn
+	case RecordingOn, RecordingOff:
+	default:
+		return invalid("privacy.recording", "cfg.recording", c.Privacy.Recording)
+	}
+	switch d := c.Privacy.RetentionDays; {
+	case d == 0:
+		c.Privacy.RetentionDays = DefaultRetentionDays
+	case d < 0 || d > MaxRetentionDays:
+		return invalid("privacy.retention_days", "cfg.retention_days", d)
 	}
 	c.Accent = strings.ToLower(strings.TrimSpace(c.Accent))
 	if c.Accent == "" {

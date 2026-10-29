@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,5 +162,37 @@ func TestAccentValidated(t *testing.T) {
 	}
 	if AccentColor("rose") != "#be123c" || AccentColor("gibtsnicht") != AccentColor(DefaultAccent) {
 		t.Error("AccentColor")
+	}
+}
+
+func TestRecordingValidated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	for js, want := range map[string]string{
+		`{}`: "on/30", `{"privacy":{"recording":" OFF ","retention_days":7}}`: "off/7",
+		`{"privacy":{"recording":"aus"}}`: "privacy.recording", `{"privacy":{"retention_days":400}}`: "privacy.retention_days",
+		`{"privacy":{"retention_days":-1}}`: "privacy.retention_days",
+	} {
+		os.WriteFile(path, []byte(js), 0o644)
+		c, _, err := Load(path)
+		var fe FieldError
+		switch {
+		case strings.HasPrefix(want, "privacy."):
+			if !errors.As(err, &fe) || fe.Field != want {
+				t.Errorf("%s: Fehler %v", js, err)
+			}
+		case err != nil || fmt.Sprintf("%s/%d", c.Privacy.Recording, c.Privacy.RetentionDays) != want:
+			t.Errorf("%s: %+v %v", js, c.Privacy, err)
+		}
+	}
+	// Umgebung: unlesbare Zahl übergehen, lesbare übernehmen
+	os.WriteFile(path, []byte(`{}`), 0o644)
+	t.Setenv("WOLWEB_RETENTION_DAYS", "viele")
+	if c, _, err := Load(path); err != nil || c.Privacy.RetentionDays != 30 {
+		t.Errorf("unlesbar: %+v %v", c.Privacy, err)
+	}
+	t.Setenv("WOLWEB_RETENTION_DAYS", "14")
+	t.Setenv("WOLWEB_RECORDING", "off")
+	if c, _, err := Load(path); err != nil || c.Privacy.RetentionDays != 14 || c.Privacy.Recording != "off" {
+		t.Errorf("Umgebung: %+v %v", c.Privacy, err)
 	}
 }
