@@ -31,7 +31,7 @@ var EditableKeys = []string{
 	"status.interval", "status.ports", "status.wake_timeout", "status.wake_retry",
 	"auth.public_wake", "auth.wake_keys",
 	"notify.webhook", "notify.ntfy", "notify.events",
-	"privacy.online_status",
+	"privacy.online_status", "privacy.wake_history",
 }
 
 // Editable sind die Einstellungen, die die Oberfläche ändern darf (Aufbau wie in config.json).

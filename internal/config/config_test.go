@@ -100,6 +100,44 @@ func TestReadmeNamesEveryVariable(t *testing.T) {
 	}
 }
 
+// Unten im README.md steht die deutsche Fassung: derselbe Text wie README.de.md, nur mit eigener
+// Überschrift und Sprachlink innerhalb der Seite.
+func TestReadmeGermanPart(t *testing.T) {
+	en, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Skip(err)
+	}
+	de, err := os.ReadFile("../../README.de.md")
+	if err != nil {
+		t.Skip(err)
+	}
+	_, part, ok := strings.Cut(string(en), "\n# Deutsch\n")
+	if !ok {
+		t.Fatal("README.md: deutscher Teil (# Deutsch) fehlt")
+	}
+	want, ok := strings.CutPrefix(string(de), "# wolweb\n")
+	if !ok {
+		t.Fatal("README.de.md beginnt nicht mit # wolweb")
+	}
+	want = strings.Replace(want, "[English](README.md) · **Deutsch**", "[English](#wolweb) · **Deutsch**", 1)
+	if part == want {
+		return
+	}
+	got, exp := strings.Split(part, "\n"), strings.Split(want, "\n")
+	for i := 0; i < len(got) || i < len(exp); i++ {
+		var g, e string
+		if i < len(got) {
+			g = got[i]
+		}
+		if i < len(exp) {
+			e = exp[i]
+		}
+		if g != e {
+			t.Fatalf("README.md weicht im deutschen Teil (Zeile %d nach # Deutsch) von README.de.md ab:\n  README.md:    %q\n  README.de.md: %q", i+1, g, e)
+		}
+	}
+}
+
 func TestAccentValidated(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	for js, want := range map[string]string{`{}`: "indigo", `{"accent":" Teal "}`: "teal", `{"accent":""}`: "indigo", `{"accent":"neon"}`: ""} {

@@ -92,6 +92,7 @@
     setField("allowed_hosts", (s.allowed_hosts || []).join("\n"));
     setField("language", s.language);
     setField("privacy.online_status", s.privacy.online_status);
+    setField("privacy.wake_history", s.privacy.wake_history);
     renderAccents(s.accent);
     renderEvents(s.notify.events || []);
     renderRejected(v.rejected_hosts || []);
@@ -313,7 +314,10 @@
     return {
       language: form.elements.language.value,
       accent: (form.querySelector('input[name="accent"]:checked') || {}).value || view.settings.accent,
-      privacy: { online_status: form.elements["privacy.online_status"].value || view.settings.privacy.online_status },
+      privacy: {
+        online_status: form.elements["privacy.online_status"].value || view.settings.privacy.online_status,
+        wake_history: form.elements["privacy.wake_history"].value || view.settings.privacy.wake_history,
+      },
       bcastip: v("bcastip"),
       allowed_hosts: splitList(form.elements.allowed_hosts.value),
       discovery: { networks, interval: v("discovery.interval") },
@@ -367,15 +371,17 @@
     }
   });
 
-  // „Nur nach dem Entsperren“ ohne Passwort heißt: niemand sieht den Status – darauf hinweisen.
+  // „Nur nach dem Entsperren“ ohne Passwort heißt: niemand sieht es – darauf hinweisen.
+  const privacyNotes = [["privacy.online_status", "privacy-no-pw", "hint-privacy-unlocked"], ["privacy.wake_history", "wakes-no-pw", "hint-wakes-unlocked"]];
   function renderPrivacyNote() {
-    const show = !!view && !view.password && form.elements["privacy.online_status"].value === "unlocked";
-    $("#privacy-no-pw").hidden = !show;
-    // nur ansagen, was zu sehen ist (ein verborgenes, aber verknüpftes Element läse der Screenreader mit)
-    form.querySelector('input[name="privacy.online_status"][value="unlocked"]')
-      .setAttribute("aria-describedby", show ? "hint-privacy-unlocked privacy-no-pw" : "hint-privacy-unlocked");
+    for (const [key, note, hint] of privacyNotes) {
+      const show = !!view && !view.password && form.elements[key].value === "unlocked";
+      $("#" + note).hidden = !show;
+      // nur ansagen, was zu sehen ist (ein verborgenes, aber verknüpftes Element läse der Screenreader mit)
+      form.querySelector(`input[name="${key}"][value="unlocked"]`).setAttribute("aria-describedby", show ? hint + " " + note : hint);
+    }
   }
-  form.addEventListener("change", (e) => { if (e.target.name === "privacy.online_status") renderPrivacyNote(); });
+  form.addEventListener("change", (e) => { if (privacyNotes.some(([key]) => e.target.name === key)) renderPrivacyNote(); });
 
   // ---------- Passwort für Änderungen ----------
   const pwForm = $("#pw-form");

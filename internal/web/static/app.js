@@ -1640,6 +1640,9 @@
       document.documentElement.dataset.accent = state.info.accent;
       $('meta[name="theme-color"]').setAttribute("content", state.info.theme_color);
     }
+    // Privatsphäre: Wann geweckt wurde, kann ausgeblendet sein – dann gibt es auch keinen Verlauf.
+    $("#open-history").hidden = !!state.info.history_hidden;
+    if (state.info.history_hidden && $("#history-dialog").open) $("#history-dialog").close();
     applyLock();
     // Broadcast-Vorschläge im Gerätedialog: die eingetragenen Netze
     $("#broadcast-list").replaceChildren(...(state.info.segments || []).map((s) => el("option", { value: s.broadcast, label: s.label })));

@@ -22,8 +22,10 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	labels := func(id, name, mac string) string {
 		return fmt.Sprintf(`id="%s",name="%s",mac="%s"`, escapeLabel(id), escapeLabel(name), escapeLabel(mac))
 	}
-	// Privatsphäre: ohne Online-Status fehlen die Kennzahlen dazu (Prometheus kann das Token schicken).
-	show := s.statusVisible(r)
+	// Privatsphäre: ohne Online-Status fehlen die Kennzahlen dazu, ohne Verlauf der letzte Weckruf
+	// (Prometheus kann das Token schicken).
+	vis := s.visibility(r)
+	show := vis.status
 	if !show {
 		states = nil
 	}
@@ -51,7 +53,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	head("wolweb_device_last_wake_timestamp_seconds", "Last successful wake (Unix time).", "gauge")
 	for _, d := range devices {
-		if t := s.store.LastWake(d.ID); !t.IsZero() {
+		if t := s.store.LastWake(d.ID); !t.IsZero() && vis.wakes {
 			fmt.Fprintf(&b, "wolweb_device_last_wake_timestamp_seconds{%s} %d\n", labels(d.ID, d.Name, d.MAC), t.Unix())
 		}
 	}
@@ -62,8 +64,10 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	s.wakesMu.Lock()
 	keys := make([][2]string, 0, len(s.wakes))
-	for k := range s.wakes {
-		keys = append(keys, k)
+	if vis.wakes { // auch der Zähler verrät, wann geweckt wurde
+		for k := range s.wakes {
+			keys = append(keys, k)
+		}
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i][0]+keys[i][1] < keys[j][0]+keys[j][1] })
 	for _, k := range keys {

@@ -65,7 +65,8 @@ Metriken und die API – steht weiter unten.
 </table>
 
 - **Übersicht** mit Online-Status jedes Geräts (Ping und TCP-Ports), Suche und Filter, hell/dunkel – Änderungen
-  erscheinen sofort in jedem offenen Fenster (Server-Sent Events)
+  erscheinen sofort in jedem offenen Fenster (Server-Sent Events); Gruppen und Geräte in eigener Reihenfolge (per
+  Ziehen oder mit Pfeilknöpfen)
 - **Feste Wecklinks** `/wake/<Name>`: im Browser eine Bestätigungsseite, die das Gerät prüft, das Magic Packet
   sendet und den Start verfolgt, bis das Gerät wirklich online ist
 - **Zuverlässiges Wecken**: Das Magic Packet geht dreimal innerhalb einer Sekunde an Port 9 und 7; antwortet ein
@@ -74,10 +75,13 @@ Metriken und die API – steht weiter unten.
 - **Netzwerksuche**: findet eingeschaltete Geräte in freigegebenen Segmenten (IP, MAC, Hostname, Hersteller) –
   per Hand oder regelmäßig im Hintergrund; neue Geräte mit einem Klick übernehmen (Name aus dem Hostnamen, ohne Dialog; fehlt er, wird nur
   der Name gefragt) oder ignorieren
-- **Einstellungsseite** mit Übersicht der Netze und VLANs (an welchen wolweb hängt, Geräte je Netz); Änderungen
-  gelten ohne Neustart
-- **Gruppen** („Homelab“, „Büro“) gemeinsam wecken, auch per festem Gruppen-Wecklink; **Zeitpläne** wie
-  `Mo-Fr 07:30` wecken Geräte automatisch
+- **Einstellungsseite** mit Übersicht der Netze und VLANs (an welchen wolweb hängt, Geräte je Netz) und 17
+  Akzentfarben; Änderungen gelten ohne Neustart
+- **Passwort für Änderungen** (optional, ohne Benutzername): Ansehen und Wecken kann jeder im Netz, Ändern erst nach
+  dem Entsperren; **Privatsphäre**: Online-Status – und getrennt davon, wann geweckt wurde – für alle, erst nach dem
+  Entsperren oder für niemanden
+- **Gruppen** („Homelab“, „Büro“), verwaltet in der Übersicht oder auf der Einstellungsseite, gemeinsam wecken, auch
+  per festem Gruppen-Wecklink; **Zeitpläne** wie `Mo-Fr 07:30` wecken Geräte automatisch
 - **Benachrichtigungen** per Webhook (JSON) oder ntfy aufs Handy, wenn ein Gerät online/offline geht oder
   geweckt wird; **Prometheus-Metriken** unter `/metrics`
 - **Verlauf** in Worten: je Weckversuch ein Satz („Weckruf gesendet“, „Start bestätigt (nach 0:42 min)“, „Start nicht
@@ -128,7 +132,8 @@ werden zur neuen Adresse geleitet, curl & Co. wecken direkt (wolweb merkt sich j
 einen davon einem anderen Gerät zu geben, muss man bestätigen, danach gehört der Link dem neuen Gerät – ein Import
 wählt stattdessen einen freien Namen). Auch umbenannte Gruppen behalten ihre alten Gruppen-Wecklinks, jeweils mit
 dem Schlüssel, mit dem sie herausgegeben wurden. Die Bestätigung „online“ gibt es nur, wenn eine IP bekannt
-ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts. Während
+ist (eingetragen oder aus der Netzwerksuche). Läuft das Gerät schon, sagt die Seite das und sendet nichts – außer
+der Online-Status ist ausgeblendet ([Privatsphäre](#privatsphäre)): Dann weckt sie ohne diese Prüfung. Während
 des Wartens nennt sie, wie lange geprüft wird (`status.wake_timeout`) und ob automatisch erneut gesendet wird. Kommt
 keine Antwort, bleibt „Start nicht bestätigt“ mit dem Naheliegenden stehen (Strom, Netzwerkkabel, blockierte
 Rückmeldung), dazu „Nochmals prüfen“ (ohne zu wecken), „Erneut wecken“ und technische Tipps unter „Hilfe“. Die
@@ -273,7 +278,8 @@ geändert wurde, fehlt danach.
   Gerät). `GET /api/v1/groups` nennt auch leere Gruppen, in ihrer Reihenfolge. Eine ältere Version verwirft
   `groups` und `order` beim Speichern – die Sicherung (siehe oben) enthält den Stand vor dem Update.
 - *Akzentfarbe* (neu): Standard `indigo` wie bisher.
-- *Privatsphäre* (neu): `privacy.online_status` blendet den Online-Status aus; Standard `all` wie bisher.
+- *Privatsphäre* (neu): `privacy.online_status` blendet den Online-Status aus, `privacy.wake_history`, wann Geräte
+  geweckt wurden; Standard jeweils `all` wie bisher.
 
 **Was sich mit 1.2 ändert – und ob du etwas tun musst:**
 
@@ -308,7 +314,8 @@ geändert wurde, fehlt danach.
 
 Das Zahnrad oben rechts öffnet die Einstellungsseite (`/settings`). Dort lassen sich die Netze und VLANs,
 Netzwerksuche, Online-Prüfung, Wartezeiten, Benachrichtigungen (mit „Testnachricht senden“), öffentliche Wecklinks,
-erlaubte Hostnamen, wer den Online-Status sieht ([Privatsphäre](#privatsphäre)), die Standardsprache und die
+erlaubte Hostnamen, wer den Online-Status sieht und wann geweckt wurde ([Privatsphäre](#privatsphäre)), die
+Standardsprache und die
 Akzentfarbe ändern (17 Farben, jeweils hell und dunkel). Änderungen gelten sofort, ohne Neustart. Gruppen und das
 Passwort für Änderungen haben dort eigene Bereiche, die sofort speichern.
 
@@ -380,6 +387,14 @@ ohne zu wecken. Auch die Suchtreffer verraten, wer im Netz ist; mit Passwort fü
 Entsperrte, egal wie eingestellt. Geprüft wird im Hintergrund weiter, für die automatische Wiederholung und die
 Benachrichtigungen (deren Ereignisse wählst du getrennt). Die Anmeldung per HTTP Basic zählt
 nicht als entsperrt, wie beim Passwort für Änderungen.
+
+**„Zuletzt geweckt“ und Verlauf** (`privacy.wake_history`): eine eigene Auswahl unter dem Online-Status, mit denselben
+drei Stufen und `all` als Standard – solange du nichts anderes wählst, ändert sich nichts. Sie blendet aus, wann
+Geräte geweckt wurden: „geweckt vor …“ auf den Karten, den Knopf „Verlauf“ (`/api/v1/history` antwortet 403 mit
+`"hidden": true`), `last_wake` in der API und die Kennzahlen `wolweb_device_last_wake_timestamp_seconds` und
+`wolweb_wakes_total`. Bei `unlocked` sehen entsperrte Browser und das API-Token alles weiter. Das Wecken bleibt
+unberührt: Wer ein Gerät weckt, verfolgt seinen Weckruf wie gewohnt, und der Verlauf wird weiter aufgezeichnet –
+stellst du zurück, ist er wieder zu sehen.
 
 ## Mehrere Netze und VLANs
 
@@ -504,6 +519,7 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `notify.ntfy` | `WOLWEB_NTFY` | – | ntfy-Thema, z. B. `https://ntfy.sh/mein-geheimes-thema` |
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | alle | Auswahl aus `online`, `offline`, `wake`, `wake_failed` |
 | `privacy.online_status` | `WOLWEB_ONLINE_STATUS` | `all` | wer sieht, ob Geräte laufen: `all`, `unlocked` (nur nach dem Entsperren) oder `none` (siehe [Privatsphäre](#privatsphäre)) |
+| `privacy.wake_history` | `WOLWEB_WAKE_HISTORY` | `all` | wer sieht, wann Geräte geweckt wurden („geweckt vor …“, Verlauf): `all`, `unlocked` oder `none` |
 
 `devices.json` enthält nur, was man selbst einträgt; was wolweb beobachtet (zuletzt geweckt, zuletzt online, die
 letzten 500 Weckversuche) steht in `state.json`. Der Export unten auf der Seite sichert die Geräte samt
@@ -543,8 +559,12 @@ internen Zielen zeigt die Seite damit nicht; ob eine Adresse die Nachricht angen
 wer die Einstellungsseite benutzen darf.
 
 `/metrics` liefert Kennzahlen im Prometheus-Format (`wolweb_device_up`, `wolweb_device_rtt_seconds`,
-`wolweb_device_last_seen_timestamp_seconds`, `wolweb_wakes_total`, `wolweb_discovery_found` …). Mit Anmeldung
-braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_token>}`.
+`wolweb_device_last_seen_timestamp_seconds`, `wolweb_device_last_wake_timestamp_seconds`, `wolweb_wakes_total`,
+`wolweb_discovery_found` …). Mit Anmeldung braucht auch der Abruf sie – in Prometheus
+`authorization: {credentials: <api_token>}`. Ist der Online-Status ausgeblendet ([Privatsphäre](#privatsphäre)),
+bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_seen_timestamp_seconds` leer – bei
+`unlocked` bringt das Token sie zurück. `privacy.wake_history` macht dasselbe mit
+`wolweb_device_last_wake_timestamp_seconds` und `wolweb_wakes_total`.
 
 ## Sicherheit
 
@@ -552,6 +572,8 @@ braucht auch der Abruf sie – in Prometheus `authorization: {credentials: <api_
   für Automationen.
 - **Passwort für Änderungen**: Ansehen und Wecken bleiben frei, Ändern erst nach dem Entsperren – siehe
   [Passwort für Änderungen](#passwort-für-änderungen).
+- **Online-Status und Weckverlauf**: Wer sieht, ob Geräte laufen und wann sie geweckt wurden – alle, nur nach dem
+  Entsperren oder niemand –, siehe [Privatsphäre](#privatsphäre).
 - **Öffentliche Wecklinks** (`auth.public_wake`): Mit Anmeldung bleiben `/wake/<Name>` und die Weckseite ohne Login
   erreichbar. Damit niemand Geräte über erratene Namen weckt, verlangt `auth.wake_keys` zusätzlich einen Schlüssel
   je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern.
@@ -596,11 +618,14 @@ lassen:
   Startbildschirm des Handys ist das ein einziger Tipp, ohne die Übersicht zu bedienen.
 - **Tastatur**: alles per Tab erreichbar, sichtbarer Fokus, Sprunglink „Zu den Geräten“, `/` springt in die
   Suche, Escape schließt Dialoge und die Suchleiste; solange die Leiste offen ist, bleibt der Fokus darin.
+- **Sortieren ohne Ziehen**: Unter „Sortieren“ hat jede Gruppe und jedes Gerät auch Pfeilknöpfe; der Fokus bleibt
+  auf dem verschobenen Eintrag, und Screenreader sagen seine neue Position an.
 - **Screenreader**: Knöpfe nennen das Gerät, zu dem sie gehören; Weck- und Gruppenseite sagen die Phasen an
   (sendet, wartet, online); Filter melden, welcher aktiv ist.
-- **Kontrast** nach WCAG AA (4,5:1) in hell und dunkel; Animationen entfallen bei „Bewegung reduzieren“.
+- **Kontrast** nach WCAG AA (4,5:1) in hell und dunkel, mit jeder Akzentfarbe; Animationen entfallen bei „Bewegung
+  reduzieren“.
 
-Die Browsertests (siehe Entwicklung) prüfen das bei jedem Push: [axe-core](https://github.com/dequelabs/axe-core)
+Die Browsertests (siehe [Entwicklung](#entwicklung)) prüfen das bei jedem Push: [axe-core](https://github.com/dequelabs/axe-core)
 nach WCAG 2.2 AA auf allen Seiten und Dialogen in hell und dunkel, die Tastaturbedienung und die Größe aller
 Touch-Ziele auf einem Handy.
 
@@ -609,7 +634,10 @@ Touch-Ziele auf einem Handy.
 Alle ändernden Aufrufe brauchen den Kopf `X-WolWeb: 1` (Schutz gegen Cross-Site-Requests) oder ein Bearer-Token;
 fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in `"error"`. Mit
 [Passwort für Änderungen](#passwort-für-änderungen) bekommen ändernde Aufrufe ohne Entsperrung oder Token 403 mit
-`"locked": true`.
+`"locked": true`. Ist der Online-Status ausgeblendet ([Privatsphäre](#privatsphäre)), kommen Listen und Ereignisse
+ohne Status, `…/status` antwortet 403 mit `"hidden": true`, und die Antwort auf einen Weckaufruf trägt den
+`watch`-Schlüssel, mit dem sich der Start verfolgen lässt. Mit `privacy.wake_history` fehlt `last_wake`, und
+`/api/v1/history` antwortet ebenfalls 403 mit `"hidden": true`.
 
 | Methode | Pfad | |
 |---|---|---|
@@ -640,7 +668,11 @@ fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in
 | PUT | `/api/v1/password` | Passwort für Änderungen setzen, ändern oder entfernen: `{"current": "…", "password": "…"}` (leeres `password` entfernt es) |
 | GET | `/wake/{name}`, `/health`, `/data/get` | wie im Original |
 | GET / POST | `/wake-group/{name}` | Gruppen-Wecklink |
+| GET | `/wake/{name}/status`, `/wake-group/{name}/status` | Status für Weck- und Gruppenseite (`?watch=…` bei ausgeblendetem Online-Status) |
 | GET | `/metrics` | Kennzahlen für Prometheus |
+
+Meldungen folgen der Sprache der Anfrage (siehe [Sprache](#sprache)); mit `Accept-Language: de` antwortet ein
+Wecklink z. B. `{"success":true,"message":"Weckruf an NAS gesendet."}`.
 
 ## Entwicklung
 
@@ -650,13 +682,14 @@ go run . -c config.json
 ```
 
 Die Oberfläche liegt in `internal/web/` (Vorlagen und statische Dateien, eingebettet per `go:embed`).
-Herstellerliste aktualisieren: `sh tools/gen-oui.sh`. Code-Kommentare und Commit-Texte sind überwiegend deutsch;
-Issues und Pull Requests auf Englisch sind willkommen.
+Herstellerliste aktualisieren: `sh tools/gen-oui.sh`. Code-Kommentare sind überwiegend deutsch, ältere Commit-Texte
+ebenso; Issues und Pull Requests auf Englisch sind willkommen.
 
 Browsertests (Playwright mit Chromium, braucht Go und Node.js) liegen in `e2e/`. Sie bauen wolweb selbst, starten
 es mit leerem Datenverzeichnis auf Port 8399 (Pakete gehen nur an 127.0.0.1) und prüfen Übersicht, Gerätedialog,
-Suche und Filter, Sprache, einfache Ansicht, Weck- und Gruppenseite mit allen Ausgängen samt automatischer
-Wiederholung sowie die Barrierefreiheit:
+Suche und Filter, Sprache, einfache Ansicht, Sortieren, Gruppen, das Passwort für Änderungen, die Privatsphäre, die
+Einstellungsseite, Weck- und Gruppenseite mit allen Ausgängen samt automatischer Wiederholung sowie die
+Barrierefreiheit:
 
 ```sh
 cd e2e

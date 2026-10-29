@@ -36,14 +36,14 @@ type groupView struct {
 	Members []deviceView `json:"members"`
 }
 
-// groupView: ohne showStatus fehlt der Online-Status der Mitglieder (Privatsphäre).
-func (s *Server) groupView(name string, members []store.Device, withKey, showStatus bool) groupView {
+// groupView: Was vis ausblendet, fehlt auch bei den Mitgliedern (Privatsphäre).
+func (s *Server) groupView(name string, members []store.Device, withKey bool, vis visibility) groupView {
 	g := groupView{Name: name, Path: "wake-group/" + pathEscape(name), Members: []deviceView{}}
 	if withKey {
 		g.Key = s.groupKey(name)
 	}
 	for _, d := range members {
-		g.Members = append(g.Members, s.view(d, showStatus))
+		g.Members = append(g.Members, s.view(d, vis))
 	}
 	return g
 }
@@ -51,9 +51,9 @@ func (s *Server) groupView(name string, members []store.Device, withKey, showSta
 // listGroups liefert alle Gruppen in ihrer Reihenfolge, auch leere.
 func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
 	out := []groupView{}
-	show := s.statusVisible(r)
+	vis := s.visibility(r)
 	for _, name := range s.store.Groups() {
-		out = append(out, s.groupView(name, s.store.GroupMembers(name), s.conf().Auth.WakeKeys, show))
+		out = append(out, s.groupView(name, s.store.GroupMembers(name), s.conf().Auth.WakeKeys, vis))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -79,7 +79,7 @@ func (s *Server) createGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Group created: %s (%d devices)", g.Name, len(in.Members))
 	s.devicesChanged()
-	writeJSON(w, http.StatusCreated, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.statusVisible(r)))
+	writeJSON(w, http.StatusCreated, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.visibility(r)))
 }
 
 func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +100,7 @@ func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Group changed: %s", g.Name)
 	}
 	s.devicesChanged()
-	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.statusVisible(r)))
+	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.visibility(r)))
 }
 
 func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {
@@ -220,9 +220,9 @@ func (s *Server) groupLink(w http.ResponseWriter, r *http.Request) {
 			s.render(w, r, http.StatusNotFound, "wake.html", pageData{Missing: r.PathValue("name")})
 			return
 		}
-		show := s.statusVisible(r)
-		g := s.groupView(name, members, false, show)
-		pd := pageData{Group: &g, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !show}
+		vis := s.visibility(r)
+		g := s.groupView(name, members, false, vis)
+		pd := pageData{Group: &g, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status}
 		if s.needsKey(r) {
 			pd.Key = s.groupKey(name)
 		}
@@ -280,7 +280,7 @@ func (s *Server) groupLinkStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.statusVisible(r) && !s.watching(r, watchGroup(name)) {
-		s.statusHidden(w, r)
+		s.hidden(w, r, "err.status_hidden")
 		return
 	}
 	type memberStatus struct {

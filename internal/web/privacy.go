@@ -23,6 +23,10 @@ import (
 // Ausnahme Wecken: Wer ein Gerät weckt (Wecklink, Gruppenlink, Knopf in der Übersicht), startet es
 // ohnehin – er darf sehen, ob es hochkommt (siehe watchToken, ?wait=). Nur die Vorabprüfung „läuft es
 // schon?“ entfällt, denn die verriete den Status, ohne zu wecken.
+//
+// privacy.wake_history (dieselben Stufen, eigens einzuschalten) blendet aus, wann Geräte geweckt
+// wurden: „Zuletzt geweckt“ (last_wake), den Verlauf und die Metriken dazu. Wer selbst weckt,
+// verfolgt seinen Weckruf trotzdem – der Verlauf wird weiter geschrieben, nur nicht gezeigt.
 
 // privileged: Die Anfrage kommt von jemandem, der entsperrt hat (mit gesetztem Passwort für
 // Änderungen) oder das API-Token nutzt. Ohne Passwort trifft das außer dem Token niemanden – wer
@@ -32,8 +36,8 @@ func (s *Server) privileged(r *http.Request) bool {
 	return s.tokenAuthorized(r) || (s.store.HasPassword() && !s.unlockUntil(r).IsZero())
 }
 
-// statusShown: Wer (privileged oder nicht) sieht den Online-Status bei dieser Einstellung?
-func statusShown(mode string, privileged bool) bool {
+// shownTo: Sieht jemand (privileged oder nicht) bei dieser Stufe etwas (all, unlocked, none)?
+func shownTo(mode string, privileged bool) bool {
 	switch mode {
 	case config.StatusNone:
 		return false
@@ -45,7 +49,18 @@ func statusShown(mode string, privileged bool) bool {
 
 // statusVisible: Die Anfrage darf den Online-Status sehen.
 func (s *Server) statusVisible(r *http.Request) bool {
-	return statusShown(s.conf().Privacy.OnlineStatus, s.privileged(r))
+	return shownTo(s.conf().Privacy.OnlineStatus, s.privileged(r))
+}
+
+// visibility: was eine Anfrage von den Geräten sehen darf.
+type visibility struct {
+	status bool // Online-Status (privacy.online_status)
+	wakes  bool // wann zuletzt geweckt, Verlauf (privacy.wake_history)
+}
+
+func (s *Server) visibility(r *http.Request) visibility {
+	p, pv := s.privileged(r), s.conf().Privacy
+	return visibility{status: shownTo(pv.OnlineStatus, p), wakes: shownTo(pv.WakeHistory, p)}
 }
 
 // foundVisible: Die Anfrage darf die Suchtreffer sehen. Sie sind ein Werkzeug zum Anlegen von
@@ -84,8 +99,8 @@ func (s *Server) watching(r *http.Request, target string) bool {
 	return hmac.Equal([]byte(sig), []byte(s.watchSig(target, exp)))
 }
 
-// statusHidden antwortet, dass der Online-Status für diese Anfrage ausgeblendet ist.
-func (s *Server) statusHidden(w http.ResponseWriter, r *http.Request) {
+// hidden antwortet, dass diese Angaben für die Anfrage ausgeblendet sind (key: die Meldung dazu).
+func (s *Server) hidden(w http.ResponseWriter, r *http.Request, key string) {
 	writeJSON(w, http.StatusForbidden, map[string]any{"success": false, "hidden": true,
-		"message": i18n.T(s.lang(r), "err.status_hidden")})
+		"message": i18n.T(s.lang(r), key)})
 }

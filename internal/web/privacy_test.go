@@ -273,3 +273,75 @@ func TestFoundVisibleForEditorsOnly(t *testing.T) {
 		t.Fatal("ohne Passwort bei „niemand“ ausgeblendet – dann könnte niemand Geräte aus der Suche übernehmen")
 	}
 }
+
+// seesWakes prüft alle Stellen, die zeigen, wann geweckt wurde, aus Sicht von b.
+func seesWakes(t *testing.T, b *browser) map[string]bool {
+	t.Helper()
+	got := map[string]bool{}
+	got["devices"] = strings.Contains(b.do("GET", "/api/v1/devices", "").Body.String(), `"last_wake"`)
+	got["groups"] = strings.Contains(b.do("GET", "/api/v1/groups", "").Body.String(), `"last_wake"`)
+	got["history"] = b.do("GET", "/api/v1/history", "").Code == http.StatusOK
+	m := b.do("GET", "/metrics", "").Body.String()
+	got["metrics last wake"] = strings.Contains(m, "wolweb_device_last_wake_timestamp_seconds{")
+	got["metrics wakes"] = strings.Contains(m, "wolweb_wakes_total{")
+	var info struct {
+		HistoryHidden bool `json:"history_hidden"`
+	}
+	json.Unmarshal(b.do("GET", "/api/v1/info", "").Body.Bytes(), &info)
+	got["info"] = !info.HistoryHidden
+	return got
+}
+
+func TestWakeHistoryPrivacy(t *testing.T) {
+	for _, c := range []struct {
+		mode         string
+		guest, admin bool
+	}{{"all", true, true}, {"unlocked", false, true}, {"none", false, false}} {
+		t.Run(c.mode, func(t *testing.T) {
+			s, h, _ := settingsServer(t, `{"privacy": {"wake_history": "`+c.mode+`"}}`)
+			d, err := s.store.Create(store.Input{Name: "NAS", MAC: "02:00:00:00:00:01", Broadcast: udpSink(t), Group: "Büro"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			admin := &browser{t: t, h: h}
+			admin.do("PUT", "/api/v1/password", `{"password":"geheim123"}`)
+			guest := &browser{t: t, h: h}
+			// Wecken darf jeder, und wer weckt, bekommt seine Antwort wie gewohnt.
+			if rec := guest.do("POST", "/api/v1/devices/"+d.ID+"/wake", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"success":true`) {
+				t.Fatalf("Wecken: %d %s", rec.Code, rec.Body)
+			}
+			for who, want := range map[*browser]bool{guest: c.guest, admin: c.admin} {
+				name := map[bool]string{true: "entsperrt", false: "Gast"}[who == admin]
+				for k, v := range seesWakes(t, who) {
+					if v != want {
+						t.Errorf("%s, %s: sieht Weckzeitpunkte = %v, erwartet %v", name, k, v, want)
+					}
+				}
+			}
+			if rec := guest.do("GET", "/api/v1/history", ""); !c.guest && (rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"hidden":true`)) {
+				t.Errorf("Verlauf ausgeblendet: %d %s", rec.Code, rec.Body)
+			}
+			// Aufgezeichnet wird trotzdem.
+			if len(s.store.History(10)) != 1 || s.store.LastWake(d.ID).IsZero() {
+				t.Error("Weckruf nicht aufgezeichnet")
+			}
+		})
+	}
+}
+
+// Die Einstellungen sind unabhängig: Weckzeitpunkte ausblenden lässt den Online-Status stehen.
+func TestWakeHistoryIndependentOfStatus(t *testing.T) {
+	_, h, _ := settingsServer(t, `{"privacy": {"online_status": "all", "wake_history": "none"}}`)
+	guest := &browser{t: t, h: h}
+	var info struct {
+		StatusHidden  bool `json:"status_hidden"`
+		HistoryHidden bool `json:"history_hidden"`
+	}
+	json.Unmarshal(guest.do("GET", "/api/v1/info", "").Body.Bytes(), &info)
+	if info.StatusHidden || !info.HistoryHidden {
+		t.Errorf("info: %+v", info)
+	}
+	if rec := guest.do("PUT", "/api/v1/settings", `{"privacy": {"online_status": "all", "wake_history": "später"}}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"field":"privacy.wake_history"`) {
+		t.Errorf("ungültiger Wert: %d %s", rec.Code, rec.Body)
+	}
+}
