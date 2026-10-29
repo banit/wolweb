@@ -1660,6 +1660,11 @@
     if (off && state.selecting) setSelecting(false);
     $("#add-device").hidden = off;
     $("#import-btn").hidden = off;
+    // Gerätesuche nur für wer bearbeiten darf: mit Passwort erst nach dem Entsperren.
+    const noScan = !!state.info.locked;
+    $("#open-discovery").hidden = noScan;
+    for (const b of document.querySelectorAll('[data-action="discovery"]')) b.hidden = noScan;
+    if (noScan && drawerOpen()) closeDrawer();
     // Der Export enthält das Geheimnis der Installation und braucht die Entsperrung; Nur-Lesen allein sperrt ihn nicht.
     $("#export-link").hidden = !!state.info.locked;
     for (const b of document.querySelectorAll('[data-action="add"]')) b.hidden = off;

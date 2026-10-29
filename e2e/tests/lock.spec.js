@@ -57,6 +57,8 @@ test("Mit Passwort: ansehen und wecken frei, ändern erst nach dem Entsperren", 
   await expect(other.locator("#import-btn")).toBeHidden();
   await expect(other.locator("#export-link")).toBeHidden();
   await expect(other.locator("#sort-toggle")).toBeHidden();
+  await expect(other.locator("#open-discovery")).toBeHidden(); // Gerätesuche erst nach dem Entsperren
+  expect((await (await other.request.get("api/v1/discovery")).json()).hidden).toBe(true);
   await expect(other.getByRole("button", { name: "Gruppe bearbeiten" })).toHaveCount(0);
   await expect(other.getByRole("button", { name: "Bearbeiten" })).toHaveCount(0);
   await other.getByRole("button", { name: "Wecken", exact: true }).click();
@@ -75,11 +77,13 @@ test("Mit Passwort: ansehen und wecken frei, ändern erst nach dem Entsperren", 
   await expect(lock).toHaveAttribute("aria-label", "Entsperrt – Änderungen wieder sperren");
   await expect(other.locator("#add-device")).toBeVisible();
   await expect(other.getByRole("button", { name: "Bearbeiten" })).toBeVisible();
+  await expect(other.locator("#open-discovery")).toBeVisible();
 
   // Sperren wirkt sofort.
   await lock.click();
   await expect(other.locator("#toasts")).toContainText("Gesperrt");
   await expect(other.locator("#add-device")).toBeHidden();
+  await expect(other.locator("#open-discovery")).toBeHidden();
   const res = await other.request.post("api/v1/devices", { headers: HEADERS, data: { name: "PC", mac: "02:00:00:00:00:fe" } });
   expect(res.status()).toBe(403);
   expect((await res.json()).locked).toBe(true);

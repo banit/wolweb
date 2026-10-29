@@ -333,9 +333,10 @@ Unten auf der Einstellungsseite lässt sich ein Passwort für Änderungen setzen
 - **Ansehen und Wecken bleiben frei** für alle im Netz: Übersicht, Status, Weckknöpfe, Gruppen wecken und die festen
   Wecklinks.
 - **Alles andere erst nach dem Entsperren**: Geräte anlegen, bearbeiten und löschen, Gruppen zuordnen, Import und
-  Export, die Netzwerksuche und die Einstellungsseite. Das Schloss in der Kopfzeile fragt nach dem Passwort; danach
-  bleibt dieser Browser entsperrt, bis er geschlossen wird oder 12 Stunden lang nichts bearbeitet wird (eine bloß
-  offene Übersicht zählt nicht). Derselbe Knopf sperrt sofort wieder.
+  Export, die Netzwerksuche („Geräte suchen“ und die Suchtreffer erscheinen erst nach dem Entsperren) und die
+  Einstellungsseite. Das Schloss in der Kopfzeile fragt nach dem Passwort; danach bleibt dieser Browser entsperrt,
+  bis er geschlossen wird oder 12 Stunden lang nichts bearbeitet wird (eine bloß offene Übersicht zählt nicht).
+  Derselbe Knopf sperrt sofort wieder.
 - Ändern oder Entfernen verlangt das bisherige Passwort; ein neues Passwort beendet die Entsperrung aller anderen
   Browser. Nach 5 Fehlversuchen aus einem Browser heißt es für ihn 30 s warten (mit jedem weiteren Fehlversuch
   doppelt so lange, höchstens 15 Minuten); hinter einem Reverse-Proxy unterscheidet der letzte Eintrag von
@@ -375,9 +376,9 @@ hochkommt. Die Karte in der Übersicht verfolgt den Start dieses einen Geräts u
 aus; Weck- und Gruppenseiten bestätigen den Start wie gewohnt. Die Weckantwort bringt dafür einen kurzlebigen
 Schlüssel `watch` mit, den `…/status?watch=…` 15 Minuten lang für dieses Gerät bzw. diese Gruppe annimmt, und
 `?wait=` funktioniert weiter. Nur die Vorabprüfung, ob das Gerät schon läuft, entfällt – sie verriete den Status,
-ohne zu wecken. Auch die Suchtreffer verraten, wer im Netz
-ist – bei `unlocked` und `none` sehen sie nur Entsperrte. Geprüft wird im Hintergrund weiter, für die automatische
-Wiederholung und die Benachrichtigungen (deren Ereignisse wählst du getrennt). Die Anmeldung per HTTP Basic zählt
+ohne zu wecken. Auch die Suchtreffer verraten, wer im Netz ist; mit Passwort für Änderungen sehen sie nur
+Entsperrte, egal wie eingestellt. Geprüft wird im Hintergrund weiter, für die automatische Wiederholung und die
+Benachrichtigungen (deren Ereignisse wählst du getrennt). Die Anmeldung per HTTP Basic zählt
 nicht als entsperrt, wie beim Passwort für Änderungen.
 
 ## Mehrere Netze und VLANs

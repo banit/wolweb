@@ -279,7 +279,7 @@
  "set.privacy.all": "Show to everyone (default)",
  "set.privacy.all_hint": "Everyone who opens wolweb sees which devices are running.",
  "set.privacy.none": "Show to nobody",
- "set.privacy.none_hint": "Not even after unlocking. Whoever wakes a device – with the button or a wake link – still sees whether it starts. Devices are still checked – for the automatic retry and notifications. Only unlocked browsers still see the scan results.",
+ "set.privacy.none_hint": "Not even after unlocking. Whoever wakes a device – with the button or a wake link – still sees whether it starts. Devices are still checked – for the automatic retry and notifications.",
  "set.privacy.status": "Online status in the overview",
  "set.privacy.title": "Privacy",
  "set.privacy.unlocked": "Show only after unlocking",

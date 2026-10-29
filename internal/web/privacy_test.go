@@ -242,3 +242,34 @@ func TestOverviewWakeWatchToken(t *testing.T) {
 		t.Fatalf("Gruppenmitglied mit Schlüssel: %d", rec.Code)
 	}
 }
+
+// Suchtreffer sieht, wer bearbeiten darf: mit Passwort nur Entsperrte – auch wenn der Online-Status
+// für alle sichtbar ist –, ohne Passwort alle (auch bei ausgeblendetem Status: ohne Passwort ließe
+// sich ohnehin alles umstellen, und Geräte aus der Suche übernehmen soll weiter gehen).
+func TestFoundVisibleForEditorsOnly(t *testing.T) {
+	hidden := func(b *browser) bool {
+		var v struct{ Hidden bool }
+		json.Unmarshal(b.do("GET", "/api/v1/discovery", "").Body.Bytes(), &v)
+		return v.Hidden
+	}
+	_, h, _ := privacyServer(t, "all")
+	if hidden(&browser{t: t, h: h}) {
+		t.Fatal("ohne Passwort ausgeblendet")
+	}
+	admin := &browser{t: t, h: h}
+	admin.do("PUT", "/api/v1/password", `{"password":"geheim123"}`)
+	if !hidden(&browser{t: t, h: h}) || hidden(admin) {
+		t.Fatal("mit Passwort: Gast sieht Treffer oder Entsperrter nicht")
+	}
+	var info struct {
+		FoundHidden bool `json:"found_hidden"`
+	}
+	json.Unmarshal((&browser{t: t, h: h}).do("GET", "/api/v1/info", "").Body.Bytes(), &info)
+	if !info.FoundHidden {
+		t.Fatal("info nennt die ausgeblendeten Treffer nicht")
+	}
+	_, h, _ = privacyServer(t, "none")
+	if hidden(&browser{t: t, h: h}) {
+		t.Fatal("ohne Passwort bei „niemand“ ausgeblendet – dann könnte niemand Geräte aus der Suche übernehmen")
+	}
+}

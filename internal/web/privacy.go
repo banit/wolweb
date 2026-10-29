@@ -48,11 +48,12 @@ func (s *Server) statusVisible(r *http.Request) bool {
 	return statusShown(s.conf().Privacy.OnlineStatus, s.privileged(r))
 }
 
-// foundVisible: Die Anfrage darf die Suchtreffer sehen. Auch sie verraten, wer gerade im Netz ist
-// („zuletzt gesehen“); wer Geräte aus der Suche übernimmt, braucht sie aber – daher sieht sie auch
-// bei „niemand“ noch, wer entsperrt hat.
+// foundVisible: Die Anfrage darf die Suchtreffer sehen. Sie sind ein Werkzeug zum Anlegen von
+// Geräten und verraten obendrein, wer gerade im Netz ist („zuletzt gesehen“) – sehen darf sie, wer
+// bearbeiten darf: ohne Passwort für Änderungen alle, mit Passwort nur Entsperrte (und das
+// API-Token), unabhängig von der Privatsphäre-Einstellung.
 func (s *Server) foundVisible(r *http.Request) bool {
-	return s.conf().Privacy.OnlineStatus == config.StatusAll || s.privileged(r)
+	return s.unlocked(r)
 }
 
 // watchTTL: So lange darf, wer geweckt hat, den Start verfolgen (Wartezeit der Weckseite und
