@@ -1610,9 +1610,13 @@
   function connectEvents() {
     if (!window.EventSource) return;
     es = new EventSource("api/v1/events"); // verbindet sich bei Abbruch selbst neu
+    let opened = false;
     es.addEventListener("open", () => {
       if (!state.live) loadDevicesSoon(); // Verpasstes nachholen
-      state.live = true;
+      // Wieder verbunden: Der Server beendet entsperrte Verbindungen, wenn die Entsperrung endet –
+      // also auch neu fragen, was dieser Browser darf.
+      if (opened && !state.live) reloadInfo();
+      opened = state.live = true;
     });
     es.addEventListener("error", () => { state.live = false; });
     es.addEventListener("devices", loadDevicesSoon);

@@ -139,6 +139,9 @@ func (s *Server) unlock(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) lock(w http.ResponseWriter, r *http.Request) {
+	if !s.unlockUntil(r).IsZero() {
+		s.hub.dropPrivileged() // auch andere Fenster dieses Browsers bekommen den Status nicht mehr
+	}
 	s.setUnlockCookie(w, r, "", true)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "locked": s.store.HasPassword()})
 }
@@ -178,6 +181,7 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request) {
 		// Wer es eben gesetzt hat, bleibt entsperrt (der Schlüssel hängt am neuen Passwort).
 		s.setUnlockCookie(w, r, s.unlockToken(time.Now().Add(unlockIdle)), false)
 	}
+	s.hub.dropPrivileged()                // bisherige Entsperrungen gelten nicht mehr
 	s.hub.publish("settings", struct{}{}) // offene Fenster fragen neu, ob sie ändern dürfen
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "password": in.Password != ""})
 }

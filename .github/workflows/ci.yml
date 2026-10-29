@@ -1,11 +1,13 @@
 # Checks every push and pull request: formatting, vet, tests with the race detector, builds for all
-# supported platforms, browser tests (Playwright, axe-core) and the Docker image. Actions are
-# pinned to commits (version in the comment); every job only gets read access.
+# supported platforms, Windows tests, browser tests (Playwright, axe-core) and the Docker image.
+# release.yml runs the same checks (workflow_call) before it publishes anything. Actions are pinned
+# to commits (version in the comment); every job only gets read access.
 name: CI
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
 permissions:
   contents: read
 jobs:

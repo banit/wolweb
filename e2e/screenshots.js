@@ -3,7 +3,8 @@
 // Startet einen eigenen Testserver (server.sh) und legt erfundene Geräte an. Alles, was vom
 // echten Rechner käme – Online-Status, Suchtreffer, Schnittstellen, Verlauf –, wird in den
 // Antworten des Servers durch Beispieldaten ersetzt: nur 192.168.1.x / 10.0.0.x und lokal
-// verwaltete MACs (02:…), damit keine echten Adressen in die Bilder geraten.
+// verwaltete MACs (02:…), damit keine echten Adressen in die Bilder geraten. Der Server selbst
+// kennt die Geräte nur unter 127.0.0.x – so prüft er keine Adressen im echten Netz.
 const { chromium } = require("@playwright/test");
 const { spawn } = require("child_process");
 const path = require("path");
@@ -68,7 +69,7 @@ async function fake(page, ids) {
   await page.route("**/api/v1/events", (r) => r.abort()); // keine Live-Updates mit echten Werten
   await page.route("**/api/v1/devices", (r) => pass(r, (list) => list.map((v) => {
     const d = byName[v.name];
-    return d ? { ...v, status: status(d), check_ip: d.ip } : v;
+    return d ? { ...v, ip: d.ip, status: status(d), check_ip: d.ip } : v;
   })));
   await page.route(/\/api\/v1\/devices\/[^/]+\/status$/, (r) => {
     const id = r.request().url().split("/").slice(-2)[0];
@@ -118,14 +119,15 @@ async function shoot(browser, name, opts, run) {
 
 (async () => {
   const srv = startServer();
-  const browser = await chromium.launch({ args: ["--lang=de-DE"] }); // Uhrzeitfeld im 24-Stunden-Format
+  let browser;
   try {
+    browser = await chromium.launch({ args: ["--lang=de-DE"] }); // Uhrzeitfeld im 24-Stunden-Format
     const ctx = await browser.newContext();
     await waitUp(ctx.request);
     const ids = {};
     for (const [i, d] of DEVICES.entries()) {
       const res = await ctx.request.post(BASE + "api/v1/devices", { headers: H, data: {
-        name: d.name, mac: mac(i + 1), ip: d.ip, icon: d.icon, group: d.group || "", note: d.note || "", schedule: d.schedule || [], broadcast: "127.0.0.1:9" } });
+        name: d.name, mac: mac(i + 1), ip: "127.0.0." + (i + 10), icon: d.icon, group: d.group || "", note: d.note || "", schedule: d.schedule || [], broadcast: "127.0.0.1:9" } });
       ids[d.name] = (await res.json()).id;
     }
     await ctx.close();
@@ -177,7 +179,7 @@ async function shoot(browser, name, opts, run) {
       });
     }
   } finally {
-    await browser.close();
-    srv.kill();
+    if (browser) await browser.close();
+    srv.kill(); // SIGTERM: server.sh stoppt wolweb und löscht sein temporäres Verzeichnis
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });

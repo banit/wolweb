@@ -1,7 +1,8 @@
 # On a tag v* (e.g. "git tag v1.2.0 && git push --tags"): binaries for all platforms as a
-# GitHub release and a multi-arch image to ghcr.io/<owner>/wolweb – both only after the
-# checks have passed. Actions are pinned to commits (version in the comment), so a moved tag
-# cannot run anything other than what was reviewed.
+# GitHub release and a multi-arch image to ghcr.io/<owner>/wolweb – both only after all checks
+# of ci.yml (Go on Linux and Windows, browser tests, Docker build) have passed for this tag.
+# Actions are pinned to commits (version in the comment), so a moved tag cannot run anything
+# other than what was reviewed.
 name: Release
 on:
   push:
@@ -10,24 +11,9 @@ permissions:
   contents: read
 jobs:
   check:
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
-        with:
-          go-version-file: go.mod
-      - name: Formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then echo "Not formatted with gofmt:"; echo "$unformatted"; exit 1; fi
-      - run: go vet ./...
-      - run: GOOS=windows go vet ./...
-      - run: go test ./...
-      - run: go test -race ./...
   binaries:
     needs: check
     runs-on: ubuntu-latest

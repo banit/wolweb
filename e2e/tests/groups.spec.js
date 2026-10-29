@@ -140,3 +140,33 @@ test("Früherer Name einer anderen Gruppe nur mit Rückfrage", async ({ page, re
   await expect(page.locator("#group-dialog")).toBeHidden();
   await expect(rows(page)).toHaveText(["Office", "Büro"]);
 });
+
+test("Gruppendialog während des Speicherns schließen: gespeichert wird trotzdem, ein neuer Dialog bleibt offen", async ({ page }) => {
+  await page.goto("settings");
+  await expect(page.locator("#grp-empty")).toBeVisible();
+  // Antworten auf das Anlegen verzögern, damit der Dialog vorher geschlossen werden kann
+  await page.route("**/api/v1/groups", async (route) => {
+    if (route.request().method() === "POST") await new Promise((r) => setTimeout(r, 800));
+    await route.continue();
+  });
+  const d = page.locator("#group-dialog");
+  // 1. Schließen während der Anfrage: Meldung „angelegt“, kein Fehler
+  await page.click("#grp-add");
+  await d.locator('input[name="name"]').fill("Büro");
+  await page.click("#group-save");
+  await page.keyboard.press("Escape");
+  await expect(d).toBeHidden();
+  await expect(page.locator("#toasts")).toContainText("Gruppe „Büro“ angelegt");
+  await expect(rows(page)).toHaveText(["Büro"]);
+  // 2. Schließen und gleich neu öffnen: Die Antwort schließt den neuen Dialog nicht.
+  await page.click("#grp-add");
+  await d.locator('input[name="name"]').fill("Keller");
+  await page.click("#group-save");
+  await page.keyboard.press("Escape");
+  await page.click("#grp-add");
+  await expect(page.locator("#group-dialog-title")).toHaveText("Neue Gruppe");
+  await expect(page.locator("#toasts")).toContainText("Gruppe „Keller“ angelegt");
+  await expect(d).toBeVisible();
+  await expect(d.locator('input[name="name"]')).toHaveValue("");
+  await expect(page.locator("#group-error")).toBeHidden();
+});

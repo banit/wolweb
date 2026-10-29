@@ -917,18 +917,24 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 	if res.Added == 0 {
 		return res, nil
 	}
+	// Das Geheimnis der Sicherung (Gruppen-Wecklinks) zuerst: Scheitert das, ist noch nichts
+	// geändert; scheitert danach das Speichern der Geräte, ist die Installation weiter leer, und ein
+	// neuer Import holt beides nach. Andersherum blieben die Geräte ohne die alten Gruppenlinks, und
+	// ein zweiter Import stellte sie nie wieder her (die Installation wäre nicht mehr leer).
+	if sec, err := hex.DecodeString(exp.Secret); restore && err == nil && len(sec) >= 16 {
+		if exp.Secret != s.state.Secret {
+			old := s.state.Secret
+			s.state.Secret = exp.Secret
+			if err := s.saveState(); err != nil {
+				s.state.Secret = old
+				return ImportResult{}, err
+			}
+		}
+		res.SecretRestored = true
+	}
 	// Gruppen der Datei mit Reihenfolge und früheren Namen übernehmen, soweit es sie noch nicht gibt.
 	if err := s.commitGroups(next, syncGroups(next, mergeGroups(slices.Clone(s.groups), decodeGroups(b)))); err != nil {
 		return ImportResult{}, err
-	}
-	if sec, err := hex.DecodeString(exp.Secret); restore && err == nil && len(sec) >= 16 && exp.Secret != s.state.Secret {
-		old := s.state.Secret
-		s.state.Secret = exp.Secret
-		if err := s.saveState(); err != nil {
-			s.state.Secret = old
-			return res, err
-		}
-		res.SecretRestored = true
 	}
 	return res, nil
 }

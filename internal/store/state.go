@@ -13,6 +13,7 @@ import (
 	"slices"
 	"time"
 
+	"wolweb/internal/atomicfile"
 	"wolweb/internal/i18n"
 )
 
@@ -257,6 +258,7 @@ func (s *Store) RunFlush(ctx context.Context) {
 			}
 			s.mu.Unlock()
 			_ = s.FlushState()
+			_ = s.pruneBackups(time.Now())
 		}
 	}
 }
@@ -265,19 +267,22 @@ func (s *Store) RunFlush(ctx context.Context) {
 //
 // Diese Daten sind personenbezogen (wer wann geweckt hat, wann ein Arbeitsplatz lief). Sie lassen
 // sich abschalten und verfallen nach einer einstellbaren Zahl von Tagen (privacy.recording,
-// privacy.retention_days). Die Abfragen blenden Abgelaufenes sofort aus; aus state.json gelöscht
-// wird es beim Einstellen und danach alle fünf Minuten (RunFlush).
+// privacy.retention_days). Die Abfragen blenden Abgelaufenes sofort aus; aus state.json – und aus
+// den Kopien davon in den Sicherungen beim Update (backup-*/) – gelöscht wird es beim Einstellen und
+// danach alle fünf Minuten (RunFlush).
 
 // SetRecording legt fest, ob aufgezeichnet wird und wie lange (keep, 0 = ohne Zeitgrenze).
-// Ausgeschaltet oder abgelaufen wird sofort gelöscht und gespeichert.
+// Ausgeschaltet oder abgelaufen wird sofort gelöscht und gespeichert, auch in den Sicherungen.
 func (s *Store) SetRecording(on bool, keep time.Duration) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.noRecord, s.keep = !on, keep
-	if !s.pruneLocked(time.Now()) {
-		return nil
+	var err error
+	if s.pruneLocked(time.Now()) {
+		s.stateDirty = true // scheitert das Schreiben, holt FlushState es nach
+		err = s.saveState()
 	}
-	return s.saveState()
+	s.mu.Unlock()
+	return errors.Join(err, s.pruneBackups(time.Now()))
 }
 
 // kept: t, solange es aufbewahrt wird, sonst Null. Unter s.mu (Lesesperre genügt).
@@ -291,20 +296,52 @@ func (s *Store) kept(t time.Time) time.Time {
 // pruneLocked löscht, was nicht (mehr) aufbewahrt wird, und meldet, ob sich etwas änderte. Unter
 // s.mu (Schreibsperre).
 func (s *Store) pruneLocked(now time.Time) bool {
-	n := len(s.state.History) + len(s.state.LastWake) + len(s.state.LastSeen)
-	if s.noRecord {
-		s.state.History = nil
-		clear(s.state.LastWake)
-		clear(s.state.LastSeen)
+	return s.state.prune(s.noRecord, s.keep, now)
+}
+
+// prune wendet Aufzeichnung (noRecord) und Aufbewahrung (keep, 0 = ohne Zeitgrenze) auf einen Stand
+// an und meldet, ob sich etwas änderte.
+func (st *stateFile) prune(noRecord bool, keep time.Duration, now time.Time) bool {
+	n := len(st.History) + len(st.LastWake) + len(st.LastSeen)
+	if noRecord {
+		st.History = nil
+		clear(st.LastWake)
+		clear(st.LastSeen)
 		return n > 0
 	}
-	if s.keep <= 0 {
+	if keep <= 0 {
 		return false
 	}
-	cut := now.Add(-s.keep)
+	cut := now.Add(-keep)
 	old := func(t time.Time) bool { return t.Before(cut) }
-	s.state.History = slices.DeleteFunc(s.state.History, func(ev Event) bool { return old(ev.Time) })
-	maps.DeleteFunc(s.state.LastWake, func(_ string, t time.Time) bool { return old(t) })
-	maps.DeleteFunc(s.state.LastSeen, func(_ string, t time.Time) bool { return old(t) })
-	return len(s.state.History)+len(s.state.LastWake)+len(s.state.LastSeen) != n
+	st.History = slices.DeleteFunc(st.History, func(ev Event) bool { return old(ev.Time) })
+	maps.DeleteFunc(st.LastWake, func(_ string, t time.Time) bool { return old(t) })
+	maps.DeleteFunc(st.LastSeen, func(_ string, t time.Time) bool { return old(t) })
+	return len(st.History)+len(st.LastWake)+len(st.LastSeen) != n
+}
+
+// pruneBackups wendet dieselben Regeln auf state.json in den Sicherungen beim Update an. Die
+// Geräteliste, Einstellungen und Suchtreffer darin bleiben, wie sie beim Update waren.
+func (s *Store) pruneBackups(now time.Time) error {
+	s.mu.RLock()
+	noRecord, keep := s.noRecord, s.keep
+	s.mu.RUnlock()
+	paths, _ := filepath.Glob(filepath.Join(s.dir, "backup-*", "state.json"))
+	var errs []error
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		var st stateFile
+		if err := json.Unmarshal(b, &st); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", p, err))
+			continue
+		}
+		if st.prune(noRecord, keep, now) {
+			errs = append(errs, atomicfile.WriteJSON(p, st, 0o600))
+		}
+	}
+	return errors.Join(errs...)
 }

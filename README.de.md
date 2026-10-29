@@ -264,7 +264,10 @@ Geräte und Einstellungen werden beim ersten Start automatisch übernommen.
 (SecureOn, Weckschlüssel, Gruppen, Zeitpläne, eigene Ports, Verlauf). Zurück geht es so: wolweb stoppen, die
 Dateien aus dem Sicherungsordner nach `data/` kopieren, Dateien, die in der Sicherung fehlen (bei 1.0.x
 `state.json` und `settings.json`), aus `data/` löschen, dann die alte Version starten. Was seit dem Update
-geändert wurde, fehlt danach.
+geändert wurde, fehlt danach. Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ in der `state.json` der Sicherung
+folgen ebenfalls den Einstellungen zur [Privatsphäre](#privatsphäre): wolweb löscht sie dort nach der
+Aufbewahrungsdauer bzw. sofort, wenn die Aufzeichnung aus ist. Geräte, Einstellungen und Suchtreffer bleiben in der
+Sicherung, wie sie beim Update waren – alte Sicherungsordner löschen, sobald du sie nicht mehr brauchst.
 
 **Was sich mit 1.3 ändert – und ob du etwas tun musst:**
 
@@ -700,10 +703,13 @@ Herstellerliste aktualisieren: `sh tools/gen-oui.sh`. Code-Kommentare sind über
 ebenso; Issues und Pull Requests auf Englisch sind willkommen.
 
 Browsertests (Playwright mit Chromium, braucht Go und Node.js) liegen in `e2e/`. Sie bauen wolweb selbst, starten
-es mit leerem Datenverzeichnis auf Port 8399 (Pakete gehen nur an 127.0.0.1) und prüfen Übersicht, Gerätedialog,
+es mit leerem Datenverzeichnis auf Port 8399 und prüfen Übersicht, Gerätedialog,
 Suche und Filter, Sprache, einfache Ansicht, Sortieren, Gruppen, das Passwort für Änderungen, die Privatsphäre, die
 Einstellungsseite, Weck- und Gruppenseite mit allen Ausgängen samt automatischer Wiederholung sowie die
-Barrierefreiheit:
+Barrierefreiheit. Vom echten Netz bleibt der Testserver getrennt: Weckrufe gehen an 127.0.0.1, die automatische
+Netzwerksuche ist aus, und die erfundenen Suchtreffer liegen auf 127.0.0.x. Nur das „offline“-Testgerät wird im
+Dokumentationsnetz 198.51.100.0/24 geprüft – dort gibt es kein echtes Gerät, und eine Adresse auf dem Rechner selbst
+antwortete immer:
 
 ```sh
 cd e2e

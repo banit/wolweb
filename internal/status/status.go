@@ -157,18 +157,25 @@ func (m *Monitor) Check(ctx context.Context, d store.Device) State {
 			st.Note = i18n.T(i18n.EN, "notify.conflict", ip.String(), st.Conflict)
 		} else {
 			st.State, st.Method, st.RTTMillis = "online", r.Method, r.RTT.Milliseconds()
-			m.store.SeenAt(d.ID, st.CheckedAt)
 		}
+	}
+	// Nur übernehmen, wenn das Gerät inzwischen nicht geändert wurde (sonst überschreibt eine
+	// langsame Prüfung der alten IP das Ergebnis der neuen) – auch „zuletzt online“: Eine späte
+	// Antwort der alten IP zählt nicht für das geänderte Gerät.
+	cur, ok := m.store.Get(d.ID)
+	current := false
+	if ok && ctx.Err() == nil {
+		curIP, _ := m.Target(cur)
+		current = curIP == ip
+	}
+	if current && st.State == "online" {
+		m.store.SeenAt(d.ID, st.CheckedAt)
 	}
 	// „Zuletzt online“ kommt aus dem Speicher: Ist die Aufzeichnung aus oder der Zeitpunkt älter
 	// als die Aufbewahrung, bleibt es leer.
 	st.LastSeen = m.store.LastSeen(d.ID)
-	// Nur speichern, wenn das Gerät inzwischen nicht geändert wurde (sonst überschreibt eine
-	// langsame Prüfung der alten IP das Ergebnis der neuen).
-	if cur, ok := m.store.Get(d.ID); ctx.Err() == nil && ok {
-		if curIP, _ := m.Target(cur); curIP == ip {
-			m.set(cur, st)
-		}
+	if current {
+		m.set(cur, st)
 	}
 	return st
 }
