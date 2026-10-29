@@ -3,10 +3,13 @@ package web
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -250,6 +253,24 @@ func TestAccents(t *testing.T) {
 			}
 		}
 	}
+	// Kontrast nach WCAG AA (4,5:1) mit jeder Akzentfarbe: Schrift auf Knöpfen (--accent-contrast) und
+	// die Farbe als Schrift auf Hintergrund und Flächen, hell und dunkel (Werte wie in app.css).
+	tokens := regexp.MustCompile(`\[data-accent="(\w+)"\] \{ --a-l: (#\w{6}); --a-lh: (#\w{6}); --a-d: (#\w{6}); --a-dh: (#\w{6}); \}`)
+	found := tokens.FindAllStringSubmatch(string(css), -1)
+	if len(found) != len(config.Accents) {
+		t.Errorf("app.css: %d Akzentfarben erkannt, erwartet %d", len(found), len(config.Accents))
+	}
+	for _, m := range found {
+		l, lh, d, dh := m[2], m[3], m[4], m[5]
+		for _, p := range [][2]string{
+			{"#ffffff", l}, {"#ffffff", lh}, {l, "#f4f5f8"}, // hell: Knopfschrift, Text auf --bg/--surface
+			{"#0c0f14", d}, {"#0c0f14", dh}, {d, "#151a22"}, // dunkel: Knopfschrift, Text auf --surface/--bg
+		} {
+			if c := contrast(p[0], p[1]); c < 4.5 {
+				t.Errorf("%s: Kontrast %s auf %s nur %.2f:1", m[1], p[0], p[1], c)
+			}
+		}
+	}
 	_, h, _ := settingsServer(t, `{"accent": "teal"}`)
 	for _, path := range []string{"/", "/settings", "/wake/gibtsnicht?format=html"} {
 		body := call(h, "GET", path, "").Body.String()
@@ -260,4 +281,23 @@ func TestAccents(t *testing.T) {
 	if rec := call(h, "PUT", "/api/v1/settings", `{"accent":"neon"}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), `"field":"accent"`) {
 		t.Errorf("ungültige Farbe: %d %s", rec.Code, rec.Body)
 	}
+}
+
+// contrast: Kontrastverhältnis zweier Farben (#rrggbb) nach WCAG.
+func contrast(a, b string) float64 {
+	lum := func(hex string) float64 {
+		var c [3]float64
+		for i := range c {
+			v, _ := strconv.ParseUint(hex[1+2*i:3+2*i], 16, 8)
+			x := float64(v) / 255
+			if x <= 0.03928 {
+				c[i] = x / 12.92
+			} else {
+				c[i] = math.Pow((x+0.055)/1.055, 2.4)
+			}
+		}
+		return 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
+	}
+	x, y := lum(a), lum(b)
+	return (math.Max(x, y) + 0.05) / (math.Min(x, y) + 0.05)
 }
