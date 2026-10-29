@@ -395,17 +395,18 @@ type deviceView struct {
 	NextWake   *time.Time    `json:"next_wake,omitempty"` // nächste Weckzeit laut Zeitplan
 }
 
-// view baut die Ansicht eines Geräts; ohne showStatus fehlt der Online-Status (Privatsphäre).
-func (s *Server) view(d store.Device, showStatus bool) deviceView {
+// view baut die Ansicht eines Geräts; was vis ausblendet (Online-Status, letzter Weckruf), fehlt
+// (Privatsphäre).
+func (s *Server) view(d store.Device, vis visibility) deviceView {
 	v := deviceView{Device: d, WakeTarget: s.wakeTarget(d), WakePath: "wake/" + pathEscape(d.Name)}
 	if ip, _ := s.monitor.Target(d); ip.IsValid() {
 		v.CheckIP = ip.String()
 	}
-	if t := s.store.LastWake(d.ID); !t.IsZero() {
+	if t := s.store.LastWake(d.ID); !t.IsZero() && vis.wakes {
 		v.LastWake = &t
 	}
 	v.NextWake = nextWake(d)
-	if st, ok := s.monitor.Get(d.ID); ok && showStatus {
+	if st, ok := s.monitor.Get(d.ID); ok && vis.status {
 		v.Status = &st
 	}
 	return v
@@ -451,10 +452,10 @@ func (s *Server) defaultBroadcast() string {
 
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	devices, _ := s.store.Devices()
-	show := s.statusVisible(r)
+	vis := s.visibility(r)
 	out := make([]deviceView, 0, len(devices))
 	for _, d := range devices {
-		out = append(out, s.view(d, show))
+		out = append(out, s.view(d, vis))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -473,7 +474,7 @@ func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Device added: %s (%s)", d.Name, d.MAC)
 	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
-	writeJSON(w, http.StatusCreated, s.view(d, s.statusVisible(r)))
+	writeJSON(w, http.StatusCreated, s.view(d, s.visibility(r)))
 }
 
 func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
@@ -493,7 +494,7 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Device changed: %s (%s)", d.Name, d.MAC)
 	s.devicesChanged()
 	go s.monitor.Check(context.Background(), d)
-	writeJSON(w, http.StatusOK, s.view(d, s.statusVisible(r)))
+	writeJSON(w, http.StatusOK, s.view(d, s.visibility(r)))
 }
 
 // setGroup ordnet mehrere Geräte auf einmal einer Gruppe zu (Mehrfachauswahl in der Übersicht);
@@ -523,9 +524,9 @@ func (s *Server) setGroup(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Group %q set for %d devices", group, len(devs))
 	s.devicesChanged()
 	out := make([]deviceView, 0, len(devs))
-	show := s.statusVisible(r)
+	vis := s.visibility(r)
 	for _, d := range devs {
-		out = append(out, s.view(d, show))
+		out = append(out, s.view(d, vis))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"group": group, "devices": out})
 }
@@ -548,7 +549,7 @@ func (s *Server) rotateWakeKey(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("New wake key for %s", d.Name)
 	s.devicesChanged()
-	writeJSON(w, http.StatusOK, s.view(d, s.statusVisible(r)))
+	writeJSON(w, http.StatusOK, s.view(d, s.visibility(r)))
 }
 
 func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
@@ -558,7 +559,7 @@ func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
-		s.statusHidden(w, r)
+		s.hidden(w, r, "err.status_hidden")
 		return
 	}
 	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
@@ -779,9 +780,9 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, to, http.StatusTemporaryRedirect) // nicht dauerhaft: der Name kann neu vergeben werden
 			return
 		}
-		show := s.statusVisible(r)
-		v := s.view(d, show)
-		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !show}
+		vis := s.visibility(r)
+		v := s.view(d, vis)
+		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status}
 		if s.needsKey(r) {
 			pd.Key = d.WakeKey
 		}
@@ -846,7 +847,7 @@ func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
-		s.statusHidden(w, r)
+		s.hidden(w, r, "err.status_hidden")
 		return
 	}
 	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
@@ -859,8 +860,13 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > store.HistoryMax {
 		limit = 200
 	}
+	vis := s.visibility(r)
+	if !vis.wakes {
+		s.hidden(w, r, "err.history_hidden")
+		return
+	}
 	events := s.store.History(limit)
-	show := s.statusVisible(r)
+	show := vis.status
 	for i := range events {
 		events[i] = events[i].Localized(s.lang(r))
 		if !show { // ob und wann ein Gerät lief, gehört zum Online-Status
@@ -904,6 +910,7 @@ func (s *Server) importDevices(w http.ResponseWriter, r *http.Request) {
 // --- Suche ---
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
+	vis := s.visibility(r)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":           s.version,
 		"read_only":         s.conf().ReadOnly,
@@ -922,9 +929,10 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"wake_retry":        int(s.rt().wakeRetry.Seconds()),
 		"ports":             s.conf().Status.Ports,
 		"wake_keys":         s.conf().Auth.WakeKeys && s.conf().AuthEnabled(),
-		"timezone":          localZone(),         // Zeitpläne laufen in der Ortszeit des Servers
-		"status_hidden":     !s.statusVisible(r), // Privatsphäre: kein Online-Status für diese Anfrage
-		"found_hidden":      !s.foundVisible(r),  // … und keine Suchtreffer
+		"timezone":          localZone(),        // Zeitpläne laufen in der Ortszeit des Servers
+		"status_hidden":     !vis.status,        // Privatsphäre: kein Online-Status für diese Anfrage
+		"history_hidden":    !vis.wakes,         // … kein „Zuletzt geweckt“ und kein Verlauf
+		"found_hidden":      !s.foundVisible(r), // … und keine Suchtreffer
 		"accent":            s.conf().Accent,
 		"theme_color":       config.AccentColor(s.conf().Accent),
 		"password":          s.store.HasPassword(), // Bearbeitungsschutz eingerichtet

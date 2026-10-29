@@ -78,7 +78,8 @@ Metriken und die API – steht weiter unten.
 - **Einstellungsseite** mit Übersicht der Netze und VLANs (an welchen wolweb hängt, Geräte je Netz) und 17
   Akzentfarben; Änderungen gelten ohne Neustart
 - **Passwort für Änderungen** (optional, ohne Benutzername): Ansehen und Wecken kann jeder im Netz, Ändern erst nach
-  dem Entsperren; **Privatsphäre**: Online-Status für alle, erst nach dem Entsperren oder für niemanden
+  dem Entsperren; **Privatsphäre**: Online-Status – und getrennt davon, wann geweckt wurde – für alle, erst nach dem
+  Entsperren oder für niemanden
 - **Gruppen** („Homelab“, „Büro“), verwaltet in der Übersicht oder auf der Einstellungsseite, gemeinsam wecken, auch
   per festem Gruppen-Wecklink; **Zeitpläne** wie `Mo-Fr 07:30` wecken Geräte automatisch
 - **Benachrichtigungen** per Webhook (JSON) oder ntfy aufs Handy, wenn ein Gerät online/offline geht oder
@@ -277,7 +278,8 @@ geändert wurde, fehlt danach.
   Gerät). `GET /api/v1/groups` nennt auch leere Gruppen, in ihrer Reihenfolge. Eine ältere Version verwirft
   `groups` und `order` beim Speichern – die Sicherung (siehe oben) enthält den Stand vor dem Update.
 - *Akzentfarbe* (neu): Standard `indigo` wie bisher.
-- *Privatsphäre* (neu): `privacy.online_status` blendet den Online-Status aus; Standard `all` wie bisher.
+- *Privatsphäre* (neu): `privacy.online_status` blendet den Online-Status aus, `privacy.wake_history`, wann Geräte
+  geweckt wurden; Standard jeweils `all` wie bisher.
 
 **Was sich mit 1.2 ändert – und ob du etwas tun musst:**
 
@@ -312,7 +314,8 @@ geändert wurde, fehlt danach.
 
 Das Zahnrad oben rechts öffnet die Einstellungsseite (`/settings`). Dort lassen sich die Netze und VLANs,
 Netzwerksuche, Online-Prüfung, Wartezeiten, Benachrichtigungen (mit „Testnachricht senden“), öffentliche Wecklinks,
-erlaubte Hostnamen, wer den Online-Status sieht ([Privatsphäre](#privatsphäre)), die Standardsprache und die
+erlaubte Hostnamen, wer den Online-Status sieht und wann geweckt wurde ([Privatsphäre](#privatsphäre)), die
+Standardsprache und die
 Akzentfarbe ändern (17 Farben, jeweils hell und dunkel). Änderungen gelten sofort, ohne Neustart. Gruppen und das
 Passwort für Änderungen haben dort eigene Bereiche, die sofort speichern.
 
@@ -384,6 +387,14 @@ ohne zu wecken. Auch die Suchtreffer verraten, wer im Netz ist; mit Passwort fü
 Entsperrte, egal wie eingestellt. Geprüft wird im Hintergrund weiter, für die automatische Wiederholung und die
 Benachrichtigungen (deren Ereignisse wählst du getrennt). Die Anmeldung per HTTP Basic zählt
 nicht als entsperrt, wie beim Passwort für Änderungen.
+
+**„Zuletzt geweckt“ und Verlauf** (`privacy.wake_history`): eine eigene Auswahl unter dem Online-Status, mit denselben
+drei Stufen und `all` als Standard – solange du nichts anderes wählst, ändert sich nichts. Sie blendet aus, wann
+Geräte geweckt wurden: „geweckt vor …“ auf den Karten, den Knopf „Verlauf“ (`/api/v1/history` antwortet 403 mit
+`"hidden": true`), `last_wake` in der API und die Kennzahlen `wolweb_device_last_wake_timestamp_seconds` und
+`wolweb_wakes_total`. Bei `unlocked` sehen entsperrte Browser und das API-Token alles weiter. Das Wecken bleibt
+unberührt: Wer ein Gerät weckt, verfolgt seinen Weckruf wie gewohnt, und der Verlauf wird weiter aufgezeichnet –
+stellst du zurück, ist er wieder zu sehen.
 
 ## Mehrere Netze und VLANs
 
@@ -508,6 +519,7 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `notify.ntfy` | `WOLWEB_NTFY` | – | ntfy-Thema, z. B. `https://ntfy.sh/mein-geheimes-thema` |
 | `notify.events` | `WOLWEB_NOTIFY_EVENTS` | alle | Auswahl aus `online`, `offline`, `wake`, `wake_failed` |
 | `privacy.online_status` | `WOLWEB_ONLINE_STATUS` | `all` | wer sieht, ob Geräte laufen: `all`, `unlocked` (nur nach dem Entsperren) oder `none` (siehe [Privatsphäre](#privatsphäre)) |
+| `privacy.wake_history` | `WOLWEB_WAKE_HISTORY` | `all` | wer sieht, wann Geräte geweckt wurden („geweckt vor …“, Verlauf): `all`, `unlocked` oder `none` |
 
 `devices.json` enthält nur, was man selbst einträgt; was wolweb beobachtet (zuletzt geweckt, zuletzt online, die
 letzten 500 Weckversuche) steht in `state.json`. Der Export unten auf der Seite sichert die Geräte samt
@@ -551,7 +563,8 @@ wer die Einstellungsseite benutzen darf.
 `wolweb_discovery_found` …). Mit Anmeldung braucht auch der Abruf sie – in Prometheus
 `authorization: {credentials: <api_token>}`. Ist der Online-Status ausgeblendet ([Privatsphäre](#privatsphäre)),
 bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_seen_timestamp_seconds` leer – bei
-`unlocked` bringt das Token sie zurück.
+`unlocked` bringt das Token sie zurück. `privacy.wake_history` macht dasselbe mit
+`wolweb_device_last_wake_timestamp_seconds` und `wolweb_wakes_total`.
 
 ## Sicherheit
 
@@ -559,8 +572,8 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
   für Automationen.
 - **Passwort für Änderungen**: Ansehen und Wecken bleiben frei, Ändern erst nach dem Entsperren – siehe
   [Passwort für Änderungen](#passwort-für-änderungen).
-- **Online-Status**: Wer sieht, ob Geräte laufen – alle, nur nach dem Entsperren oder niemand –, siehe
-  [Privatsphäre](#privatsphäre).
+- **Online-Status und Weckverlauf**: Wer sieht, ob Geräte laufen und wann sie geweckt wurden – alle, nur nach dem
+  Entsperren oder niemand –, siehe [Privatsphäre](#privatsphäre).
 - **Öffentliche Wecklinks** (`auth.public_wake`): Mit Anmeldung bleiben `/wake/<Name>` und die Weckseite ohne Login
   erreichbar. Damit niemand Geräte über erratene Namen weckt, verlangt `auth.wake_keys` zusätzlich einen Schlüssel
   je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern.
@@ -623,7 +636,8 @@ fehlt er, kommt 403 mit einer Meldung für Menschen und dem technischen Grund in
 [Passwort für Änderungen](#passwort-für-änderungen) bekommen ändernde Aufrufe ohne Entsperrung oder Token 403 mit
 `"locked": true`. Ist der Online-Status ausgeblendet ([Privatsphäre](#privatsphäre)), kommen Listen und Ereignisse
 ohne Status, `…/status` antwortet 403 mit `"hidden": true`, und die Antwort auf einen Weckaufruf trägt den
-`watch`-Schlüssel, mit dem sich der Start verfolgen lässt.
+`watch`-Schlüssel, mit dem sich der Start verfolgen lässt. Mit `privacy.wake_history` fehlt `last_wake`, und
+`/api/v1/history` antwortet ebenfalls 403 mit `"hidden": true`.
 
 | Methode | Pfad | |
 |---|---|---|

@@ -193,6 +193,24 @@ ip link set eth0.20 up</code></pre>
           </label>
         </div>
       </fieldset>
+      <fieldset class="checks" data-key="privacy.wake_history">
+        <legend>{{.T "set.privacy.wakes"}}</legend>
+        <div class="radio-list">
+          <label class="check">
+            <input type="radio" name="privacy.wake_history" value="all" aria-describedby="hint-wakes-all">
+            <span>{{.T "set.privacy.all"}}<small class="muted" id="hint-wakes-all">{{.T "set.privacy.wakes_all_hint"}}</small></span>
+          </label>
+          <label class="check">
+            <input type="radio" name="privacy.wake_history" value="unlocked" aria-describedby="hint-wakes-unlocked">
+            <span>{{.T "set.privacy.unlocked"}}<small class="muted" id="hint-wakes-unlocked">{{.T "set.privacy.wakes_unlocked_hint"}}</small>
+              <small class="warn-note" id="wakes-no-pw" hidden>{{.T "set.privacy.wakes_no_pw"}}</small></span>
+          </label>
+          <label class="check">
+            <input type="radio" name="privacy.wake_history" value="none" aria-describedby="hint-wakes-none">
+            <span>{{.T "set.privacy.none"}}<small class="muted" id="hint-wakes-none">{{.T "set.privacy.wakes_none_hint"}}</small></span>
+          </label>
+        </div>
+      </fieldset>
     </section>
 
     <!-- Allgemein -->

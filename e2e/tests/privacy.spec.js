@@ -1,7 +1,7 @@
-// Privatsphäre: Online-Status nur nach dem Entsperren oder für niemanden – Übersicht, Weckseite,
-// Einstellungsseite.
+// Privatsphäre: Online-Status bzw. „Zuletzt geweckt“ und Verlauf nur nach dem Entsperren oder für
+// niemanden – Übersicht, Weckseite, Einstellungsseite.
 const { test, expect } = require("@playwright/test");
-const { PASSWORD, reset, onlineDevice } = require("./helpers");
+const { HEADERS, PASSWORD, reset, onlineDevice, offlineDevice } = require("./helpers");
 
 test.beforeEach(async ({ request }) => {
   await reset(request);
@@ -10,10 +10,15 @@ test.afterAll(async ({ request }) => {
   await reset(request);
 });
 
+// Beide Auswahlen der Privatsphäre haben dieselben Beschriftungen – gefunden wird über die Gruppe.
+const STATUS = "Online-Status in der Übersicht";
+const WAKES = "„Zuletzt geweckt“ und Verlauf";
+const radio = (page, label, group = STATUS) => page.getByRole("group", { name: group }).getByRole("radio", { name: label });
+
 // choose stellt die Privatsphäre auf der Einstellungsseite ein (page muss sie sehen dürfen).
-async function choose(page, label) {
+async function choose(page, label, group) {
   await page.goto("settings");
-  await page.getByRole("radio", { name: label }).check();
+  await radio(page, label, group).check();
   await page.click("#set-save");
   await expect(page.locator("#toasts")).toContainText("Gespeichert");
 }
@@ -97,9 +102,48 @@ test("Für niemanden: auch Entsperrte sehen keinen Status", async ({ page, reque
 
 test("Ohne Passwort weist die Seite darauf hin, dass dann niemand den Status sieht", async ({ page }) => {
   await page.goto("settings");
-  await page.getByRole("radio", { name: "Nur nach dem Entsperren anzeigen" }).check();
+  await radio(page, "Nur nach dem Entsperren anzeigen").check();
   await expect(page.locator("#privacy-no-pw")).toBeVisible();
-  await expect(page.getByRole("radio", { name: "Nur nach dem Entsperren anzeigen" })).toHaveAttribute("aria-describedby", /privacy-no-pw/);
-  await page.getByRole("radio", { name: "Für alle anzeigen (Standard)" }).check();
+  await expect(radio(page, "Nur nach dem Entsperren anzeigen")).toHaveAttribute("aria-describedby", /privacy-no-pw/);
+  await expect(page.locator("#wakes-no-pw")).toBeHidden(); // die andere Auswahl steht noch auf „für alle“
+  await radio(page, "Für alle anzeigen (Standard)").check();
   await expect(page.locator("#privacy-no-pw")).toBeHidden();
+  await radio(page, "Nur nach dem Entsperren anzeigen", WAKES).check();
+  await expect(page.locator("#wakes-no-pw")).toBeVisible();
+  await expect(radio(page, "Nur nach dem Entsperren anzeigen", WAKES)).toHaveAttribute("aria-describedby", /wakes-no-pw/);
+});
+
+test("„Zuletzt geweckt“ und Verlauf: eigene Auswahl, nur nach dem Entsperren", async ({ page, browser, request }) => {
+  const d = await offlineDevice(request, "PC");
+  await setPassword(page);
+  // Standard: für alle – der Online-Status bleibt davon unberührt.
+  await expect(radio(page, "Für alle anzeigen (Standard)", WAKES)).toBeChecked();
+  await choose(page, "Nur nach dem Entsperren anzeigen", WAKES);
+  await expect(radio(page, "Für alle anzeigen (Standard)")).toBeChecked();
+  expect((await request.post("api/v1/devices/" + d.id + "/wake", { headers: HEADERS })).ok()).toBeTruthy();
+
+  // Entsperrt: „geweckt vor …“ auf der Karte und der Verlauf
+  await page.goto("./");
+  await expect(card(page, "PC")).toContainText("geweckt");
+  await expect(page.locator("#open-history")).toBeVisible();
+
+  const guest = await (await browser.newContext({ locale: "de-DE" })).newPage();
+  await guest.goto("./");
+  const c = card(guest, "PC");
+  await expect(c.locator(".pill.offline")).toBeVisible({ timeout: 15000 }); // Status bleibt sichtbar
+  await expect(c).not.toContainText("geweckt");
+  await expect(guest.locator("#open-history")).toBeHidden();
+  const hist = await guest.request.get("api/v1/history");
+  expect(hist.status()).toBe(403);
+  expect((await hist.json()).hidden).toBe(true);
+  expect((await (await guest.request.get("api/v1/devices")).json())[0].last_wake).toBeUndefined();
+
+  // Entsperren zeigt beides.
+  await guest.click("#lock-toggle");
+  await guest.locator("#unlock-password").fill(PASSWORD);
+  await guest.keyboard.press("Enter");
+  await expect(c).toContainText("geweckt");
+  await guest.click("#open-history");
+  await expect(guest.locator("#history-list li").first()).toContainText("PC");
+  await guest.context().close();
 });

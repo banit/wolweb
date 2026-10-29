@@ -7,7 +7,8 @@
   "language": "en",
   "accent": "indigo",
   "privacy": {
-    "online_status": "all"
+    "online_status": "all",
+    "wake_history": "all"
   },
   "data_dir": "data",
   "discovery": {

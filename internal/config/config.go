@@ -137,9 +137,13 @@ type Privacy struct {
 	// für Änderungen entsperrt hat oder das API-Token nutzt) oder "none" (niemand). Geprüft wird
 	// immer (Wiederholung, Benachrichtigungen); es geht nur um die Anzeige.
 	OnlineStatus string `json:"online_status"`
+	// WakeHistory: wer sieht, wann Geräte geweckt wurden – „Zuletzt geweckt“ auf den Karten, den
+	// Verlauf und die Metriken dazu; dieselben Werte wie OnlineStatus. Aufgezeichnet wird der
+	// Verlauf immer.
+	WakeHistory string `json:"wake_history"`
 }
 
-// Werte für Privacy.OnlineStatus.
+// Werte für Privacy.OnlineStatus und Privacy.WakeHistory.
 const (
 	StatusAll      = "all"
 	StatusUnlocked = "unlocked"
@@ -166,7 +170,7 @@ func Default() Config {
 		DataDir:  "data",
 		Language: "en",
 		Accent:   DefaultAccent,
-		Privacy:  Privacy{OnlineStatus: StatusAll},
+		Privacy:  Privacy{OnlineStatus: StatusAll, WakeHistory: StatusAll},
 		Discovery: Discovery{
 			Interval: "30m",
 			MaxHosts: 1024,
@@ -228,6 +232,7 @@ var envKeys = []struct {
 	{"notify.ntfy", []string{"WOLWEB_NTFY"}},
 	{"notify.events", []string{"WOLWEB_NOTIFY_EVENTS"}},
 	{"privacy.online_status", []string{"WOLWEB_ONLINE_STATUS"}},
+	{"privacy.wake_history", []string{"WOLWEB_WAKE_HISTORY"}},
 	{"allowed_hosts", []string{"WOLWEB_ALLOWED_HOSTS"}},
 }
 
@@ -258,7 +263,7 @@ func setEnv(c *Config, key, v string) bool {
 		"status.wake_timeout": &c.Status.WakeTimeout, "status.wake_retry": &c.Status.WakeRetry,
 		"auth.username": &c.Auth.Username, "auth.password": &c.Auth.Password, "auth.api_token": &c.Auth.APIToken,
 		"notify.webhook": &c.Notify.Webhook, "notify.ntfy": &c.Notify.Ntfy,
-		"privacy.online_status": &c.Privacy.OnlineStatus,
+		"privacy.online_status": &c.Privacy.OnlineStatus, "privacy.wake_history": &c.Privacy.WakeHistory,
 	}
 	boolean := map[string]*bool{"read_only": &c.ReadOnly, "auth.public_wake": &c.Auth.PublicWake, "auth.wake_keys": &c.Auth.WakeKeys}
 	if p, ok := str[key]; ok {
@@ -333,12 +338,20 @@ func (c *Config) normalize() error {
 	} else {
 		c.Language = string(i18n.EN)
 	}
-	switch c.Privacy.OnlineStatus = strings.ToLower(strings.TrimSpace(c.Privacy.OnlineStatus)); c.Privacy.OnlineStatus {
-	case "":
-		c.Privacy.OnlineStatus = StatusAll
-	case StatusAll, StatusUnlocked, StatusNone:
-	default:
-		return invalid("privacy.online_status", "cfg.online_status", c.Privacy.OnlineStatus)
+	for _, p := range []struct {
+		key, msg string
+		v        *string
+	}{
+		{"privacy.online_status", "cfg.online_status", &c.Privacy.OnlineStatus},
+		{"privacy.wake_history", "cfg.wake_history", &c.Privacy.WakeHistory},
+	} {
+		switch *p.v = strings.ToLower(strings.TrimSpace(*p.v)); *p.v {
+		case "":
+			*p.v = StatusAll
+		case StatusAll, StatusUnlocked, StatusNone:
+		default:
+			return invalid(p.key, p.msg, *p.v)
+		}
 	}
 	c.Accent = strings.ToLower(strings.TrimSpace(c.Accent))
 	if c.Accent == "" {

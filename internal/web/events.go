@@ -170,7 +170,7 @@ func (s *Server) statusChanged(d store.Device, old status.State, hadOld bool, st
 	// nur an Verbindungen, die den Online-Status sehen dürfen (Einstellung zum Zeitpunkt des Ereignisses)
 	data := map[string]any{"id": d.ID, "status": st}
 	s.hub.publishTo("status", func(i18n.Lang) any { return data }, func(sub subscriber) bool {
-		return statusShown(s.conf().Privacy.OnlineStatus, sub.privileged)
+		return shownTo(s.conf().Privacy.OnlineStatus, sub.privileged)
 	})
 	// Erreichbar geworden: offene Weckrufe im Verlauf gelten als „Start bestätigt“ – auch wenn der
 	// Start länger dauerte als die Wartezeit der Weckseite.
