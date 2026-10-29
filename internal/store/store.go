@@ -65,8 +65,8 @@ type Found struct {
 // Fehler zum Vergleichen mit errors.Is; die Oberfläche bekommt sie übersetzt (err.device_not_found,
 // err.conflict). Eine i18n.Msg ginge hier nicht – sie ist nicht vergleichbar.
 var (
-	ErrNotFound = errors.New("nicht gefunden")
-	ErrConflict = errors.New("die Daten wurden inzwischen geändert – bitte neu laden")
+	ErrNotFound = errors.New("not found")
+	ErrConflict = errors.New("the data has changed in the meantime – please reload")
 )
 
 // ValidationError wird als HTTP 400 an die Oberfläche gegeben: Meldung (übersetzbar) und das
@@ -74,6 +74,9 @@ var (
 type ValidationError struct {
 	i18n.Msg
 	Field string
+	// Confirm nennt ein Feld der Eingabe, mit dem der Aufrufer bewusst fortfahren kann (etwa
+	// "take_over_name"); leer bei gewöhnlichen Eingabefehlern.
+	Confirm string
 }
 
 func invalid(field, key string, args ...any) ValidationError {
@@ -109,9 +112,11 @@ var AppVersion = "dev"
 // dataFiles sind die Dateien im Datenverzeichnis, die eine Sicherung umfasst.
 var dataFiles = []string{"devices.json", "state.json", "discovered.json", "settings.json"}
 
-// backup kopiert die vorhandenen Dateien nach sicherung-<label>-<Zeitpunkt>/ und liefert den Ordner.
+// backup kopiert die vorhandenen Dateien nach backup-<label>-<Zeitpunkt>/ und liefert den Ordner.
+// Jede Kopie, der Ordner und das Datenverzeichnis werden synchronisiert, bevor die Migration
+// weiterschreibt – sonst könnte nach einem Stromausfall eine halbe Sicherung als fertig gelten.
 func backup(dir, label string) (string, error) {
-	dst := filepath.Join(dir, "sicherung-"+label+"-"+time.Now().Format("20060102-150405"))
+	dst := filepath.Join(dir, "backup-"+label+"-"+time.Now().Format("20060102-150405"))
 	if err := os.Mkdir(dst, 0o750); err != nil {
 		return "", err
 	}
@@ -123,11 +128,14 @@ func backup(dir, label string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(filepath.Join(dst, f), b, 0o600); err != nil {
+		if err := atomicfile.WriteSynced(filepath.Join(dst, f), b, 0o600); err != nil {
 			return "", err
 		}
 	}
-	return dst, atomicfile.SyncDir(dst)
+	if err := atomicfile.SyncDir(dst); err != nil {
+		return "", err
+	}
+	return dst, atomicfile.SyncDir(dir)
 }
 
 // previousWriter bestimmt, welche Version die vorhandenen Daten geschrieben hat.
@@ -182,9 +190,9 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 		if label != AppVersion {
 			bak, err := backup(dir, label)
 			if err != nil {
-				return nil, nil, fmt.Errorf("Sicherung vor dem Update: %w", err)
+				return nil, nil, fmt.Errorf("backup before the update: %w", err)
 			}
-			notes = append(notes, fmt.Sprintf("Daten von wolweb %s gesichert in %s", label, bak))
+			notes = append(notes, fmt.Sprintf("Data of wolweb %s backed up to %s", label, bak))
 			s.rewrite = true
 		}
 		if n != "" {
@@ -203,11 +211,11 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 					return nil, nil, fmt.Errorf("%s: %w", legacyPath, err)
 				}
 				s.devices = devs
-				notes = append(notes, fmt.Sprintf("%d Gerät(e) aus %s übernommen", len(s.devices), legacyPath))
+				notes = append(notes, fmt.Sprintf("%d device(s) imported from %s", len(s.devices), legacyPath))
 				notes = append(notes, problemNotes(legacyPath, problems)...)
 			case !errors.Is(err, os.ErrNotExist):
 				// Nicht still mit leerer Liste starten – sonst würde der Import nie wieder versucht.
-				return nil, nil, fmt.Errorf("alte Gerätedatei %s: %w", legacyPath, err)
+				return nil, nil, fmt.Errorf("old device file %s: %w", legacyPath, err)
 			}
 		}
 		if err := s.saveDevices(); err != nil {
@@ -222,7 +230,7 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 	case err == nil:
 		var list []*Found
 		if err := json.Unmarshal(b, &list); err != nil {
-			return nil, nil, fmt.Errorf("%s: %w (Datei reparieren oder löschen)", fpath, err)
+			return nil, nil, fmt.Errorf("%s: %w (repair or delete the file)", fpath, err)
 		}
 		for _, f := range list {
 			if f == nil {
@@ -343,7 +351,7 @@ func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note
 		}
 		name := cleanName(d.Name)
 		if name == "" {
-			name = "Gerät"
+			name = "Device"
 		}
 		for base, i := name, 2; used[strings.ToLower(name)]; i++ {
 			name = fmt.Sprintf("%s %d", base, i)
@@ -354,14 +362,14 @@ func decodeDevices(b []byte) (devs []Device, lastWake map[string]time.Time, note
 			Vendor: oui.Lookup(hw), CreatedAt: now, UpdatedAt: now,
 		})
 	}
-	return devs, nil, fmt.Sprintf("%d Gerät(e) aus dem alten wolweb-Format umgewandelt", len(devs)), problems, nil
+	return devs, nil, fmt.Sprintf("%d device(s) converted from the original wolweb format", len(devs)), problems, nil
 }
 
 // problemNotes macht aus nicht übernommenen Einträgen Hinweise fürs Log.
 func problemNotes(src string, problems []error) []string {
 	var out []string
 	for _, p := range problems {
-		out = append(out, src+": nicht übernommen – "+p.Error())
+		out = append(out, src+": not imported – "+p.Error())
 	}
 	return out
 }
@@ -476,8 +484,27 @@ func renamed(old Device, name string) []string {
 	return out
 }
 
-// releaseAlias nimmt name aus den früheren Namen anderer Geräte: Wer einen Namen neu vergibt, meint
-// mit dem Link ab jetzt dieses Gerät.
+// aliasOwner sucht das Gerät (außer exceptID), dessen früherer Name name ist.
+func aliasOwner(list []Device, name, exceptID string) (Device, bool) {
+	i := slices.IndexFunc(list, func(d Device) bool { return d.ID != exceptID && IsAlias(d, name) })
+	if i < 0 {
+		return Device{}, false
+	}
+	return list[i], true
+}
+
+// takeOverName prüft, ob name früher einem anderen Gerät gehörte. Dann wecken Lesezeichen und
+// Automationen mit diesem Namen bisher jenes Gerät – das neue bekommt den Namen nur auf ausdrückliche
+// Bestätigung (Input.TakeOverName), sonst wechselte das Ziel alter Links unbemerkt.
+func takeOverName(list []Device, in Input, name, exceptID string) error {
+	if o, ok := aliasOwner(list, name, exceptID); ok && !in.TakeOverName {
+		return ValidationError{Msg: i18n.M("val.name_was_alias", name, o.Name), Field: "name", Confirm: "take_over_name"}
+	}
+	return nil
+}
+
+// releaseAlias nimmt name aus den früheren Namen anderer Geräte: Wer einen Namen neu vergibt (und das
+// bestätigt hat, siehe takeOverName), meint mit dem Link ab jetzt dieses Gerät.
 func releaseAlias(list []Device, name, exceptID string) {
 	for i := range list {
 		if list[i].ID == exceptID || !slices.ContainsFunc(list[i].Aliases, func(a string) bool { return strings.EqualFold(a, name) }) {
@@ -505,6 +532,9 @@ type Input struct {
 	Schedule  []string `json:"schedule"`
 	// SchedulePaused fehlt bei älteren Aufrufern: dann läuft der Zeitplan (false).
 	SchedulePaused bool `json:"schedule_paused"`
+	// TakeOverName bestätigt, dass ein früherer Name eines anderen Geräts übernommen werden soll –
+	// dessen alte Wecklinks wecken danach dieses Gerät.
+	TakeOverName bool `json:"take_over_name"`
 }
 
 var icons = []string{"desktop", "laptop", "server", "nas", "tv", "console", "router", "printer", "other"}
@@ -674,6 +704,9 @@ func (s *Store) Create(in Input) (Device, error) {
 	if s.nameTaken(d.Name, "") {
 		return d, invalid("name", "val.name_taken", d.Name)
 	}
+	if err := takeOverName(s.devices, in, d.Name, ""); err != nil {
+		return d, err
+	}
 	now := time.Now().UTC()
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
 	prev := s.devices
@@ -706,6 +739,9 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 	}
 	if s.nameTaken(d.Name, id) {
 		return d, invalid("name", "val.name_taken", d.Name)
+	}
+	if err := takeOverName(s.devices, in, d.Name, id); err != nil {
+		return d, err
 	}
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = old.ID, old.CreatedAt, time.Now().UTC(), old.WakeKey
 	d.Aliases = renamed(old, d.Name)
@@ -842,7 +878,8 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 			continue
 		}
 		base := string([]rune(d.Name)[:min(utf8.RuneCountInString(d.Name), 60)])
-		for i := 2; nameTakenIn(next, d.Name, ""); i++ {
+		// Auch frühere Namen anderer Geräte gelten als vergeben: Der Import soll keine alten Links umlenken.
+		for i := 2; nameTakenIn(next, d.Name, "") || slices.ContainsFunc(next, func(x Device) bool { return IsAlias(x, d.Name) }); i++ {
 			d.Name = fmt.Sprintf("%s %d", base, i)
 		}
 		d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()

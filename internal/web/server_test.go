@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -783,7 +784,9 @@ func TestRetryStopsWhenOvertaken(t *testing.T) {
 				s.Close()
 			}
 			close(release)
-			time.Sleep(300 * time.Millisecond) // eine neue Runde (neu geweckt) darf prüfen, die alte nicht senden
+			// Eine neue Runde (neu geweckt) darf prüfen und senden – die Wiederholung wartet alle drei
+			// Runden ab (wol.SendAll, gut 0,8 s) –, die alte nicht.
+			time.Sleep(1500 * time.Millisecond)
 			retries := 0
 			for _, ev := range st.History(0) {
 				if ev.Retry {
@@ -979,8 +982,23 @@ func TestRenameKeepsOldLinks(t *testing.T) {
 		t.Errorf("zurückbenannt: %v", d.Aliases)
 	}
 
-	// Ein neues Gerät mit dem alten Namen übernimmt den Link.
-	n, err := st.Create(store.Input{Name: "Arbeitszimmer", MAC: "02:00:00:00:00:02"})
+	// Ein neues Gerät mit dem alten Namen übernimmt den Link – aber nur nach Bestätigung.
+	_, err = st.Create(store.Input{Name: "arbeitszimmer", MAC: "02:00:00:00:00:02"})
+	var ve store.ValidationError
+	if !errors.As(err, &ve) || ve.Field != "name" || ve.Confirm != "take_over_name" {
+		t.Fatalf("ohne Bestätigung: %v", err)
+	}
+	if got, _ := st.FindByName("Arbeitszimmer"); got.ID != d.ID {
+		t.Error("abgelehnter Name hat den Link trotzdem umgelenkt")
+	}
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("POST", "/api/v1/devices", strings.NewReader(`{"name":"Arbeitszimmer","mac":"02:00:00:00:00:02"}`))
+	req.Header.Set("X-WolWeb", "1")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"confirm":"take_over_name"`) {
+		t.Errorf("API ohne Bestätigung: %d %s", rec.Code, rec.Body)
+	}
+	n, err := st.Create(store.Input{Name: "Arbeitszimmer", MAC: "02:00:00:00:00:02", TakeOverName: true})
 	if err != nil {
 		t.Fatal(err)
 	}

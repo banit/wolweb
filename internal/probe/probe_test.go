@@ -68,7 +68,7 @@ func TestHintedPortFirst(t *testing.T) {
 }
 
 func TestHintPort(t *testing.T) {
-	for in, want := range map[string]int{"tcp/22": 22, "tcp/445 (abgelehnt)": 445, "icmp": 0, "": 0, "tcp/x": 0} {
+	for in, want := range map[string]int{"tcp/22": 22, "tcp/445 (abgelehnt)": 445, "tcp/445 (refused)": 445, "icmp": 0, "": 0, "tcp/x": 0} {
 		if got := hintPort(in); got != want {
 			t.Errorf("%q: %d statt %d", in, got, want)
 		}

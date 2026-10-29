@@ -120,7 +120,9 @@
     setDirty(false);
   }
 
-  // Zuletzt abgewiesene Hostnamen (meist der eigene Reverse-Proxy): ein Klick erlaubt und speichert.
+  // Zuletzt abgewiesene Hostnamen (meist der eigene Reverse-Proxy): ein Klick übernimmt den Namen nur in
+  // die Liste. Gespeichert wird erst mit „Speichern“ – den Vorschlag kann auch eine fremde Seite per
+  // DNS-Rebinding erzeugt haben, die Freigabe soll eine bewusste Entscheidung bleiben.
   function renderRejected(hosts) {
     const off = !!locked("allowed_hosts") || !editable();
     $("#rejected-hosts").hidden = !hosts.length || off;
@@ -135,7 +137,10 @@
     if (!list.includes(h)) list.push(h);
     f.value = list.join("\n");
     setDirty(true);
-    form.requestSubmit();
+    const note = $("#rejected-note");
+    note.textContent = t("set.sec.added", h);
+    note.hidden = false;
+    f.focus();
   }
 
   function renderEvents(selected) {

@@ -4,7 +4,7 @@
   "vdir": "/",
   "bcastip": "",
   "read_only": false,
-  "language": "de",
+  "language": "en",
   "data_dir": "data",
   "discovery": {
     "networks": [],

@@ -51,9 +51,9 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 			return
 		}
 		if s.rejected.add(host) {
-			log.Printf("Aufruf unter dem Hostnamen %q abgelehnt (Schutz vor DNS-Rebinding). Gewollt, z. B. hinter "+
-				"einem Reverse-Proxy? Dann in den Einstellungen unter Sicherheit erlauben oder eintragen: "+
-				`"allowed_hosts": [%q] bzw. WOLWEB_ALLOWED_HOSTS=%s`, host, host, host)
+			log.Printf("Request for host name %q rejected (DNS rebinding protection). Intended, e.g. behind "+
+				"a reverse proxy? Then allow it on the settings page under Security, or add: "+
+				`"allowed_hosts": [%q] or WOLWEB_ALLOWED_HOSTS=%s`, host, host, host)
 		}
 		if strings.HasPrefix(r.URL.Path, c.VDir+"api/") || !wantsHTML(r) {
 			writeError(w, http.StatusForbidden, i18n.T(s.lang(r), "err.host_not_allowed", host))

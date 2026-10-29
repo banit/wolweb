@@ -14,7 +14,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	head := func(name, help, typ string) {
 		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n", name, help, name, typ)
 	}
-	head("wolweb_info", "Version von wolweb.", "gauge")
+	head("wolweb_info", "wolweb version.", "gauge")
 	fmt.Fprintf(&b, "wolweb_info{version=\"%s\"} 1\n", escapeLabel(s.version))
 
 	devices, _ := s.store.Devices()
@@ -22,7 +22,7 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	labels := func(id, name, mac string) string {
 		return fmt.Sprintf(`id="%s",name="%s",mac="%s"`, escapeLabel(id), escapeLabel(name), escapeLabel(mac))
 	}
-	head("wolweb_device_up", "1 = online, 0 = offline (Geräte ohne bekannte IP fehlen).", "gauge")
+	head("wolweb_device_up", "1 = online, 0 = offline (devices without a known IP are missing).", "gauge")
 	for _, d := range devices {
 		if st, ok := states[d.ID]; ok && st.State != "unknown" {
 			up := 0
@@ -32,25 +32,25 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(&b, "wolweb_device_up{%s} %d\n", labels(d.ID, d.Name, d.MAC), up)
 		}
 	}
-	head("wolweb_device_rtt_seconds", "Antwortzeit der letzten erfolgreichen Prüfung.", "gauge")
+	head("wolweb_device_rtt_seconds", "Response time of the last successful check.", "gauge")
 	for _, d := range devices {
 		if st, ok := states[d.ID]; ok && st.State == "online" {
 			fmt.Fprintf(&b, "wolweb_device_rtt_seconds{%s} %g\n", labels(d.ID, d.Name, d.MAC), float64(st.RTTMillis)/1000)
 		}
 	}
-	head("wolweb_device_last_seen_timestamp_seconds", "Zuletzt online (Unix-Zeit).", "gauge")
+	head("wolweb_device_last_seen_timestamp_seconds", "Last seen online (Unix time).", "gauge")
 	for _, d := range devices {
 		if t := s.store.LastSeen(d.ID); !t.IsZero() {
 			fmt.Fprintf(&b, "wolweb_device_last_seen_timestamp_seconds{%s} %d\n", labels(d.ID, d.Name, d.MAC), t.Unix())
 		}
 	}
-	head("wolweb_device_last_wake_timestamp_seconds", "Zuletzt erfolgreich geweckt (Unix-Zeit).", "gauge")
+	head("wolweb_device_last_wake_timestamp_seconds", "Last successful wake (Unix time).", "gauge")
 	for _, d := range devices {
 		if t := s.store.LastWake(d.ID); !t.IsZero() {
 			fmt.Fprintf(&b, "wolweb_device_last_wake_timestamp_seconds{%s} %d\n", labels(d.ID, d.Name, d.MAC), t.Unix())
 		}
 	}
-	head("wolweb_wakes_total", "Weckversuche seit dem Start von wolweb.", "counter")
+	head("wolweb_wakes_total", "Wake attempts since wolweb started.", "counter")
 	names := map[string]devLabel{}
 	for _, d := range devices {
 		names[d.ID] = devLabel{d.Name, d.MAC}
@@ -79,12 +79,12 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 			counts["new"]++
 		}
 	}
-	head("wolweb_discovery_found", "Treffer der Netzwerksuche (new = noch nicht angelegt).", "gauge")
+	head("wolweb_discovery_found", "Network scan results (new = not added yet).", "gauge")
 	for _, k := range []string{"new", "known", "ignored"} {
 		fmt.Fprintf(&b, "wolweb_discovery_found{kind=\"%s\"} %d\n", k, counts[k])
 	}
 	if j := s.scanner.Job(); !j.FinishedAt.IsZero() {
-		head("wolweb_discovery_last_scan_timestamp_seconds", "Ende der letzten Suche (Unix-Zeit).", "gauge")
+		head("wolweb_discovery_last_scan_timestamp_seconds", "End of the last scan (Unix time).", "gauge")
 		fmt.Fprintf(&b, "wolweb_discovery_last_scan_timestamp_seconds %d\n", j.FinishedAt.Unix())
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")

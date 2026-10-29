@@ -143,7 +143,7 @@ func TestSettingsFieldErrors(t *testing.T) {
 	}
 	e := m.Config().Editable()
 	e.Discovery.Networks = []Network{{CIDR: "10.0.0.0/24"}, {CIDR: "10.0.0.7/24"}}
-	if _, err := m.Save(e); err == nil || !strings.Contains(err.Error(), "doppelt") {
+	if _, err := m.Save(e); err == nil || !strings.Contains(err.Error(), "twice") {
 		t.Errorf("doppeltes Netz: %v", err)
 	}
 	if len(m.Stored()) != 0 {

@@ -21,7 +21,7 @@ import (
 
 type Result struct {
 	Online bool          `json:"online"`
-	Method string        `json:"method,omitempty"` // "icmp", "tcp/22", "tcp/445 (abgelehnt)"
+	Method string        `json:"method,omitempty"` // "icmp", "tcp/22", "tcp/445 (refused)"
 	RTT    time.Duration `json:"rtt_ms"`
 }
 
@@ -68,7 +68,7 @@ const tcpDelay = 300 * time.Millisecond
 
 // Check prüft ip und liefert, sobald eine Methode Erfolg meldet, spätestens nach Timeout.
 // ports ersetzt die Standardliste (nil = Ports()). hint ist die zuletzt erfolgreiche Methode
-// ("icmp", "tcp/22", "tcp/445 (abgelehnt)"): Ein TCP-Port daraus wird sofort angefragt.
+// ("icmp", "tcp/22", "tcp/445 (refused)"): Ein TCP-Port daraus wird sofort angefragt.
 func (p *Prober) Check(ctx context.Context, ip netip.Addr, ports []int, hint string) Result {
 	if ports == nil {
 		ports = p.Ports()
@@ -114,7 +114,7 @@ func (p *Prober) Check(ctx context.Context, ip netip.Addr, ports []int, hint str
 			if ok, refused := tcpProbe(ctx, ip, port); ok && (!refused || refusedCounts) {
 				m := "tcp/" + strconv.Itoa(port)
 				if refused {
-					m += " (abgelehnt)"
+					m += " (refused)"
 				}
 				res <- Result{Online: true, Method: m, RTT: time.Since(start)}
 			}
@@ -131,7 +131,7 @@ func (p *Prober) Check(ctx context.Context, ip netip.Addr, ports []int, hint str
 	return Result{}
 }
 
-// hintPort liest den Port aus "tcp/22" bzw. "tcp/22 (abgelehnt)"; sonst 0.
+// hintPort liest den Port aus "tcp/22" bzw. "tcp/22 (refused)"; sonst 0.
 func hintPort(method string) int {
 	rest, ok := strings.CutPrefix(method, "tcp/")
 	if !ok {

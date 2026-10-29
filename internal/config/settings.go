@@ -124,7 +124,7 @@ func Open(path string) (*Manager, error) {
 		return m, err
 	}
 	if cfg, err = m.build(stored); err != nil {
-		return m, fmt.Errorf("%s: %w (in den Einstellungen korrigieren oder die Datei löschen)", m.settingsPath, err)
+		return m, fmt.Errorf("%s: %w (correct it on the settings page or delete the file)", m.settingsPath, err)
 	}
 	m.stored, m.cur = stored, cfg
 	return m, nil
@@ -149,7 +149,7 @@ func readStored(path string) (map[string]json.RawMessage, error) {
 		if slices.Contains(EditableKeys, k) {
 			out[k] = v
 		} else {
-			log.Printf("%s: %q ist hier nicht erlaubt und wird übergangen", path, k)
+			log.Printf("%s: %q is not allowed here and is ignored", path, k)
 		}
 	}
 	return out, nil

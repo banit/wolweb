@@ -87,7 +87,7 @@ func (s *Store) loadState() (changed bool, err error) {
 	switch {
 	case err == nil:
 		if err := json.Unmarshal(b, &s.state); err != nil {
-			return false, fmt.Errorf("%s: %w (Datei reparieren oder löschen)", s.statePath(), err)
+			return false, fmt.Errorf("%s: %w (repair or delete the file)", s.statePath(), err)
 		}
 	case !errors.Is(err, os.ErrNotExist):
 		return false, fmt.Errorf("%s: %w", s.statePath(), err)

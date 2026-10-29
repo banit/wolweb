@@ -75,6 +75,16 @@ func ParseSecureOn(s string) ([]byte, error) {
 // Die erste Runde wird abgewartet (Fehler kommen zurück), die weiteren laufen im Hintergrund –
 // sonst warteten Weckseite und Gruppen bei jedem Gerät fast eine Sekunde.
 func Send(hw net.HardwareAddr, target, iface string, secureOn []byte) error {
+	return send(hw, target, iface, secureOn, false)
+}
+
+// SendAll wie Send, kehrt aber erst nach allen Runden zurück – für die automatische Wiederholung,
+// die das Senden unter ihrer Sperre abschließt (danach geht kein Paket mehr an ein gelöschtes Gerät).
+func SendAll(hw net.HardwareAddr, target, iface string, secureOn []byte) error {
+	return send(hw, target, iface, secureOn, true)
+}
+
+func send(hw net.HardwareAddr, target, iface string, secureOn []byte, wait bool) error {
 	raddr, err := net.ResolveUDPAddr("udp4", target)
 	if err != nil {
 		return i18n.M("wol.target", target, err)
@@ -92,16 +102,21 @@ func Send(hw net.HardwareAddr, target, iface string, secureOn []byte) error {
 	if Rounds <= 1 {
 		return conn.Close()
 	}
-	go func() {
+	rest := func() {
 		defer conn.Close()
 		for range Rounds - 1 {
 			time.Sleep(Spacing)
 			if err := sendRound(conn, pkt, dests); err != nil {
-				log.Printf("Magic Packet an %s wiederholen: %v", target, err)
+				log.Printf("Repeating magic packet to %s: %v", target, err)
 				return
 			}
 		}
-	}()
+	}
+	if wait {
+		rest()
+	} else {
+		go rest()
+	}
 	return nil
 }
 

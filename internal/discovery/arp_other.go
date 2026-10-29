@@ -9,5 +9,5 @@ import (
 )
 
 func arpScan(context.Context, LocalNet, []netip.Addr, func(int)) ([]Hit, error) {
-	return nil, errors.New("ARP-Scan gibt es nur unter Linux")
+	return nil, errors.New("ARP scan is only available on Linux")
 }

@@ -159,7 +159,7 @@ func TestLegacyFileInDataDirIsBackedUp(t *testing.T) {
 	if _, _, err := Open(dir, ""); err != nil {
 		t.Fatal(err)
 	}
-	baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-original-*", "devices.json"))
+	baks, _ := filepath.Glob(filepath.Join(dir, "backup-original-*", "devices.json"))
 	if len(baks) != 1 {
 		t.Fatalf("Sicherungen: %v", baks)
 	}
@@ -184,7 +184,7 @@ func TestUpdateFrom10BacksUpOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-1.0.x-*"))
+	baks, _ := filepath.Glob(filepath.Join(dir, "backup-1.0.x-*"))
 	if len(baks) != 1 || !strings.Contains(strings.Join(notes, " "), "1.0.x") {
 		t.Fatalf("Sicherungen: %v, Hinweise %v", baks, notes)
 	}
@@ -206,7 +206,7 @@ func TestUpdateFrom10BacksUpOnce(t *testing.T) {
 	if _, _, err := Open(dir, ""); err != nil {
 		t.Fatal(err)
 	}
-	if baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-*")); len(baks) != 1 {
+	if baks, _ := filepath.Glob(filepath.Join(dir, "backup-*")); len(baks) != 1 {
 		t.Errorf("weitere Sicherung: %v", baks)
 	}
 	// Nächstes Update (1.2.0 → 1.3.0): wieder eine Sicherung, jetzt mit der alten Version im Namen
@@ -214,7 +214,7 @@ func TestUpdateFrom10BacksUpOnce(t *testing.T) {
 	if _, _, err := Open(dir, ""); err != nil {
 		t.Fatal(err)
 	}
-	if baks, _ := filepath.Glob(filepath.Join(dir, "sicherung-1.2.0-*")); len(baks) != 1 {
+	if baks, _ := filepath.Glob(filepath.Join(dir, "backup-1.2.0-*")); len(baks) != 1 {
 		t.Errorf("keine Sicherung von 1.2.0: %v", baks)
 	}
 }
@@ -456,6 +456,22 @@ func TestAliasesCappedAndImported(t *testing.T) {
 	got, _ := other.FindByName(d.Name)
 	if len(got.Aliases) != maxAliases-1 || slices.Contains(got.Aliases, "PC5") {
 		t.Errorf("importiert: %v", got.Aliases)
+	}
+}
+
+// Ein importiertes Gerät mit dem früheren Namen eines vorhandenen bekommt einen freien Namen – sonst
+// lenkte der Import alte Wecklinks unbemerkt auf das neue Gerät um.
+func TestImportKeepsOldLinks(t *testing.T) {
+	st, _, _ := Open(t.TempDir(), "")
+	d, _ := st.Create(Input{Name: "NAS", MAC: "02:00:00:00:00:01"})
+	d, _ = st.Update(d.ID, Input{Name: "Archiv", MAC: d.MAC}, nil)
+	b, _ := json.Marshal(map[string]any{"version": 2, "devices": []Device{{Name: "NAS", MAC: "02:00:00:00:00:02"}}})
+	res, err := st.Import(b, i18n.DE)
+	if err != nil || res.Added != 1 || len(res.Items) != 1 || res.Items[0].NewName != "NAS 2" {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if got, _ := st.FindByName("NAS"); got.ID != d.ID {
+		t.Error("Import hat den alten Link umgelenkt")
 	}
 }
 

@@ -384,7 +384,9 @@
       return;
     }
     const failed = res.results.filter((r) => !r.success);
-    toast(failed.length ? "warn" : "ok", t("ui.group_x", g.name), res.message + (failed.length ? " " + t("ui.errors_for", failed.map((r) => r.device).join(", ")) : ""));
+    const checking = res.results.some((r) => r.success && (state.devices.find((x) => x.id === r.id) || {}).check_ip);
+    toast(failed.length ? "warn" : "sent", t("ui.group_x", g.name), res.message +
+      (failed.length ? " " + t("ui.errors_for", failed.map((r) => r.device).join(", ")) : checking ? " " + t("ui.group_checking") : ""));
     for (const r of res.results) {
       const d = state.devices.find((x) => x.id === r.id);
       if (r.success && d && d.check_ip) track(d, true);
@@ -768,12 +770,22 @@
     if (body.ports.some((p) => !Number.isInteger(p))) return fieldError(form.ports, t("ui.ports_numbers"));
     const btn = $("#save-device");
     btn.disabled = true;
+    const send = (extra) => state.editing
+      ? api("PUT", "devices/" + encodeURIComponent(state.editing.id), Object.assign({}, body, { updated_at: state.editing.updated_at }, extra))
+      : api("POST", "devices", Object.assign({}, body, extra));
     try {
       let saved;
-      if (state.editing) {
-        saved = await api("PUT", "devices/" + encodeURIComponent(state.editing.id), Object.assign(body, { updated_at: state.editing.updated_at }));
-      } else {
-        saved = await api("POST", "devices", body);
+      try {
+        saved = await send({});
+      } catch (e) {
+        // Der Name gehörte früher einem anderen Gerät: Dessen alte Wecklinks wecken danach dieses –
+        // nur nach ausdrücklicher Bestätigung.
+        if (!(e.data && e.data.confirm === "take_over_name")) throw e;
+        if (!(await confirmDialog(t("ui.take_name.title", body.name.trim()), e.message, t("ui.take_name.ok")))) {
+          fieldError(form.name, e.message);
+          return;
+        }
+        saved = await send({ take_over_name: true });
       }
       dlg.close();
       toast("ok", state.editing ? t("ui.saved") : t("ui.device_added"), saved.name + " · " + saved.mac);
@@ -870,9 +882,9 @@
   for (const b of drawer.querySelectorAll("[data-close]")) b.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawerOpen() && !dlg.open) closeDrawer(); });
 
-  async function chooseNetwork(cidr) {
+  async function chooseNetwork(cidrs) {
     try {
-      await api("POST", "discovery/network", { cidr });
+      await api("POST", "discovery/network", { cidrs });
     } catch (e) {
       toast("err", t("ui.scan.impossible"), e.message);
       return;
@@ -931,8 +943,14 @@
       $("#scan-title").textContent = t("ui.scan.setup_title");
       $("#scan-detail").textContent = t("ui.scan.setup_text");
       btn.disabled = true;
-      pick.replaceChildren(...choices.map((c) => el("button", { type: "button", class: "btn btn-secondary", onclick: () => chooseNetwork(c.prefix) },
-        icon("radar"), el("span", { class: "mono", text: c.prefix }), el("span", { class: "muted", text: c.interface + " · " + c.addr }))));
+      pick.replaceChildren(...choices.map((c) => el("button", { type: "button", class: "btn btn-secondary", onclick: () => chooseNetwork([c.prefix]) },
+        icon("radar"), el("span", { class: "mono", text: c.prefix }), el("span", { class: "muted", text: c.interface + " · " + c.addr }))),
+        el("button", { type: "button", class: "btn btn-primary", onclick: () => chooseNetwork(choices.map((c) => c.prefix)) },
+          icon("radar"), el("span", { text: t("ui.scan.choose_all", choices.length) })));
+    } else if (!nets.length && state.info.scan_off) {
+      $("#scan-title").textContent = t("ui.scan.off_title");
+      $("#scan-detail").textContent = t("ui.scan.off_text");
+      btn.disabled = true;
     } else if (!nets.length) {
       $("#scan-title").textContent = t("ui.scan.no_segment");
       $("#scan-detail").textContent = t("ui.scan.no_segment_hint");
