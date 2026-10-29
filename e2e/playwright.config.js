@@ -25,5 +25,7 @@ module.exports = defineConfig({
     timeout: 180000, // inklusive go build
     reuseExistingServer: false,
     env: { PORT: port },
+    // SIGTERM statt sofortigem Abbruch: server.sh stoppt wolweb und löscht sein temporäres Verzeichnis.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 10000 },
   },
 });

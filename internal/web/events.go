@@ -100,6 +100,20 @@ func (h *hub) close() {
 	}
 }
 
+// dropPrivileged beendet alle Verbindungen, die beim Verbinden entsperrt waren (neues oder
+// entferntes Passwort, ein Browser hat gesperrt). Die Browser verbinden sich von selbst neu und
+// werden dabei mit ihrem aktuellen Cookie neu eingestuft.
+func (h *hub) dropPrivileged() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for ch, sub := range h.subs {
+		if sub.privileged {
+			delete(h.subs, ch)
+			close(ch)
+		}
+	}
+}
+
 // Close beendet alle offenen Ereignis-Verbindungen und verwirft ausstehende Wiederholungen (für
 // http.Server.RegisterOnShutdown).
 func (s *Server) Close() {
@@ -125,8 +139,18 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Accel-Buffering", "no") // nginx: nicht puffern
-	ch, unsubscribe := s.hub.subscribe(s.lang(r), s.privileged(r))
+	privileged := s.privileged(r)
+	ch, unsubscribe := s.hub.subscribe(s.lang(r), privileged)
 	defer unsubscribe()
+	// Entsperrt per Cookie: Die Verbindung endet, wenn die Entsperrung abläuft – sonst bekäme sie
+	// den Online-Status weiter. Beim Neuverbinden zählt das dann gültige Cookie (eine inzwischen
+	// verlängerte Entsperrung gilt also weiter).
+	var expired <-chan time.Time
+	if until := s.unlockUntil(r); privileged && !s.tokenAuthorized(r) && !until.IsZero() {
+		t := time.NewTimer(time.Until(until))
+		defer t.Stop()
+		expired = t.C
+	}
 	if !send(func() error {
 		w.WriteHeader(http.StatusOK)
 		_, err := io.WriteString(w, "retry: 5000\n\n")
@@ -148,6 +172,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			ok = send(func() error { _, err := w.Write(msg); return err })
 		case <-ping.C:
 			ok = send(func() error { _, err := io.WriteString(w, ": ping\n\n"); return err })
+		case <-expired:
+			return
 		}
 		if !ok {
 			return // Frist überschritten oder Verbindung weg: abmelden (defer)

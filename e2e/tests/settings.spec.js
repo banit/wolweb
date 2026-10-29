@@ -20,9 +20,9 @@ async function open(page) {
 test("Schnittstelle als Netz übernehmen, benennen und speichern", async ({ page }) => {
   await open(page);
   await expect(page.locator("#net-empty")).toBeVisible();
-  const adopt = page.locator("#if-list button").first(); // die Schnittstelle dieses Rechners
-  await expect(adopt).toBeVisible();
-  await adopt.click();
+  const first = page.locator("#if-list .if-row").first(); // eine Schnittstelle dieses Rechners
+  const ifName = await first.locator("strong").textContent();
+  await first.getByRole("button").click();
   const row = page.locator(".net-row").last();
   await expect(row.locator('input[name="net-name"]')).toBeFocused();
   await row.locator('input[name="net-name"]').fill("Server");
@@ -33,7 +33,9 @@ test("Schnittstelle als Netz übernehmen, benennen und speichern", async ({ page
   await expect(page.locator("#toasts")).toContainText("Gespeichert");
   await expect(page.locator(".net-row .net-status.ok")).toContainText("Direkt angeschlossen über");
   await expect(page.locator("#set-source")).toContainText("1 Einstellung hier geändert");
-  await expect(page.locator("#if-list .pill")).toHaveText(["in der Liste"]);
+  // nur die übernommene Zeile – weitere Schnittstellen (auch im selben Netz) sind hier egal
+  const adopted = page.locator("#if-list .if-row").filter({ has: page.getByText(ifName, { exact: true }) });
+  await expect(adopted.locator(".pill")).toHaveText("in der Liste");
 
   await page.reload(); // gespeichert
   await expect(page.locator(".net-row legend")).toHaveText(["Server (VLAN 30)"]);
@@ -63,8 +65,9 @@ test("Netz ohne Schnittstelle wird als nicht direkt erreichbar gezeigt", async (
 
 test("Umgebungsvariablen sperren ihre Felder", async ({ page }) => {
   await open(page);
-  // server.sh setzt WOLWEB_WAKE_RETRY, WOLWEB_WAKE_TIMEOUT, WOLWEB_BCASTIP und WOLWEB_LANGUAGE
-  for (const [name, env] of [["status.wake_retry", "WOLWEB_WAKE_RETRY"], ["bcastip", "WOLWEB_BCASTIP"], ["language", "WOLWEB_LANGUAGE"]]) {
+  // server.sh setzt WOLWEB_WAKE_RETRY, WOLWEB_WAKE_TIMEOUT, WOLWEB_BCASTIP, WOLWEB_LANGUAGE und WOLWEB_SCAN_INTERVAL
+  for (const [name, env] of [["status.wake_retry", "WOLWEB_WAKE_RETRY"], ["bcastip", "WOLWEB_BCASTIP"], ["language", "WOLWEB_LANGUAGE"],
+    ["discovery.interval", "WOLWEB_SCAN_INTERVAL"]]) {
     await expect(page.locator(`[name="${name}"]`)).toBeDisabled();
     await expect(page.locator(`[data-key="${name}"] .lock-note`)).toContainText(env);
   }
@@ -89,7 +92,7 @@ test("Fehler stehen am Feld", async ({ page }) => {
 test("Änderungen gelten sofort, Zurücksetzen stellt config.json wieder her", async ({ page, request }) => {
   await open(page);
   await page.fill('[name="status.ports"]', "22, 8399");
-  await page.fill('[name="discovery.interval"]', "2h");
+  await page.fill('[name="status.interval"]', "2m");
   await page.click("#set-save");
   await expect(page.locator("#toasts")).toContainText("Gespeichert");
   let info = await (await request.get("api/v1/info")).json();
@@ -99,7 +102,7 @@ test("Änderungen gelten sofort, Zurücksetzen stellt config.json wieder her", a
   await expect(page.locator("#confirm-dialog")).toBeVisible();
   await page.click("#confirm-ok");
   await expect(page.locator("#toasts")).toContainText("Zurückgesetzt");
-  await expect(page.locator('[name="discovery.interval"]')).toHaveValue("30m");
+  await expect(page.locator('[name="status.interval"]')).toHaveValue("30s");
   await expect(page.locator("#set-reset")).toBeHidden();
   info = await (await request.get("api/v1/info")).json();
   expect(info.ports).toHaveLength(10);
@@ -157,7 +160,7 @@ test("Tastatur: Sprunglink, Speichern mit Enter", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.locator("#settings-form")).toBeFocused();
   await expect(page).toHaveURL(/\/settings$/);
-  await page.locator('[name="discovery.interval"]').fill("1h");
+  await page.locator('[name="status.interval"]').fill("1m");
   await page.keyboard.press("Enter"); // Formular abschicken
   await expect(page.locator("#toasts")).toContainText("Gespeichert");
 });

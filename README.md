@@ -254,7 +254,10 @@ and – from 1.1 on – `state.json` and `settings.json`). This happens once per
 read the new files but drops what it does not know on its next save (SecureOn, wake keys, groups, schedules, custom
 ports, history). To go back: stop wolweb, copy the files from the backup folder into `data/`, delete the files from
 `data/` that the backup does not contain (for 1.0.x `state.json` and `settings.json`), then start the old version.
-Changes made since the update are lost.
+Changes made since the update are lost. The wake history, “last woken” and “last online” in the backup's `state.json`
+follow the [privacy settings](#privacy) as well: wolweb deletes them there after the retention period, or right away
+with recording switched off. Devices, settings and scan results stay in the backup as they were at the update –
+delete old backup folders once you no longer need them.
 
 **What changes with 1.3 – and whether you need to act:**
 
@@ -679,9 +682,12 @@ list: `sh tools/gen-oui.sh`. Code comments are mostly German, older commit messa
 English are welcome.
 
 Browser tests (Playwright with Chromium, needs Go and Node.js) live in `e2e/`. They build wolweb themselves, start it
-with an empty data directory on port 8399 (packets only go to 127.0.0.1) and check the overview, device dialog,
+with an empty data directory on port 8399 and check the overview, device dialog,
 search and filters, language, simple view, sorting, groups, the password for changes, privacy, the settings page,
-wake and group pages with all outcomes including the automatic retry, and accessibility:
+wake and group pages with all outcomes including the automatic retry, and accessibility. The test server stays off
+the real network: wake-up calls go to 127.0.0.1, the automatic network scan is off and the invented scan results live
+on 127.0.0.x. Only the “offline” test device is checked in the documentation network 198.51.100.0/24 – no real device
+uses it, and an address on the machine itself would always answer:
 
 ```sh
 cd e2e
@@ -971,7 +977,10 @@ Geräte und Einstellungen werden beim ersten Start automatisch übernommen.
 (SecureOn, Weckschlüssel, Gruppen, Zeitpläne, eigene Ports, Verlauf). Zurück geht es so: wolweb stoppen, die
 Dateien aus dem Sicherungsordner nach `data/` kopieren, Dateien, die in der Sicherung fehlen (bei 1.0.x
 `state.json` und `settings.json`), aus `data/` löschen, dann die alte Version starten. Was seit dem Update
-geändert wurde, fehlt danach.
+geändert wurde, fehlt danach. Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ in der `state.json` der Sicherung
+folgen ebenfalls den Einstellungen zur [Privatsphäre](#privatsphäre): wolweb löscht sie dort nach der
+Aufbewahrungsdauer bzw. sofort, wenn die Aufzeichnung aus ist. Geräte, Einstellungen und Suchtreffer bleiben in der
+Sicherung, wie sie beim Update waren – alte Sicherungsordner löschen, sobald du sie nicht mehr brauchst.
 
 **Was sich mit 1.3 ändert – und ob du etwas tun musst:**
 
@@ -1407,10 +1416,13 @@ Herstellerliste aktualisieren: `sh tools/gen-oui.sh`. Code-Kommentare sind über
 ebenso; Issues und Pull Requests auf Englisch sind willkommen.
 
 Browsertests (Playwright mit Chromium, braucht Go und Node.js) liegen in `e2e/`. Sie bauen wolweb selbst, starten
-es mit leerem Datenverzeichnis auf Port 8399 (Pakete gehen nur an 127.0.0.1) und prüfen Übersicht, Gerätedialog,
+es mit leerem Datenverzeichnis auf Port 8399 und prüfen Übersicht, Gerätedialog,
 Suche und Filter, Sprache, einfache Ansicht, Sortieren, Gruppen, das Passwort für Änderungen, die Privatsphäre, die
 Einstellungsseite, Weck- und Gruppenseite mit allen Ausgängen samt automatischer Wiederholung sowie die
-Barrierefreiheit:
+Barrierefreiheit. Vom echten Netz bleibt der Testserver getrennt: Weckrufe gehen an 127.0.0.1, die automatische
+Netzwerksuche ist aus, und die erfundenen Suchtreffer liegen auf 127.0.0.x. Nur das „offline“-Testgerät wird im
+Dokumentationsnetz 198.51.100.0/24 geprüft – dort gibt es kein echtes Gerät, und eine Adresse auf dem Rechner selbst
+antwortete immer:
 
 ```sh
 cd e2e

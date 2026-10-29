@@ -89,3 +89,28 @@ func TestCheckAllKeepsDevicesAddedMeanwhile(t *testing.T) {
 		t.Error("Status eines gelöschten Geräts blieb")
 	}
 }
+
+// Antwortet die alte IP eines inzwischen geänderten Geräts noch, zählt das nicht als „zuletzt
+// online“ – weder als Status noch im Speicher.
+func TestLateAnswerOfOldIPNotSeen(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	st, _, _ := store.Open(t.TempDir(), "")
+	old, _ := st.Create(store.Input{Name: "PC", MAC: "02:00:00:00:00:01", IP: "127.0.0.1", Ports: []int{port}})
+	// Während die Prüfung läuft, bekommt das Gerät eine andere IP: m.Check prüft noch den alten Stand.
+	st.Update(old.ID, store.Input{Name: "PC", MAC: old.MAC, IP: "198.51.100.1", Ports: []int{9}}, nil)
+	m := New(st, probe.New(nil, 400*time.Millisecond), 0)
+	if s := m.Check(context.Background(), old); s.State != "online" {
+		t.Fatalf("alte IP: %s", s.State)
+	}
+	if !st.LastSeen(old.ID).IsZero() {
+		t.Error("späte Antwort der alten IP als „zuletzt online“ gespeichert")
+	}
+	if _, ok := m.Get(old.ID); ok {
+		t.Error("Ergebnis der alten IP übernommen")
+	}
+}

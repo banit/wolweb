@@ -230,7 +230,7 @@ test("Übernahme aus der Suche: direkt, nur ein fehlender Name wird gefragt", as
   await expect(page.locator("#device-dialog")).toBeHidden();
   const card = page.locator(".card", { hasText: "mediapc" });
   await expect(card.locator('[data-focus="wake"]')).toBeFocused();
-  await expect(card).toContainText("192.168.1.40");
+  await expect(card).toContainText("127.0.0.40");
   await expect(card.getByRole("group", { name: "Nächste Schritte für mediapc" })).toContainText("Übernommen");
   await card.getByRole("button", { name: "Details bearbeiten" }).click();
   await expect(page.locator("#device-dialog")).toBeVisible();
@@ -239,7 +239,7 @@ test("Übernahme aus der Suche: direkt, nur ein fehlender Name wird gefragt", as
 
   // Ohne Hostnamen: nur der Name wird gefragt, mit Vorschlag
   await page.getByRole("button", { name: /^Geräte suchen/ }).click();
-  const hit = drawer.locator(".found", { hasText: "192.168.1.41" });
+  const hit = drawer.locator(".found", { hasText: "127.0.0.41" });
   await hit.getByRole("button", { name: "Übernehmen" }).click();
   const name = hit.getByLabel("Name für dieses Gerät");
   await expect(name).toBeFocused();
@@ -253,7 +253,7 @@ test("Übernahme aus der Suche: direkt, nur ein fehlender Name wird gefragt", as
   await expect(drawer).not.toHaveClass(/open/);
   await expect(page.locator(".card", { hasText: "Werkstatt" }).locator('[data-focus="wake"]')).toBeFocused();
   const devs = await (await request.get("api/v1/devices")).json();
-  expect(devs.map((d) => [d.name, d.ip]).sort()).toEqual([["Werkstatt", "192.168.1.41"], ["mediapc", "192.168.1.40"]]);
+  expect(devs.map((d) => [d.name, d.ip]).sort()).toEqual([["Werkstatt", "127.0.0.41"], ["mediapc", "127.0.0.40"]]);
 });
 
 test("Gerät von Hand: Hinweis, wo es die MAC-Adresse gibt", async ({ page }) => {

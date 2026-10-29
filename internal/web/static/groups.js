@@ -75,10 +75,15 @@
   $("#group-close").addEventListener("click", close);
   $("#group-cancel").addEventListener("click", close);
 
+  // Während einer Anfrage kann der Dialog geschlossen (und für eine andere Gruppe neu geöffnet)
+  // werden: Was danach kommt, bezieht sich auf den Stand beim Absenden (mine) und schließt oder
+  // beschriftet den Dialog nur, wenn er noch derselbe ist.
+  const stillOpen = (mine) => cur === mine;
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!cur) return;
-    const { group: g, opts: o } = cur;
+    const mine = cur;
+    const { group: g, opts: o } = mine;
     const name = form.elements.name.value.trim();
     if (!name) return showError(t("ui.grp.name_missing"), true);
     const members = [...form.querySelectorAll('input[name="member"]:checked')].map((i) => i.value);
@@ -95,18 +100,20 @@
         // Der Name gehörte früher einer anderen Gruppe: Deren alte Wecklinks wecken danach diese –
         // nur nach ausdrücklicher Bestätigung.
         if (!(err.data && err.data.confirm === "take_over_name")) throw err;
+        if (!stillOpen(mine)) return; // inzwischen abgebrochen: nicht nachfragen
         if (!(await confirm(t("ui.take_name.title", name), err.message, t("ui.take_name.ok")))) {
           showError(err.message, true);
           return;
         }
         res = await send({ take_over_name: true });
       }
-      cur.saved = true;
-      close();
+      mine.saved = true;
+      if (stillOpen(mine)) close();
       o.toast("ok", g ? t("ui.grp.saved", res.name) : t("ui.grp.created", res.name), "");
       o.onSaved(res.name);
     } catch (err) {
-      showError(err.message, err.data && err.data.field === "name");
+      if (stillOpen(mine)) showError(err.message, err.data && err.data.field === "name");
+      else o.toast("err", t("ui.grp.failed"), err.message);
     } finally {
       btn.disabled = false;
     }
@@ -125,19 +132,21 @@
   // Löschen fragt nach: die Geräte bleiben, nur ohne Gruppe.
   $("#group-delete").addEventListener("click", async () => {
     if (!cur || !cur.group) return;
-    const { group: g, opts: o } = cur;
+    const mine = cur;
+    const { group: g, opts: o } = mine;
     if (!(await confirm(t("ui.grp.delete_q", g.name), t("ui.grp.delete_text"), t("ui.delete")))) {
-      $("#group-delete").focus();
+      if (stillOpen(mine)) $("#group-delete").focus();
       return;
     }
     try {
       await o.api("DELETE", "groups/" + encodeURIComponent(g.name));
-      cur.saved = true;
-      close();
+      mine.saved = true;
+      if (stillOpen(mine)) close();
       o.toast("ok", t("ui.grp.deleted", g.name), "");
       o.onSaved(null);
     } catch (err) {
-      showError(err.message);
+      if (stillOpen(mine)) showError(err.message);
+      else o.toast("err", t("ui.grp.delete_failed"), err.message);
     }
   });
 

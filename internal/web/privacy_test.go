@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"net"
@@ -382,5 +383,104 @@ func TestRecordingOff(t *testing.T) {
 	// Ein fehlendes Feld schaltet nicht ab: leer heißt „an“.
 	if rec := b.do("PUT", "/api/v1/settings", `{"privacy": {"online_status": "all"}}`); rec.Code != http.StatusOK || s.conf().Privacy.Recording != "on" || s.conf().Privacy.RetentionDays != 30 {
 		t.Errorf("Standard: %d %+v", rec.Code, s.conf().Privacy)
+	}
+}
+
+// sse öffnet eine echte Live-Verbindung (mit cookie, falls gesetzt). events liefert die Namen der
+// Ereignisse, closed schließt sich, wenn der Server die Verbindung beendet.
+func sse(t *testing.T, s *Server, url string, cookie *http.Cookie) (events chan string, closed chan struct{}) {
+	t.Helper()
+	before := s.hub.subscribers()
+	req, _ := http.NewRequest("GET", url+"/api/v1/events", nil)
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { res.Body.Close() })
+	events, closed = make(chan string, 16), make(chan struct{})
+	go func() {
+		defer close(closed)
+		sc := bufio.NewScanner(res.Body)
+		for sc.Scan() {
+			if name, ok := strings.CutPrefix(sc.Text(), "event: "); ok {
+				events <- name
+			}
+		}
+	}()
+	for deadline := time.Now().Add(2 * time.Second); s.hub.subscribers() == before; {
+		if time.Now().After(deadline) {
+			t.Fatal("Live-Verbindung nicht angemeldet")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return events, closed
+}
+
+// Eine offene Live-Verbindung behält den Online-Status nicht über die Entsperrung hinaus: Ablauf,
+// neues Passwort und Sperren beenden sie (der Browser verbindet sich neu und wird neu eingestuft).
+func TestStatusEventsFollowUnlock(t *testing.T) {
+	s, h, d := privacyServer(t, "unlocked")
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close) // läuft nach dem Schließen der Verbindungen (Cleanup rückwärts)
+	admin := &browser{t: t, h: h}
+	admin.do("PUT", "/api/v1/password", `{"password":"geheim123"}`)
+	statusEvent := func(events chan string) bool {
+		s.statusChanged(d, status.State{State: "offline"}, true, status.State{State: "online"})
+		for {
+			select {
+			case e := <-events:
+				if e == "status" {
+					return true
+				}
+			case <-time.After(300 * time.Millisecond):
+				return false
+			}
+		}
+	}
+	isClosed := func(closed chan struct{}, within time.Duration) bool {
+		select {
+		case <-closed:
+			return true
+		case <-time.After(within):
+			return false
+		}
+	}
+	_, guestClosed := sse(t, s, srv.URL, nil)
+
+	// Neues Passwort (aus einem anderen Browser): Die entsperrte Verbindung endet.
+	events, closed := sse(t, s, srv.URL, admin.cookie)
+	if !statusEvent(events) {
+		t.Fatal("entsperrt: kein Status")
+	}
+	other := &browser{t: t, h: h}
+	other.do("POST", "/api/v1/unlock", `{"password":"geheim123"}`)
+	if rec := other.do("PUT", "/api/v1/password", `{"current":"geheim123","password":"neu-geheim1"}`); rec.Code != 200 {
+		t.Fatalf("Passwort ändern: %d %s", rec.Code, rec.Body)
+	}
+	if !isClosed(closed, 2*time.Second) {
+		t.Fatal("nach neuem Passwort weiter verbunden")
+	}
+
+	// Ablauf der Entsperrung beendet die Verbindung.
+	soon := &http.Cookie{Name: unlockCookie, Value: s.unlockToken(time.Now().Add(1500 * time.Millisecond))}
+	events, closed = sse(t, s, srv.URL, soon)
+	if !statusEvent(events) {
+		t.Fatal("kurz entsperrt: kein Status")
+	}
+	if !isClosed(closed, 3*time.Second) {
+		t.Fatal("nach Ablauf der Entsperrung weiter verbunden")
+	}
+
+	// Sperren beendet sie ebenso.
+	_, closed = sse(t, s, srv.URL, other.cookie)
+	other.do("POST", "/api/v1/lock", "")
+	if !isClosed(closed, 2*time.Second) {
+		t.Fatal("nach dem Sperren weiter verbunden")
+	}
+	if isClosed(guestClosed, 0) {
+		t.Error("Verbindung ohne Entsperrung wurde beendet")
 	}
 }
