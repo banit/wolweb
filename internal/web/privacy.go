@@ -53,6 +53,16 @@ func (s *Server) statusVisible(r *http.Request) bool {
 	return shownTo(s.conf().Privacy.OnlineStatus, s.privileged(r))
 }
 
+// checkVisible: wie statusVisible, für die Routen, die bei jeder Abfrage frisch prüfen (…/status). Das
+// Entsperr-Cookie zählt dort nur zusammen mit X-WolWeb (das senden alle eigenen Seiten): Ein Cookie
+// geht auch an Anfragen anderer Seiten derselben Site mit (anderer Port, Schwester-Subdomain), und
+// deren Antwortzeit verriete den ausgeblendeten Status – online antwortet schnell, offline erst nach
+// dem Zeitlimit der Prüfung.
+func (s *Server) checkVisible(r *http.Request) bool {
+	priv := s.tokenAuthorized(r) || (r.Header.Get("X-WolWeb") != "" && s.store.HasPassword() && !s.unlockUntil(r).IsZero())
+	return shownTo(s.conf().Privacy.OnlineStatus, priv)
+}
+
 // visibility: was eine Anfrage von den Geräten sehen darf.
 type visibility struct {
 	status bool // Online-Status (privacy.online_status)

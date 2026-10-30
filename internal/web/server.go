@@ -565,7 +565,7 @@ func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
-	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
+	if !s.checkVisible(r) && !s.watching(r, "device:"+d.ID) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}
@@ -845,7 +845,7 @@ func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
-	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
+	if !s.checkVisible(r) && !s.watching(r, "device:"+d.ID) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}

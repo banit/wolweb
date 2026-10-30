@@ -303,7 +303,7 @@ func (s *Server) groupLinkStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 		return
 	}
-	if !s.statusVisible(r) && !s.watching(r, watchGroup(name)) {
+	if !s.checkVisible(r) && !s.watching(r, watchGroup(name)) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}

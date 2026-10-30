@@ -531,3 +531,20 @@ func TestWakeEventsFollowWakeHistory(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+// Die frisch prüfenden Status-Routen erkennen die Entsperrung nur zusammen mit X-WolWeb an: Eine
+// andere Seite derselben Site schickt das Cookie mit, aber nicht den Kopf.
+func TestStatusCheckNeedsOwnPage(t *testing.T) {
+	_, h, d := privacyServer(t, "unlocked")
+	admin := &browser{t: t, h: h}
+	admin.do("PUT", "/api/v1/password", `{"password":"geheim123"}`)
+	for _, path := range []string{"/wake/NAS/status", "/api/v1/devices/" + d.ID + "/status", "/wake-group/B%C3%BCro/status"} {
+		if rec := admin.do("GET", path, ""); rec.Code != http.StatusOK {
+			t.Errorf("%s mit X-WolWeb: %d", path, rec.Code)
+		}
+		other := &browser{t: t, h: h, cookie: admin.cookie, setup: func(r *http.Request) { r.Header.Del("X-WolWeb") }}
+		if rec := other.do("GET", path, ""); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"hidden":true`) {
+			t.Errorf("%s ohne X-WolWeb: %d %s", path, rec.Code, rec.Body)
+		}
+	}
+}
