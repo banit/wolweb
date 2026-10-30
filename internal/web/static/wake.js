@@ -263,5 +263,13 @@
 
   again.addEventListener("click", () => run(true));
   recheckBtn.addEventListener("click", recheck);
-  run(false);
+  // Von einer fremden Seite ohne Schlüssel geöffnet: erst auf Knopfdruck wecken.
+  if (card.dataset.confirm === "1") {
+    note.textContent = t("wake.confirm_note");
+    note.hidden = false;
+    again.querySelector("span").textContent = t("wake.btn.wake_now");
+    again.hidden = false;
+  } else {
+    run(false);
+  }
 })();

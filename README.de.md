@@ -604,7 +604,8 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
   Weckseite weckt dann. Mehr als Wecken ist so nicht möglich, und `HEAD` (Linkvorschauen in Messengern, Linkprüfer)
   weckt nie. Wer auch das verhindern will, schaltet die Anmeldung samt `auth.wake_keys` ein: Dann braucht jeder
   Link – Gerät wie Gruppe gleichermaßen – den Schlüssel, den „Wecklink kopieren“ anhängt, und Namen lassen sich
-  nicht erraten. Das ist eine bewusste Ausnahme vom Schutz gegen Cross-Site-Anfragen: Wecklinks sollen von überall
+  nicht erraten. Ein bei wolweb angemeldeter Browser braucht keinen Schlüssel; schickt ihn eine fremde Webseite
+  ohne Schlüssel auf einen Wecklink, weckt die Weckseite erst auf Knopfdruck. Das ist eine bewusste Ausnahme vom Schutz gegen Cross-Site-Anfragen: Wecklinks sollen von überall
   funktionieren, jede andere Änderung braucht die Seite von wolweb selbst oder ein Token.
 - **DNS-Rebinding**: Ohne Anmeldung nimmt wolweb nur Aufrufe unter IP-Adressen, Namen ohne Punkt (`nas`), lokalen
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus

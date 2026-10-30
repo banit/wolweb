@@ -184,6 +184,20 @@ func hostAllowed(host, self string, allowed []string) bool {
 	return false
 }
 
+// confirmWake: Mit auth.wake_keys sollen fremde Seiten keine Geräte über erratene Namen wecken. Ein
+// angemeldeter Browser braucht den Schlüssel aber nicht (needsKey) – und schickt seine Zugangsdaten
+// auch bei einer von einer fremden Seite ausgelösten Navigation mit. Kommt der Aufruf von einer
+// fremden Seite und trägt keinen gültigen Schlüssel (want), weckt die Seite deshalb erst auf Knopfdruck.
+func (s *Server) confirmWake(r *http.Request, want string) bool {
+	if !s.conf().Auth.WakeKeys || s.tokenAuthorized(r) || s.needsKey(r) { // ohne Anmeldung ist der Schlüssel schon geprüft
+		return false
+	}
+	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "cross-site" && sfs != "same-site" {
+		return false
+	}
+	return want == "" || subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), []byte(want)) != 1
+}
+
 // --- Öffentliche Wecklinks ---
 
 type ctxKey int

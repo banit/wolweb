@@ -339,6 +339,7 @@ type pageData struct {
 	Retry   int // Sekunden bis zur automatischen Wiederholung, 0 = keine
 	Missing string
 	Key     string // Weckschlüssel, den die Weckseite bei ihren Aufrufen mitschickt
+	Confirm bool   // Seite weckt erst auf Knopfdruck (Aufruf einer fremden Seite ohne Schlüssel, siehe confirmWake)
 	Host    string // abgelehnter Hostname (blocked.html)
 	Group   *groupView
 
@@ -784,7 +785,8 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		}
 		vis := s.visibility(r)
 		v := s.view(d, vis)
-		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status}
+		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status,
+			Confirm: s.confirmWake(r, d.WakeKey)}
 		if s.needsKey(r) {
 			pd.Key = d.WakeKey
 		}

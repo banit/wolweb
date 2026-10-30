@@ -1101,3 +1101,67 @@ func TestHistoryErrorsTranslated(t *testing.T) {
 		}
 	}
 }
+
+// Mit auth.wake_keys weckt die Weckseite nach einem Aufruf von einer fremden Seite ohne gültigen
+// Schlüssel erst auf Knopfdruck – auch wenn der Browser angemeldet ist und keinen braucht.
+func TestCrossSiteWakePageNeedsConfirm(t *testing.T) {
+	h, st := newTestServer(t, func(c *config.Config) {
+		c.Auth.Username, c.Auth.Password, c.Auth.WakeKeys = "admin", "geheim", true
+	})
+	d, _ := st.Create(store.Input{Name: "NAS", MAC: "00:11:22:33:44:55", Broadcast: udpSink(t), Group: "Keller"})
+	page := func(path, sfs string, auth bool) string {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Accept", "text/html")
+		if sfs != "" {
+			req.Header.Set("Sec-Fetch-Site", sfs)
+		}
+		if auth {
+			req.SetBasicAuth("admin", "geheim")
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s %s: %d", path, sfs, rec.Code)
+		}
+		return rec.Body.String()
+	}
+	groupKey := func() string {
+		req := httptest.NewRequest("GET", "/api/v1/groups", nil)
+		req.SetBasicAuth("admin", "geheim")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var out []groupView
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return out[0].Key
+	}()
+	for _, tc := range []struct {
+		path, sfs string
+		auth      bool
+		confirm   bool
+	}{
+		{"/wake/NAS", "cross-site", true, true},
+		{"/wake/NAS", "same-site", true, true},
+		{"/wake/NAS?key=falsch", "cross-site", true, true},
+		{"/wake/NAS?key=" + d.WakeKey, "cross-site", true, false},
+		{"/wake/NAS?key=" + d.WakeKey, "cross-site", false, false}, // öffentlich mit Schlüssel: wie bisher
+		{"/wake/NAS", "same-origin", true, false},
+		{"/wake/NAS", "", true, false},
+		{"/wake-group/Keller", "cross-site", true, true},
+		{"/wake-group/Keller?key=" + groupKey, "cross-site", true, false},
+	} {
+		if got := strings.Contains(page(tc.path, tc.sfs, tc.auth), `data-confirm="1"`); got != tc.confirm {
+			t.Errorf("%s (%s, Anmeldung %v): Rückfrage %v statt %v", tc.path, tc.sfs, tc.auth, got, tc.confirm)
+		}
+	}
+	// Ohne wake_keys bleibt es beim dokumentierten Verhalten: fremde Seiten dürfen wecken.
+	h2, st2 := newTestServer(t, nil)
+	st2.Create(store.Input{Name: "NAS", MAC: "00:11:22:33:44:55", Broadcast: udpSink(t)})
+	req := httptest.NewRequest("GET", "/wake/NAS", nil)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	h2.ServeHTTP(rec, req)
+	if strings.Contains(rec.Body.String(), `data-confirm="1"`) {
+		t.Error("Rückfrage ohne wake_keys")
+	}
+}

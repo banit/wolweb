@@ -240,7 +240,8 @@ func (s *Server) groupLink(w http.ResponseWriter, r *http.Request) {
 		}
 		vis := s.visibility(r)
 		g := s.groupView(name, members, false, vis)
-		pd := pageData{Group: &g, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status}
+		pd := pageData{Group: &g, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status,
+			Confirm: s.confirmWake(r, s.groupKey(r.PathValue("name")))}
 		if s.needsKey(r) {
 			pd.Key = s.groupKey(name)
 		}

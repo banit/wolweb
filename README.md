@@ -583,7 +583,8 @@ brings them back. `privacy.wake_history` does the same for `wolweb_device_last_w
   browser to `/wake/<name>` or `/wake-group/<name>`, and the wake page it gets then wakes. Nothing beyond waking is
   possible this way, and `HEAD` (link previews in messengers, link checkers) never wakes. To prevent even that,
   enable the login together with `auth.wake_keys`: then every link – device and group alike – needs the key that
-  “Copy wake link” appends, and names cannot be guessed. This is a deliberate exception to the protection against
+  “Copy wake link” appends, and names cannot be guessed. A browser logged in to wolweb needs no key; if another
+  website sends it to a wake link without the key, the wake page only wakes after a click. This is a deliberate exception to the protection against
   cross-site requests: wake links are meant to work from anywhere, every other change needs wolweb's own page or a
   token.
 - **DNS rebinding**: without login, wolweb only accepts requests under IP addresses, names without a dot (`nas`),
@@ -1319,7 +1320,8 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
   Weckseite weckt dann. Mehr als Wecken ist so nicht möglich, und `HEAD` (Linkvorschauen in Messengern, Linkprüfer)
   weckt nie. Wer auch das verhindern will, schaltet die Anmeldung samt `auth.wake_keys` ein: Dann braucht jeder
   Link – Gerät wie Gruppe gleichermaßen – den Schlüssel, den „Wecklink kopieren“ anhängt, und Namen lassen sich
-  nicht erraten. Das ist eine bewusste Ausnahme vom Schutz gegen Cross-Site-Anfragen: Wecklinks sollen von überall
+  nicht erraten. Ein bei wolweb angemeldeter Browser braucht keinen Schlüssel; schickt ihn eine fremde Webseite
+  ohne Schlüssel auf einen Wecklink, weckt die Weckseite erst auf Knopfdruck. Das ist eine bewusste Ausnahme vom Schutz gegen Cross-Site-Anfragen: Wecklinks sollen von überall
   funktionieren, jede andere Änderung braucht die Seite von wolweb selbst oder ein Token.
 - **DNS-Rebinding**: Ohne Anmeldung nimmt wolweb nur Aufrufe unter IP-Adressen, Namen ohne Punkt (`nas`), lokalen
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus
