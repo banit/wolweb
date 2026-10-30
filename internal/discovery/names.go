@@ -52,10 +52,17 @@ func lookupName(ctx context.Context, ip netip.Addr) hostName {
 	go func() { ch <- res{0, hostName{reverseDNS(ctx, ip), "dns"}} }()
 	go func() { ch <- res{1, hostName{mdnsName(ctx, ip), "mdns"}} }()
 	go func() { ch <- res{2, hostName{netbiosName(ctx, ip), "netbios"}} }()
+	// Ergebnisse höchstens bis zum Zeitlimit einsammeln: eine hängende Teilabfrage darf die Suche
+	// nicht aufhalten (der Kanal ist gepuffert, späte Antworten blockieren nichts).
 	var names [3]hostName
+collect:
 	for range 3 {
-		r := <-ch
-		names[r.prio] = r.n
+		select {
+		case r := <-ch:
+			names[r.prio] = r.n
+		case <-ctx.Done():
+			break collect
+		}
 	}
 	for _, n := range names {
 		if n.name = clean(n.name); n.name != "" {
@@ -106,18 +113,32 @@ func mdnsName(ctx context.Context, ip netip.Addr) string {
 	if resp == nil {
 		return ""
 	}
+	return ptrName(resp)
+}
+
+// maxAnswers begrenzt, wie viele Antwortdatensätze einer mDNS-Antwort durchsucht werden.
+const maxAnswers = 32
+
+// ptrName liest den ersten PTR-Datensatz aus einer DNS-Antwort. Die Antwort kommt vom Gerät und
+// ist nicht vertrauenswürdig: jeder Parserfehler beendet die Suche, statt denselben Datensatz
+// erneut zu lesen.
+func ptrName(resp []byte) string {
 	var p dnsmessage.Parser
 	if _, err := p.Start(resp); err != nil {
 		return ""
 	}
-	_ = p.SkipAllQuestions()
-	for {
+	if err := p.SkipAllQuestions(); err != nil {
+		return ""
+	}
+	for range maxAnswers {
 		h, err := p.AnswerHeader()
 		if err != nil {
 			return ""
 		}
 		if h.Type != dnsmessage.TypePTR {
-			_ = p.SkipAnswer()
+			if err := p.SkipAnswer(); err != nil {
+				return ""
+			}
 			continue
 		}
 		r, err := p.PTRResource()
@@ -126,6 +147,7 @@ func mdnsName(ctx context.Context, ip netip.Addr) string {
 		}
 		return strings.TrimSuffix(strings.TrimSuffix(r.PTR.String(), "."), ".local")
 	}
+	return ""
 }
 
 func itoa(b byte) string { return strconv.Itoa(int(b)) }
