@@ -33,22 +33,24 @@ import (
 var assets embed.FS
 
 type Server struct {
-	cur      atomic.Pointer[live] // Einstellungen; die Einstellungsseite tauscht sie im Betrieb aus
-	settings *config.Manager      // nil: Einstellungen nur aus config.json (Tests)
-	applyMu  sync.Mutex           // nur eine Übernahme zur Zeit
-	saveMu   sync.Mutex           // Speichern und Übernehmen der Einstellungen als ein Schritt
-	store    *store.Store
-	monitor  *status.Monitor
-	scanner  *discovery.Scanner
-	icmp     bool
-	version  string
-	retry    retries
-	tmpl     *template.Template
-	limiter  wakeLimiter
-	attempts attemptLimiter // Fehlversuche beim Entsperren
-	rejected rejectedHosts  // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
-	schedRan ranSchedules   // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
-	hub      hub
+	cur       atomic.Pointer[live] // Einstellungen; die Einstellungsseite tauscht sie im Betrieb aus
+	settings  *config.Manager      // nil: Einstellungen nur aus config.json (Tests)
+	applyMu   sync.Mutex           // nur eine Übernahme zur Zeit
+	saveMu    sync.Mutex           // Speichern und Übernehmen der Einstellungen als ein Schritt
+	store     *store.Store
+	monitor   *status.Monitor
+	scanner   *discovery.Scanner
+	icmp      bool
+	version   string
+	retry     retries
+	tmpl      *template.Template
+	limiter   wakeLimiter
+	flights   checkFlights   // laufende Online-Prüfungen je Gerät (gemeinsam genutzt)
+	waitSlots chan struct{}  // Plätze für gleichzeitige ?wait=-Schleifen (maxWaiters)
+	attempts  attemptLimiter // Fehlversuche beim Entsperren
+	rejected  rejectedHosts  // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
+	schedRan  ranSchedules   // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
+	hub       hub
 
 	wakesMu sync.Mutex
 	wakes   map[[2]string]int // {Geräte-ID, "ok"/"error"} -> Anzahl seit dem Start (für /metrics)
@@ -85,8 +87,9 @@ func (s *Server) conf() *config.Config { return &s.cur.Load().cfg }
 func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.Scanner, icmp bool, version string) *Server {
 	s := &Server{
 		store: st, monitor: mon, scanner: sc, icmp: icmp, version: version,
-		tmpl:  template.Must(template.ParseFS(assets, "templates/*.html")),
-		wakes: map[[2]string]int{},
+		tmpl:      template.Must(template.ParseFS(assets, "templates/*.html")),
+		wakes:     map[[2]string]int{},
+		waitSlots: make(chan struct{}, maxWaiters),
 	}
 	s.cur.Store(s.newLive(cfg))
 	s.applyRecording(cfg)
@@ -573,7 +576,10 @@ func (s *Server) freshStatus(ctx context.Context, d store.Device) status.State {
 	if st, ok := s.monitor.Current(d, time.Second); ok {
 		return st
 	}
-	return s.monitor.Check(ctx, d)
+	if st, ok := s.sharedCheck(ctx, d); ok {
+		return st
+	}
+	return status.State{State: "unknown", CheckedAt: time.Now().UTC()} // Aufrufer ist weg
 }
 
 type wakeResult struct {
@@ -814,21 +820,6 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, code, res)
-}
-
-func (s *Server) waitOnline(ctx context.Context, d store.Device, max time.Duration) bool {
-	ctx, cancel := context.WithTimeout(ctx, max)
-	defer cancel()
-	for {
-		if s.monitor.Check(ctx, d).State == "online" {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(2 * time.Second):
-		}
-	}
 }
 
 func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
