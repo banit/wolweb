@@ -75,7 +75,10 @@ const HistoryMax = 500
 
 type stateFile struct {
 	Version int    `json:"version"`
-	Secret  string `json:"secret,omitempty"`
+	Secret  string `json:"secret,omitempty"` // auch im Export: Gruppen-Wecklinks überstehen so eine Wiederherstellung
+	// LocalSecret signiert Entsperrungen und watch-Werte. Es verlässt die Installation nie (nicht im
+	// Export), damit eine alte Exportdatei keine dieser Berechtigungen nachbilden kann.
+	LocalSecret string `json:"local_secret,omitempty"`
 	// Password ist der Hash des Passworts für Änderungen (siehe password.go), leer = keins.
 	Password string               `json:"edit_password,omitempty"`
 	LastWake map[string]time.Time `json:"last_wake,omitempty"`
@@ -104,10 +107,12 @@ func (s *Store) loadState() (changed bool, err error) {
 	}
 	// Fehlt das Geheimnis oder ist es kaputt (etwa von Hand gekürzt), wird ein neues erzeugt. Ein
 	// leerer Schlüssel machte die Gruppen-Wecklinks für jeden berechenbar.
-	if b, err := hex.DecodeString(s.state.Secret); err != nil || len(b) < 16 {
-		b := make([]byte, 32)
-		_, _ = rand.Read(b)
-		s.state.Secret, changed = hex.EncodeToString(b), true
+	for _, sec := range []*string{&s.state.Secret, &s.state.LocalSecret} {
+		if b, err := hex.DecodeString(*sec); err != nil || len(b) < 16 {
+			b := make([]byte, 32)
+			_, _ = rand.Read(b)
+			*sec, changed = hex.EncodeToString(b), true
+		}
 	}
 	s.state.Version = 1
 	return changed, nil
@@ -223,11 +228,20 @@ func (s *Store) History(limit int) []Event {
 	return out
 }
 
-// Secret ist ein zufälliger Schlüssel dieser Installation (z. B. für Gruppen-Wecklinks).
+// Secret ist ein zufälliger Schlüssel dieser Installation für Gruppen-Wecklinks. Er steht im Export.
 func (s *Store) Secret() []byte {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	b, _ := hex.DecodeString(s.state.Secret)
+	return b
+}
+
+// LocalSecret ist ein zufälliger Schlüssel nur dieser Installation (Entsperrung, watch-Werte). Er steht
+// nie im Export und wird beim Import nicht übernommen.
+func (s *Store) LocalSecret() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	b, _ := hex.DecodeString(s.state.LocalSecret)
 	return b
 }
 

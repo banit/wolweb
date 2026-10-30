@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -64,31 +65,57 @@ func (s *Store) PasswordStamp() string {
 
 // CheckPassword prüft pw gegen das gespeicherte Passwort (false, wenn keins gesetzt ist).
 func (s *Store) CheckPassword(pw string) bool {
+	_, ok := s.CheckPasswordStamp(pw)
+	return ok
+}
+
+// CheckPasswordStamp prüft pw und liefert den geprüften Stand (PasswordStamp). Wer daraus etwas
+// ableitet (Entsperrung, Passwortwechsel), bindet es an genau diesen Stand – ein gleichzeitig
+// gesetztes neues Passwort lässt sich so nicht mit dem alten erschleichen.
+func (s *Store) CheckPasswordStamp(pw string) (stamp string, ok bool) {
 	s.mu.RLock()
 	stored := s.state.Password
 	s.mu.RUnlock()
-	return stored != "" && checkPassword(stored, pw)
+	return stored, stored != "" && checkPassword(stored, pw)
 }
 
-// SetPassword setzt das Passwort für Änderungen; leer entfernt es. Gespeichert wird sofort.
+// ErrPasswordChanged meldet, dass sich das Passwort seit der Prüfung geändert hat.
+var ErrPasswordChanged = errors.New("password changed meanwhile")
+
+// SetPassword setzt das Passwort für Änderungen ohne Rücksicht auf den bisherigen Stand (für
+// -reset-password); leer entfernt es. Gespeichert wird sofort.
 func (s *Store) SetPassword(pw string) error {
+	_, err := s.setPassword(pw, false, "")
+	return err
+}
+
+// SetPasswordIf setzt das Passwort nur, wenn der Stand noch expect ist (vorher geprüft bzw. ""
+// für "noch keins gesetzt"), und liefert den neuen Stand. Sonst ErrPasswordChanged.
+func (s *Store) SetPasswordIf(expect, pw string) (stamp string, err error) {
+	return s.setPassword(pw, true, expect)
+}
+
+func (s *Store) setPassword(pw string, check bool, expect string) (string, error) {
 	hash := ""
 	if pw != "" {
 		if n := utf8.RuneCountInString(pw); n < passwordMin || n > passwordMax {
-			return invalid("password", "val.password_length", passwordMin, passwordMax)
+			return "", invalid("password", "val.password_length", passwordMin, passwordMax)
 		}
 		var err error
 		if hash, err = hashPassword(pw); err != nil {
-			return err
+			return "", err
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if check && s.state.Password != expect {
+		return "", ErrPasswordChanged
+	}
 	prev := s.state.Password
 	s.state.Password = hash
 	if err := s.saveState(); err != nil {
 		s.state.Password = prev
-		return err
+		return "", err
 	}
-	return nil
+	return hash, nil
 }

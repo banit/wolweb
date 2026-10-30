@@ -78,14 +78,14 @@ const watchTTL = 15 * time.Minute
 
 // watchToken bekommt, wer eben geweckt hat: Mit ihm zeigt …/status den Start des
 // Geräts (target "device:<ID>") bzw. der Gruppe ("group:<Name>"), auch wenn der Online-Status sonst
-// ausgeblendet ist. Signiert mit dem Geheimnis der Installation, gültig für watchTTL.
+// ausgeblendet ist. Signiert mit dem lokalen Geheimnis der Installation (nicht im Export), gültig für watchTTL.
 func (s *Server) watchToken(target string) string {
 	exp := strconv.FormatInt(time.Now().Add(watchTTL).Unix(), 10)
 	return exp + "." + s.watchSig(target, exp)
 }
 
 func (s *Server) watchSig(target, exp string) string {
-	m := hmac.New(sha256.New, s.store.Secret())
+	m := hmac.New(sha256.New, s.store.LocalSecret())
 	m.Write([]byte("watch|" + strings.ToLower(target) + "|" + exp))
 	return hex.EncodeToString(m.Sum(nil))[:32]
 }
