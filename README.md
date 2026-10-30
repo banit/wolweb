@@ -569,9 +569,10 @@ brings them back. `privacy.wake_history` does the same for `wolweb_device_last_w
 
 - **Login**: `auth.username`/`auth.password` (HTTP Basic, on the internet only behind HTTPS) and/or `auth.api_token`
   for automations.
-- **Login**: failed logins (HTTP Basic or API token) are slowed down – at most two per second in total, correct
-  credentials never wait – and noted in the log (at most once a minute). Still use a long password and a long random
-  token; wolweb warns at startup if they are short.
+- **Login**: credentials (HTTP Basic or API token) are checked one at a time, and a failed login holds the check for
+  0.5 s – at most two per second in total; failed logins are noted in the log (at most once a minute). Clients that
+  logged in within the last 7 days are checked right away, so an attack does not lock them out. Still use a long
+  password and a long random token; wolweb warns at startup if they are short.
 - **Password for changes**: viewing and waking stay open, changes need unlocking – see
   [Password for changes](#password-for-changes).
 - **Online status and wake history**: who sees whether devices are running and when they were woken – everyone,
@@ -1311,9 +1312,10 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
 
 - **Anmeldung**: `auth.username`/`auth.password` (HTTP Basic, im Internet nur hinter HTTPS) und/oder `auth.api_token`
   für Automationen.
-- **Anmeldung**: Fehlgeschlagene Anmeldungen (HTTP Basic oder API-Token) werden gebremst – insgesamt höchstens zwei
-  pro Sekunde, richtige Zugangsdaten warten nie – und im Log vermerkt (höchstens einmal pro Minute). Trotzdem ein
-  langes Passwort und ein langes zufälliges Token nehmen; wolweb warnt beim Start, wenn sie kurz sind.
+- **Anmeldung**: Zugangsdaten (HTTP Basic oder API-Token) werden nacheinander geprüft, ein Fehlversuch hält die
+  Prüfung 0,5 s auf – insgesamt höchstens zwei pro Sekunde; Fehlversuche stehen im Log (höchstens einmal pro Minute).
+  Wer sich in den letzten 7 Tagen angemeldet hat, wird sofort geprüft – ein Angriff sperrt diese Aufrufer nicht aus.
+  Trotzdem ein langes Passwort und ein langes zufälliges Token nehmen; wolweb warnt beim Start, wenn sie kurz sind.
 - **Passwort für Änderungen**: Ansehen und Wecken bleiben frei, Ändern erst nach dem Entsperren – siehe
   [Passwort für Änderungen](#passwort-für-änderungen).
 - **Online-Status und Weckverlauf**: Wer sieht, ob Geräte laufen und wann sie geweckt wurden – alle, nur nach dem

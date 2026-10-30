@@ -181,17 +181,18 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	base := s.conf().VDir
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if s.authorized(r) {
+		ok, busy := s.logins.check(r, s.authorized) // Zugangsdaten nur unter der Bremse prüfen
+		if ok {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if busy { // auch nicht als öffentliche Seite: die wertete das Token sonst ungebremst aus
+			s.fail(w, r, http.StatusTooManyRequests, "err.login_wait")
 			return
 		}
 		if p == base+"health" || strings.HasPrefix(p, base+"static/") ||
 			(s.conf().Auth.PublicWake && (strings.HasPrefix(p, base+"wake/") || strings.HasPrefix(p, base+"wake-group/"))) {
 			next.ServeHTTP(w, markPublic(r)) // ohne Anmeldung: Schlüssel und Begrenzung greifen
-			return
-		}
-		if r.Header.Get("Authorization") != "" && !s.logins.fail(clientKey(r)) { // falsche Zugangsdaten: bremsen
-			s.fail(w, r, http.StatusTooManyRequests, "err.login_wait")
 			return
 		}
 		if s.conf().Auth.Username != "" {
