@@ -503,7 +503,7 @@ variable names are given, the first is the one of the original wolweb – both w
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off (at least `1m`) |
 | `discovery.max_hosts` | – | `1024` | largest allowed segment |
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | online check of all devices, `0` = off (at least `5s`) |
-| `status.ports` | – | 22, 80, 443, 445, … | ports for the online check |
+| `status.ports` | – | 22, 80, 443, 445, … | ports for the online check (at most 16) |
 | `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | how long the wake page waits (`5s` to `10m`) |
 | `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | if a woken machine does not respond for this long, the wake-up call is sent once more; `0` = never |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | login (HTTP Basic) |
@@ -1238,7 +1238,7 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus (mindestens `1m`) |
 | `discovery.max_hosts` | – | `1024` | größtes erlaubtes Segment |
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | Online-Prüfung aller Geräte, `0` = aus (mindestens `5s`) |
-| `status.ports` | – | 22, 80, 443, 445, … | Ports für die Online-Prüfung |
+| `status.ports` | – | 22, 80, 443, 445, … | Ports für die Online-Prüfung (höchstens 16) |
 | `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | so lange wartet die Weckseite (`5s` bis `10m`) |
 | `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | antwortet ein geweckter Rechner so lange nicht, geht der Weckruf einmal erneut raus; `0` = nie |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | Anmeldung (HTTP Basic) |

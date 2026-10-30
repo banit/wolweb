@@ -196,3 +196,29 @@ func TestRecordingValidated(t *testing.T) {
 		t.Errorf("Umgebung: %+v %v", c.Privacy, err)
 	}
 }
+
+// Die Standard-Prüfports sind wie die eines Geräts begrenzt: ohne Doppelte, höchstens 16.
+func TestStatusPortsLimited(t *testing.T) {
+	c := Default()
+	c.Status.Ports = []int{22, 22, 80, 22}
+	if err := c.normalize(); err != nil || len(c.Status.Ports) != 2 {
+		t.Fatalf("Doppelte: %v %v", err, c.Status.Ports)
+	}
+	c = Default()
+	c.Status.Ports = nil
+	for p := 1; p <= 17; p++ {
+		c.Status.Ports = append(c.Status.Ports, p)
+	}
+	var fe FieldError
+	if err := c.normalize(); !errors.As(err, &fe) || fe.Field != "status.ports" {
+		t.Fatalf("17 Ports: %v", err)
+	}
+	c = Default()
+	c.Status.Ports = make([]int, 30000)
+	for i := range c.Status.Ports {
+		c.Status.Ports[i] = 22
+	}
+	if err := c.normalize(); err != nil || len(c.Status.Ports) != 1 {
+		t.Fatalf("viele Doppelte: %v %d", err, len(c.Status.Ports))
+	}
+}

@@ -23,6 +23,7 @@
  "cfg.recording": "Recording \"{0}\" does not exist (on, off)",
  "cfg.retention_days": "Keeping entries for {0} days is not possible (1 to 365)",
  "cfg.status_port": "Invalid port {0} (1–65535)",
+ "cfg.status_ports_max": "At most {0} check ports",
  "cfg.url": "“{0}” is not an http(s) address",
  "cfg.vlan": "VLAN ID {0} is invalid (1–4094)",
  "cfg.wake_history": "Wake history \"{0}\" does not exist (all, unlocked, none)",

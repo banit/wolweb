@@ -23,6 +23,7 @@
  "cfg.recording": "Aufzeichnung „{0}“ gibt es nicht (on, off)",
  "cfg.retention_days": "Aufbewahrung von {0} Tagen geht nicht (1 bis 365)",
  "cfg.status_port": "Ungültiger Port {0} (1–65535)",
+ "cfg.status_ports_max": "Höchstens {0} Prüfports",
  "cfg.url": "„{0}“ ist keine http(s)-Adresse",
  "cfg.vlan": "VLAN-ID {0} ist ungültig (1–4094)",
  "cfg.wake_history": "Weckverlauf „{0}“ gibt es nicht (all, unlocked, none)",
