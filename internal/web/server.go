@@ -181,18 +181,24 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	base := s.conf().VDir
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		ok, busy := s.logins.check(r, s.authorized) // Zugangsdaten nur unter der Bremse prüfen
+		proof := s.loginProven(r)
+		ok, busy := s.logins.check(r, s.authorized, !proof.IsZero()) // Zugangsdaten nur unter der Bremse prüfen
 		if ok {
+			s.setLoginProof(w, r, proof)
 			next.ServeHTTP(w, r)
-			return
-		}
-		if busy { // auch nicht als öffentliche Seite: die wertete das Token sonst ungebremst aus
-			s.fail(w, r, http.StatusTooManyRequests, "err.login_wait")
 			return
 		}
 		if p == base+"health" || strings.HasPrefix(p, base+"static/") ||
 			(s.conf().Auth.PublicWake && (strings.HasPrefix(p, base+"wake/") || strings.HasPrefix(p, base+"wake-group/"))) {
+			if r.Header.Get("Authorization") != "" { // falsch oder (Bremse voll) ungeprüft: dahinter nicht mehr auswerten
+				r = r.Clone(r.Context())
+				r.Header.Del("Authorization")
+			}
 			next.ServeHTTP(w, markPublic(r)) // ohne Anmeldung: Schlüssel und Begrenzung greifen
+			return
+		}
+		if busy {
+			s.fail(w, r, http.StatusTooManyRequests, "err.login_wait")
 			return
 		}
 		if s.conf().Auth.Username != "" {
@@ -648,11 +654,8 @@ const (
 // (Zeitplan); source sagt, woher der Auftrag kam, group nennt bei Gruppen deren Namen.
 // Wurde d eben erst geweckt, geht kein weiterer Weckruf raus (siehe wakeDedupWindow).
 func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wakeResult, int) {
-	if res, failed := s.limiter.recentFailure(d.ID); failed { // eben gescheitert: nicht gleich nochmal senden
-		return res, http.StatusInternalServerError
-	}
-	if res, busy := s.alreadyWaking(r, d); busy {
-		return res, http.StatusOK
+	if res, code, busy := s.alreadyWaking(r, d); busy { // eben geweckt oder eben gescheitert
+		return res, code
 	}
 	s.supersedeRetry(d.ID)
 	res, code, a := s.sendWake(r, d, source, group)
@@ -870,10 +873,11 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		s.hidden(w, r, "err.history_hidden")
 		return
 	}
-	events := s.store.History(limit)
 	show := vis.status
-	if !show { // eine automatische Wiederholung gibt es nur, wenn das Gerät offline blieb
-		events = slices.DeleteFunc(events, func(ev store.Event) bool { return ev.Retry })
+	events := s.store.History(limit)
+	if !show { // eine automatische Wiederholung gibt es nur, wenn das Gerät offline blieb – vor dem Limit filtern
+		events = slices.DeleteFunc(s.store.History(0), func(ev store.Event) bool { return ev.Retry })
+		events = events[:min(limit, len(events))]
 	}
 	for i := range events {
 		events[i] = events[i].Localized(s.lang(r))

@@ -154,8 +154,8 @@ func TestUnlockCookieTampered(t *testing.T) {
 	b.do("PUT", "/api/v1/password", `{"password":"geheim123"}`)
 	for name, value := range map[string]string{
 		"verändert":   flipLast(b.cookie.Value),
-		"abgelaufen":  s.unlockToken(time.Now().Add(-time.Minute)),
-		"zu lang":     s.unlockToken(time.Now().Add(unlockIdle + time.Hour)),
+		"abgelaufen":  s.unlockTokenFor(s.store.PasswordStamp(), time.Now().Add(-time.Minute)),
+		"zu lang":     s.unlockTokenFor(s.store.PasswordStamp(), time.Now().Add(unlockIdle+time.Hour)),
 		"kein Format": "abc",
 	} {
 		c := &browser{t: t, h: h, cookie: &http.Cookie{Name: unlockCookie, Value: value}}
@@ -164,7 +164,7 @@ func TestUnlockCookieTampered(t *testing.T) {
 		}
 	}
 	// Abfragen im Hintergrund (eine offene Übersicht) verlängern eine Entsperrung nicht …
-	soon := s.unlockToken(time.Now().Add(time.Hour))
+	soon := s.unlockTokenFor(s.store.PasswordStamp(), time.Now().Add(time.Hour))
 	c := &browser{t: t, h: h, cookie: &http.Cookie{Name: unlockCookie, Value: soon}}
 	for _, path := range []string{"/api/v1/info", "/api/v1/devices", "/api/v1/groups", "/"} {
 		c.do("GET", path, "")

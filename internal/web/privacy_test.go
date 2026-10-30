@@ -465,7 +465,7 @@ func TestStatusEventsFollowUnlock(t *testing.T) {
 	}
 
 	// Ablauf der Entsperrung beendet die Verbindung.
-	soon := &http.Cookie{Name: unlockCookie, Value: s.unlockToken(time.Now().Add(1500 * time.Millisecond))}
+	soon := &http.Cookie{Name: unlockCookie, Value: s.unlockTokenFor(s.store.PasswordStamp(), time.Now().Add(1500*time.Millisecond))}
 	events, closed = sse(t, s, srv.URL, soon)
 	if !statusEvent(events) {
 		t.Fatal("kurz entsperrt: kein Status")
@@ -546,5 +546,18 @@ func TestStatusCheckNeedsOwnPage(t *testing.T) {
 		if rec := other.do("GET", path, ""); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"hidden":true`) {
 			t.Errorf("%s ohne X-WolWeb: %d %s", path, rec.Code, rec.Body)
 		}
+	}
+}
+
+// Wiederholungen werden vor dem Limit herausgefiltert: limit=1 liefert den letzten Weckruf, auch wenn
+// danach eine (verborgene) Wiederholung kam.
+func TestHistoryLimitAfterRetryFilter(t *testing.T) {
+	s, h, d := privacyServer(t, "unlocked")
+	at := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+	s.store.RecordWake(store.Event{Time: at, ID: d.ID, Device: d.Name, Source: "link", Success: true},
+		store.Event{Time: at.Add(45 * time.Second), ID: d.ID, Device: d.Name, Source: "link", Success: true, Retry: true})
+	body := (&browser{t: t, h: h}).do("GET", "/api/v1/history?limit=1", "").Body.String()
+	if strings.Contains(body, `"retry"`) || strings.Count(body, `"device":"NAS"`) != 1 {
+		t.Fatalf("limit=1 für Gäste: %s", body)
 	}
 }

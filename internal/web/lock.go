@@ -32,20 +32,13 @@ const (
 	unlockRenew  = 10 * time.Minute // so alt darf die Frist werden, bevor sie verlängert wird
 )
 
-// lockKey ist der Schlüssel für Entsperr-Cookies. Er hängt am Passwort: Ein neues (oder
+// lockKeyFor ist der Schlüssel für Entsperr-Cookies. Er hängt am Passwort: Ein neues (oder
 // entferntes) Passwort macht alle bisherigen Entsperrungen ungültig. Grundlage ist das lokale
 // Geheimnis, das nie im Export steht.
-func (s *Server) lockKey() []byte { return s.lockKeyFor(s.store.PasswordStamp()) }
-
 func (s *Server) lockKeyFor(stamp string) []byte {
 	m := hmac.New(sha256.New, s.store.LocalSecret())
 	m.Write([]byte("unlock|" + stamp))
 	return m.Sum(nil)
-}
-
-// unlockToken stellt eine Entsperrung für den aktuellen Passwortstand aus (Verlängerung).
-func (s *Server) unlockToken(until time.Time) string {
-	return s.unlockTokenFor(s.store.PasswordStamp(), until)
 }
 
 // unlockTokenFor stellt eine Entsperrung für einen bestimmten, eben geprüften Passwortstand aus. Hat
@@ -59,23 +52,31 @@ func (s *Server) unlockTokenFor(stamp string, until time.Time) string {
 
 // unlockUntil liefert das Ende der Entsperrung aus dem Cookie (Null, wenn keins gilt).
 func (s *Server) unlockUntil(r *http.Request) time.Time {
+	until, _ := s.unlockStamp(r)
+	return until
+}
+
+// unlockStamp wie unlockUntil, dazu der Passwortstand, für den das Cookie geprüft wurde – eine
+// Verlängerung gilt nur für diesen Stand (ein Passwortwechsel dazwischen beendet auch sie).
+func (s *Server) unlockStamp(r *http.Request) (time.Time, string) {
 	c, err := r.Cookie(unlockCookie)
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, ""
 	}
 	exp, sig, ok := strings.Cut(c.Value, ".")
 	n, err := strconv.ParseInt(exp, 10, 64)
 	if !ok || err != nil {
-		return time.Time{}
+		return time.Time{}, ""
 	}
-	m := hmac.New(sha256.New, s.lockKey())
+	stamp := s.store.PasswordStamp()
+	m := hmac.New(sha256.New, s.lockKeyFor(stamp))
 	m.Write([]byte(exp))
 	want := hex.EncodeToString(m.Sum(nil))
 	until := time.Unix(n, 0)
 	if !hmac.Equal([]byte(sig), []byte(want)) || time.Now().After(until) || time.Until(until) > unlockIdle {
-		return time.Time{}
+		return time.Time{}, ""
 	}
-	return until
+	return until, stamp
 }
 
 // unlocked sagt, ob die Anfrage ändern darf: kein Passwort gesetzt, API-Token oder gültige
@@ -100,8 +101,8 @@ func (s *Server) setUnlockCookie(w http.ResponseWriter, r *http.Request, value s
 // Nur bei geschützten Aufrufen, nicht bei jeder Anfrage: Eine offene Übersicht fragt im Hintergrund
 // ständig nach – das hielte die Entsperrung sonst unbegrenzt am Leben.
 func (s *Server) renewUnlock(w http.ResponseWriter, r *http.Request) {
-	if until := s.unlockUntil(r); !until.IsZero() && time.Until(until) < unlockIdle-unlockRenew {
-		s.setUnlockCookie(w, r, s.unlockToken(time.Now().Add(unlockIdle)), false)
+	if until, stamp := s.unlockStamp(r); !until.IsZero() && time.Until(until) < unlockIdle-unlockRenew {
+		s.setUnlockCookie(w, r, s.unlockTokenFor(stamp, time.Now().Add(unlockIdle)), false)
 	}
 }
 

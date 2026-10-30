@@ -258,14 +258,21 @@ type wakeFailure struct {
 }
 
 // claim reserviert den Weckruf für ein Gerät. false: Es wurde eben erst geweckt.
-func (l *wakeLimiter) claim(id string) bool {
+// claim reserviert den Weckruf für id. false: eben erst geweckt – oder eben gescheitert, dann ist
+// failed das Ergebnis jenes Versuchs. Beides wird unter derselben Sperre geprüft wie reserviert,
+// sonst sendete ein gleichzeitiger Aufruf nach einem Fehlschlag doch gleich nochmal.
+func (l *wakeLimiter) claim(id string) (ok bool, failed *wakeResult) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if f, hit := l.failed[id]; hit && time.Since(f.at) < wakeFailBackoff {
+		res := f.res
+		return false, &res
+	}
 	if time.Since(l.last[id]) < wakeDedupWindow {
-		return false
+		return false, nil
 	}
 	l.markLocked(id)
-	return true
+	return true, nil
 }
 
 // fail gibt eine Reservierung zurück – das Senden ist gescheitert, gleich nochmal ist richtig – und
@@ -295,17 +302,6 @@ func (l *wakeLimiter) release(id string) {
 	delete(l.failed, id)
 }
 
-// recentFailure liefert das Ergebnis eines eben gescheiterten Weckrufs für id.
-func (l *wakeLimiter) recentFailure(id string) (wakeResult, bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	f, ok := l.failed[id]
-	if !ok || time.Since(f.at) >= wakeFailBackoff {
-		return wakeResult{}, false
-	}
-	return f.res, true
-}
-
 // mark merkt einen Weckruf, der nicht über claim kam (Zeitplan, Wiederholung).
 func (l *wakeLimiter) mark(id string) {
 	l.mu.Lock()
@@ -329,10 +325,15 @@ func (l *wakeLimiter) markLocked(id string) {
 
 // alreadyWaking reserviert den Weckruf für d. Wurde d eben erst geweckt, kommt stattdessen die
 // freundliche Antwort zurück (Erfolg, Already gesetzt) – die Seite zeigt dann den laufenden Start.
-func (s *Server) alreadyWaking(r *http.Request, d store.Device) (wakeResult, bool) {
-	if s.limiter.claim(d.ID) {
-		return wakeResult{}, false
+// Ist eben ein Weckruf gescheitert (wakeFailBackoff), kommt dessen Ergebnis mit Code 500.
+func (s *Server) alreadyWaking(r *http.Request, d store.Device) (wakeResult, int, bool) {
+	ok, failed := s.limiter.claim(d.ID)
+	switch {
+	case ok:
+		return wakeResult{}, 0, false
+	case failed != nil:
+		return *failed, http.StatusInternalServerError, true
 	}
 	return wakeResult{Success: true, Already: true, Device: d.Name, ID: d.ID, Target: s.wakeTarget(d),
-		Message: i18n.T(s.lang(r), "msg.already_waking", d.Name)}, true
+		Message: i18n.T(s.lang(r), "msg.already_waking", d.Name)}, http.StatusOK, true
 }

@@ -70,7 +70,10 @@ func (ev Event) Localized(l i18n.Lang) Event {
 	return ev
 }
 
-// HistoryMax begrenzt den Verlauf (älteste Einträge fallen heraus).
+// HistoryMax begrenzt den Verlauf (älteste Einträge fallen heraus). Automatische Wiederholungen zählen
+// nicht mit: Sie gibt es nur, wenn ein Gerät offline blieb – verdrängten sie andere Einträge, sähe das
+// auch, wer den Online-Status nicht sehen darf. Wiederholungen vor dem ältesten behaltenen Eintrag
+// fallen mit heraus.
 const HistoryMax = 500
 
 type stateFile struct {
@@ -150,9 +153,7 @@ func (s *Store) RecordWake(evs ...Event) error {
 			s.state.LastWake[ev.ID] = ev.Time
 		}
 	}
-	if n := len(s.state.History); n > HistoryMax {
-		s.state.History = slices.Clone(s.state.History[n-HistoryMax:])
-	}
+	s.state.History = trimHistory(s.state.History)
 	return s.saveState()
 }
 
@@ -209,6 +210,20 @@ func (s *Store) LastSeen(id string) time.Time {
 }
 
 // History liefert die letzten limit Einträge, neueste zuerst (nur, was noch aufbewahrt wird).
+// trimHistory kürzt h auf HistoryMax Einträge ohne die Wiederholungen (siehe HistoryMax).
+func trimHistory(h []Event) []Event {
+	kept := 0
+	for i := len(h) - 1; i > 0; i-- {
+		if h[i].Retry {
+			continue
+		}
+		if kept++; kept == HistoryMax {
+			return slices.Clone(h[i:])
+		}
+	}
+	return h
+}
+
 func (s *Store) History(limit int) []Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
