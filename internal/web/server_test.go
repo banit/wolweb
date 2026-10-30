@@ -701,19 +701,32 @@ func TestWakeDedupEverywhere(t *testing.T) {
 		t.Errorf("%d Verlaufseinträge statt 2 – Nachfassen darf nichts auftürmen", n)
 	}
 
-	// Ein gescheiterter Weckruf blockiert nichts: gleich nochmal versuchen sendet wieder.
+	// Ein gescheiterter Weckruf gilt kurz (wakeFailBackoff) weiter: Nachfassen bekommt das Ergebnis,
+	// ohne erneut zu senden oder den Verlauf zu füllen; danach sendet ein neuer Versuch wieder.
 	bad, err := st.Create(store.Input{Name: "Kaputt", MAC: "02:00:00:00:00:03", Interface: "gibtsnicht0"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := range 2 {
+	before := len(st.History(0))
+	tryBad := func(i int) {
 		req := httptest.NewRequest("POST", "/api/v1/devices/"+bad.ID+"/wake", nil)
 		req.Host, req.Header["X-Wolweb"] = "192.168.1.10:8089", []string{"1"}
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "already") {
-			t.Errorf("Versuch %d: %d %s", i+1, rec.Code, rec.Body)
+			t.Errorf("Versuch %d: %d %s", i, rec.Code, rec.Body)
 		}
+	}
+	for i := range 5 {
+		tryBad(i + 1)
+	}
+	if n := len(st.History(0)) - before; n != 1 {
+		t.Errorf("%d Verlaufseinträge für 5 Versuche binnen %s – erwartet 1", n, wakeFailBackoff)
+	}
+	s.limiter.failed[bad.ID] = wakeFailure{at: time.Now().Add(-wakeFailBackoff), res: wakeResult{}} // Pause vorbei
+	tryBad(6)
+	if n := len(st.History(0)) - before; n != 2 {
+		t.Errorf("nach der Pause: %d Verlaufseinträge statt 2", n)
 	}
 
 	// Ein Zeitplan weckt immer, zählt aber mit: der Wecklink gleich danach sendet nicht nochmal.

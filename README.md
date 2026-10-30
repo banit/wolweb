@@ -577,7 +577,8 @@ brings them back. `privacy.wake_history` does the same for `wolweb_device_last_w
 - **No double waking**: every device gets at most one wake-up call every 10 s – with and without login, across wake
   link, group link, wake page and API. A second call within that time (tapped twice, page reloaded) is not an error:
   it reports “already being woken” (`"already": true`), and the page follows the running start without sending
-  again. Schedules and the automatic retry are never throttled.
+  again. If sending fails, further calls within 3 s get the same error without sending again. Schedules and the
+  automatic retry are never throttled.
 - **Wake links from other websites**: a wake link wakes when it is opened – on purpose, also when it sits on another
   page (Home Assistant dashboard, Glance, a bookmark page). But it also means: any website you visit can send your
   browser to `/wake/<name>` or `/wake-group/<name>`, and the wake page it gets then wakes. Nothing beyond waking is
@@ -1313,7 +1314,8 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
 - **Kein doppeltes Wecken**: Jedes Gerät bekommt höchstens alle 10 s einen Weckruf – mit und ohne Anmeldung, über
   Wecklink, Gruppenlink, Weckseite und API gemeinsam. Ein zweiter Aufruf in dieser Zeit (zweimal getippt, Seite neu
   geladen) ist kein Fehler: Er meldet „wird bereits geweckt“ (`"already": true`) und die Seite verfolgt den
-  laufenden Start, ohne erneut zu senden. Zeitpläne und die automatische Wiederholung werden nie gebremst.
+  laufenden Start, ohne erneut zu senden. Scheitert das Senden, bekommen weitere Aufrufe binnen 3 s denselben Fehler,
+  ohne erneut zu senden. Zeitpläne und die automatische Wiederholung werden nie gebremst.
 - **Wecklinks von fremden Seiten**: Ein Wecklink weckt beim Öffnen – mit Absicht, auch wenn er auf einer anderen
   Seite steht (Home-Assistant-Dashboard, Glance, Lesezeichenseite). Das heißt aber auch: Jede Webseite, die du
   besuchst, kann deinen Browser zu `/wake/<Name>` oder `/wake-group/<Name>` schicken, und die ausgelieferte

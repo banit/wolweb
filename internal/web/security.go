@@ -241,8 +241,20 @@ func (s *Server) findForLink(r *http.Request) (store.Device, bool) {
 const wakeDedupWindow = 10 * time.Second
 
 type wakeLimiter struct {
-	mu   sync.Mutex
-	last map[string]time.Time // Geräte-ID -> letzter Weckruf
+	mu     sync.Mutex
+	last   map[string]time.Time   // Geräte-ID -> letzter Weckruf
+	failed map[string]wakeFailure // Geräte-ID -> zuletzt gescheiterter Weckruf
+}
+
+// wakeFailBackoff: So lange nach einem gescheiterten Weckruf bekommt jeder weitere Aufruf dessen
+// Ergebnis, ohne erneut zu senden, einzutragen oder zu melden. "Gleich nochmal" bleibt möglich, ein
+// Dauerfeuer auf ein Gerät, dessen Senden scheitert, schreibt aber nicht bei jedem Aufruf den
+// Verlauf auf die Platte und füllt nicht die Benachrichtigungen.
+const wakeFailBackoff = 3 * time.Second
+
+type wakeFailure struct {
+	at  time.Time
+	res wakeResult
 }
 
 // claim reserviert den Weckruf für ein Gerät. false: Es wurde eben erst geweckt.
@@ -256,11 +268,42 @@ func (l *wakeLimiter) claim(id string) bool {
 	return true
 }
 
-// release gibt eine Reservierung zurück – das Senden ist gescheitert, gleich nochmal ist richtig.
+// fail gibt eine Reservierung zurück – das Senden ist gescheitert, gleich nochmal ist richtig – und
+// merkt sich das Ergebnis für wakeFailBackoff.
+func (l *wakeLimiter) fail(id string, res wakeResult) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.last, id)
+	if l.failed == nil {
+		l.failed = map[string]wakeFailure{}
+	}
+	l.failed[id] = wakeFailure{at: time.Now(), res: res}
+	if len(l.failed) > 1000 {
+		for k, f := range l.failed {
+			if time.Since(f.at) > wakeFailBackoff {
+				delete(l.failed, k)
+			}
+		}
+	}
+}
+
+// release vergisst Reservierung und Fehlschlag eines Geräts (Tests).
 func (l *wakeLimiter) release(id string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.last, id)
+	delete(l.failed, id)
+}
+
+// recentFailure liefert das Ergebnis eines eben gescheiterten Weckrufs für id.
+func (l *wakeLimiter) recentFailure(id string) (wakeResult, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f, ok := l.failed[id]
+	if !ok || time.Since(f.at) >= wakeFailBackoff {
+		return wakeResult{}, false
+	}
+	return f.res, true
 }
 
 // mark merkt einen Weckruf, der nicht über claim kam (Zeitplan, Wiederholung).

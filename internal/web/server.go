@@ -641,13 +641,16 @@ const (
 // (Zeitplan); source sagt, woher der Auftrag kam, group nennt bei Gruppen deren Namen.
 // Wurde d eben erst geweckt, geht kein weiterer Weckruf raus (siehe wakeDedupWindow).
 func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wakeResult, int) {
+	if res, failed := s.limiter.recentFailure(d.ID); failed { // eben gescheitert: nicht gleich nochmal senden
+		return res, http.StatusInternalServerError
+	}
 	if res, busy := s.alreadyWaking(r, d); busy {
 		return res, http.StatusOK
 	}
 	s.supersedeRetry(d.ID)
 	res, code, a := s.sendWake(r, d, source, group)
 	if !res.Success {
-		s.limiter.release(d.ID)
+		s.limiter.fail(d.ID, res)
 	}
 	s.recordWakes(a)
 	return res, code

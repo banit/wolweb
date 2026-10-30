@@ -173,6 +173,11 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 	ok := 0
 	var attempts []wakeAttempt
 	for _, d := range members {
+		if wr, failed := s.limiter.recentFailure(d.ID); failed { // eben gescheitert: nicht gleich nochmal senden
+			res.Results = append(res.Results, wr)
+			res.Success = false
+			continue
+		}
 		if wr, busy := s.alreadyWaking(r, d); busy { // eben erst geweckt (einzeln oder als Gruppe)
 			res.Results = append(res.Results, wr)
 			ok++
@@ -181,7 +186,7 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 		s.supersedeRetry(d.ID)
 		wr, _, a := s.sendWake(r, d, source, name)
 		if !wr.Success {
-			s.limiter.release(d.ID)
+			s.limiter.fail(d.ID, wr)
 		}
 		attempts = append(attempts, a)
 		res.Results = append(res.Results, wr)
