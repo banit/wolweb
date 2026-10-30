@@ -276,6 +276,9 @@ delete old backup folders once you no longer need them.
 - *History expires* (new): the wake history, “last woken” and “last online” are now deleted after 30 days
   (`privacy.retention_days`, up to 365); `privacy.recording: "off"` stores none of them. On the first start, older
   history entries disappear – the backup (see above) still has them.
+- *Behind a reverse proxy:* without login, wolweb now also checks the host name the proxy passes on
+  (`X-Forwarded-Host`, `Forwarded`). If that is your own domain, allow it as described in step 1.
+- *Check ports:* `status.ports` takes at most 16 ports (duplicates are dropped); with more, wolweb does not start.
 
 **What changes with 1.2 – and whether you need to act:**
 
@@ -570,9 +573,10 @@ brings them back. `privacy.wake_history` does the same for `wolweb_device_last_w
 - **Login**: `auth.username`/`auth.password` (HTTP Basic, on the internet only behind HTTPS) and/or `auth.api_token`
   for automations.
 - **Login**: credentials (HTTP Basic or API token) are checked one at a time, and a failed login holds the check for
-  0.5 s – at most two per second in total; failed logins are noted in the log (at most once a minute). Clients that
-  logged in within the last 7 days are checked right away, so an attack does not lock them out. Still use a long
-  password and a long random token; wolweb warns at startup if they are short.
+  0.5 s – at most two per second in total; failed logins are noted in the log (at most once a minute). Browsers and
+  clients that logged in within the last 7 days are checked right away, so an attack does not lock them out; a first
+  login may have to wait during an attack (up to about 16 s, or “try again shortly”), public wake pages stay
+  reachable. Still use a long password and a long random token; wolweb warns at startup if they are short.
 - **Password for changes**: viewing and waking stay open, changes need unlocking – see
   [Password for changes](#password-for-changes).
 - **Online status and wake history**: who sees whether devices are running and when they were woken – everyone,
@@ -1009,6 +1013,9 @@ Sicherung, wie sie beim Update waren – alte Sicherungsordner löschen, sobald 
 - *Verlauf verfällt* (neu): Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ werden jetzt nach 30 Tagen gelöscht
   (`privacy.retention_days`, bis 365); `privacy.recording: "off"` speichert nichts davon. Beim ersten Start
   verschwinden ältere Einträge des Verlaufs – die Sicherung (siehe oben) enthält sie noch.
+- *Hinter einem Reverse-Proxy:* Ohne Anmeldung prüft wolweb jetzt auch den Hostnamen, den der Proxy weiterreicht
+  (`X-Forwarded-Host`, `Forwarded`). Ist das deine eigene Domain, erlaube sie wie in Schritt 1 beschrieben.
+- *Prüfports:* `status.ports` nimmt höchstens 16 Ports (Doppelte fallen weg); mit mehr startet wolweb nicht.
 
 **Was sich mit 1.2 ändert – und ob du etwas tun musst:**
 
@@ -1314,8 +1321,10 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
   für Automationen.
 - **Anmeldung**: Zugangsdaten (HTTP Basic oder API-Token) werden nacheinander geprüft, ein Fehlversuch hält die
   Prüfung 0,5 s auf – insgesamt höchstens zwei pro Sekunde; Fehlversuche stehen im Log (höchstens einmal pro Minute).
-  Wer sich in den letzten 7 Tagen angemeldet hat, wird sofort geprüft – ein Angriff sperrt diese Aufrufer nicht aus.
-  Trotzdem ein langes Passwort und ein langes zufälliges Token nehmen; wolweb warnt beim Start, wenn sie kurz sind.
+  Wer sich in den letzten 7 Tagen angemeldet hat, wird sofort geprüft – ein Angriff sperrt diese Aufrufer nicht aus;
+  eine erste Anmeldung muss während eines Angriffs unter Umständen warten (bis etwa 16 s, oder „gleich noch einmal
+  versuchen“), öffentliche Weckseiten bleiben erreichbar. Trotzdem ein langes Passwort und ein langes zufälliges Token
+  nehmen; wolweb warnt beim Start, wenn sie kurz sind.
 - **Passwort für Änderungen**: Ansehen und Wecken bleiben frei, Ändern erst nach dem Entsperren – siehe
   [Passwort für Änderungen](#passwort-für-änderungen).
 - **Online-Status und Weckverlauf**: Wer sieht, ob Geräte laufen und wann sie geweckt wurden – alle, nur nach dem

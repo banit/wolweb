@@ -286,6 +286,9 @@ Sicherung, wie sie beim Update waren – alte Sicherungsordner löschen, sobald 
 - *Verlauf verfällt* (neu): Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ werden jetzt nach 30 Tagen gelöscht
   (`privacy.retention_days`, bis 365); `privacy.recording: "off"` speichert nichts davon. Beim ersten Start
   verschwinden ältere Einträge des Verlaufs – die Sicherung (siehe oben) enthält sie noch.
+- *Hinter einem Reverse-Proxy:* Ohne Anmeldung prüft wolweb jetzt auch den Hostnamen, den der Proxy weiterreicht
+  (`X-Forwarded-Host`, `Forwarded`). Ist das deine eigene Domain, erlaube sie wie in Schritt 1 beschrieben.
+- *Prüfports:* `status.ports` nimmt höchstens 16 Ports (Doppelte fallen weg); mit mehr startet wolweb nicht.
 
 **Was sich mit 1.2 ändert – und ob du etwas tun musst:**
 
@@ -591,8 +594,10 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
   für Automationen.
 - **Anmeldung**: Zugangsdaten (HTTP Basic oder API-Token) werden nacheinander geprüft, ein Fehlversuch hält die
   Prüfung 0,5 s auf – insgesamt höchstens zwei pro Sekunde; Fehlversuche stehen im Log (höchstens einmal pro Minute).
-  Wer sich in den letzten 7 Tagen angemeldet hat, wird sofort geprüft – ein Angriff sperrt diese Aufrufer nicht aus.
-  Trotzdem ein langes Passwort und ein langes zufälliges Token nehmen; wolweb warnt beim Start, wenn sie kurz sind.
+  Wer sich in den letzten 7 Tagen angemeldet hat, wird sofort geprüft – ein Angriff sperrt diese Aufrufer nicht aus;
+  eine erste Anmeldung muss während eines Angriffs unter Umständen warten (bis etwa 16 s, oder „gleich noch einmal
+  versuchen“), öffentliche Weckseiten bleiben erreichbar. Trotzdem ein langes Passwort und ein langes zufälliges Token
+  nehmen; wolweb warnt beim Start, wenn sie kurz sind.
 - **Passwort für Änderungen**: Ansehen und Wecken bleiben frei, Ändern erst nach dem Entsperren – siehe
   [Passwort für Änderungen](#passwort-für-änderungen).
 - **Online-Status und Weckverlauf**: Wer sieht, ob Geräte laufen und wann sie geweckt wurden – alle, nur nach dem
