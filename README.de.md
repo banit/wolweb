@@ -610,7 +610,9 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus
   `allowed_hosts` an (`"wol.example.com"`, `"*.example.com"`, `"*"` schaltet die Prüfung ab). Sonst könnte eine
   fremde Webseite ihren Namen auf die IP von wolweb umbiegen und die API im Browser fernsteuern. Mit Anmeldung wird
-  nur geprüft, wenn `allowed_hosts` gesetzt ist.
+  nur geprüft, wenn `allowed_hosts` gesetzt ist. Hinter einem Reverse-Proxy soll dieser den ursprünglichen Hostnamen
+  weitergeben (nginx: `proxy_set_header Host $host;`, Apache: `ProxyPreserveHost On`); Namen, die ein Proxy in
+  `X-Forwarded-Host` oder `Forwarded: host=` meldet, müssen ebenfalls erlaubt sein.
 
 ## Sprache
 

@@ -590,7 +590,9 @@ brings them back. `privacy.wake_history` does the same for `wolweb_device_last_w
   local suffixes (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) and the names in
   `allowed_hosts` (`"wol.example.com"`, `"*.example.com"`; `"*"` switches the check off). Otherwise a foreign website
   could point its name at wolweb's IP and remote-control the API in your browser. With login, the check only applies
-  when `allowed_hosts` is set.
+  when `allowed_hosts` is set. Behind a reverse proxy, let it pass the original host name on (nginx:
+  `proxy_set_header Host $host;`, Apache: `ProxyPreserveHost On`); names a proxy reports in `X-Forwarded-Host` or
+  `Forwarded: host=` must be allowed as well.
 
 ## Language
 
@@ -1323,7 +1325,9 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus
   `allowed_hosts` an (`"wol.example.com"`, `"*.example.com"`, `"*"` schaltet die Prüfung ab). Sonst könnte eine
   fremde Webseite ihren Namen auf die IP von wolweb umbiegen und die API im Browser fernsteuern. Mit Anmeldung wird
-  nur geprüft, wenn `allowed_hosts` gesetzt ist.
+  nur geprüft, wenn `allowed_hosts` gesetzt ist. Hinter einem Reverse-Proxy soll dieser den ursprünglichen Hostnamen
+  weitergeben (nginx: `proxy_set_header Host $host;`, Apache: `ProxyPreserveHost On`); Namen, die ein Proxy in
+  `X-Forwarded-Host` oder `Forwarded: host=` meldet, müssen ebenfalls erlaubt sein.
 
 ## Sprache
 

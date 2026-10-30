@@ -29,7 +29,8 @@ var lanSuffixes = []string{".local", ".lan", ".home", ".internal", ".intranet", 
 
 // Eine sichere Automatik gibt es hier nicht: Der Name eines echten Reverse-Proxys und der einer
 // Angriffsseite sehen für wolweb gleich aus (öffentliche Domain, Anfrage aus dem LAN), und
-// X-Forwarded-Host kann das Skript der Angriffsseite selbst setzen. Deshalb nennt die Ablehnung den
+// X-Forwarded-Host kann das Skript der Angriffsseite selbst setzen (darum zählt er nur als zusätzliche
+// Ablehnung, siehe deniedHost). Deshalb nennt die Ablehnung den
 // Namen samt der Zeile zum Eintragen, und die Einstellungsseite – über die IP geöffnet – bietet die
 // zuletzt abgelehnten Namen zum Erlauben an. Ein Klick dort braucht X-WolWeb und die vertrauenswürdige
 // Adresse, eine fremde Seite kann ihn nicht auslösen.
@@ -44,9 +45,13 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		host := hostOnly(r.Host)
 		// /health für Healthchecks, static/ für die Fehlerseite selbst (CSS, Symbole – nichts Geheimes).
-		if r.URL.Path == c.VDir+"health" || strings.HasPrefix(r.URL.Path, c.VDir+"static/") || hostAllowed(host, self, c.AllowedHosts) {
+		if r.URL.Path == c.VDir+"health" || strings.HasPrefix(r.URL.Path, c.VDir+"static/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		host := deniedHost(r, self, c.AllowedHosts)
+		if host == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -101,6 +106,44 @@ func (h *rejectedHosts) list(self string, allowed []string) []string {
 		}
 	}
 	slices.SortFunc(out, func(a, b string) int { return h.last[b].Compare(h.last[a]) })
+	return out
+}
+
+// deniedHost liefert den ersten nicht erlaubten Hostnamen der Anfrage, sonst "". Geprüft werden der
+// Host-Kopf und – nur als zusätzliche Ablehnung, nie als Freigabe – die Namen, die ein Reverse-Proxy
+// in X-Forwarded-Host bzw. Forwarded (host=) weiterreicht. Schreibt der Proxy den Host-Kopf auf seine
+// Upstream-Adresse um, sähe wolweb sonst immer nur eine IP und ließe jeden Namen durch.
+func deniedHost(r *http.Request, self string, allowed []string) string {
+	for _, h := range append([]string{r.Host}, forwardedHosts(r)...) {
+		if h = hostOnly(h); !hostAllowed(h, self, allowed) {
+			return h
+		}
+	}
+	return ""
+}
+
+// forwardedHosts liest die von Proxys gemeldeten Original-Hostnamen (alle Einträge, auch mehrfache Köpfe).
+func forwardedHosts(r *http.Request) []string {
+	var out []string
+	for _, v := range r.Header.Values("X-Forwarded-Host") {
+		for _, h := range strings.Split(v, ",") {
+			if h = strings.TrimSpace(h); h != "" {
+				out = append(out, h)
+			}
+		}
+	}
+	for _, v := range r.Header.Values("Forwarded") {
+		for _, elem := range strings.Split(v, ",") {
+			for _, pair := range strings.Split(elem, ";") {
+				k, val, ok := strings.Cut(strings.TrimSpace(pair), "=")
+				if ok && strings.EqualFold(k, "host") {
+					if val = strings.Trim(strings.TrimSpace(val), `"`); val != "" {
+						out = append(out, val)
+					}
+				}
+			}
+		}
+	}
 	return out
 }
 

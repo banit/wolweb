@@ -240,6 +240,45 @@ func TestHostGuard(t *testing.T) {
 	}
 }
 
+// Schreibt ein Reverse-Proxy den Host-Kopf auf seine Upstream-Adresse um, prüft wolweb zusätzlich die
+// weitergereichten Originalnamen – nur als Ablehnung, nie als Freigabe.
+func TestHostGuardForwardedHost(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		header  string
+		value   string
+		allowed []string
+		want    int
+	}{
+		{"fremder Name hinter IP", "X-Forwarded-Host", "rebind.evil.example", nil, http.StatusForbidden},
+		{"Liste mit fremdem Namen", "X-Forwarded-Host", "wol.example.com, rebind.evil.example", []string{"wol.example.com"}, http.StatusForbidden},
+		{"Forwarded host=", "Forwarded", `for=192.0.2.1;host="rebind.evil.example";proto=https`, nil, http.StatusForbidden},
+		{"erlaubter Proxy-Name", "X-Forwarded-Host", "wol.example.com", []string{"wol.example.com"}, http.StatusOK},
+		{"lokaler Name", "X-Forwarded-Host", "wol.lan:8443", nil, http.StatusOK},
+		{"abgeschaltete Prüfung", "X-Forwarded-Host", "rebind.evil.example", []string{"*"}, http.StatusOK},
+	} {
+		h, _ := newTestServer(t, func(c *config.Config) { c.AllowedHosts = tc.allowed })
+		req := httptest.NewRequest("GET", "/api/v1/devices", nil)
+		req.Host = "192.168.1.10:8089"
+		req.Header.Set(tc.header, tc.value)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s: %d statt %d", tc.name, rec.Code, tc.want)
+		}
+	}
+	// Ein erlaubter Weiterleitungsname gibt einen fremden Host-Kopf nicht frei.
+	h, _ := newTestServer(t, func(c *config.Config) { c.AllowedHosts = []string{"wol.example.com"} })
+	req := httptest.NewRequest("GET", "/api/v1/devices", nil)
+	req.Host = "rebind.evil.example"
+	req.Header.Set("X-Forwarded-Host", "wol.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("Freigabe über X-Forwarded-Host: %d", rec.Code)
+	}
+}
+
 // Update von 1.0.x hinter einem Reverse-Proxy: Die Ablehnung nennt Namen und Abhilfe, die
 // Einstellungen bieten den Namen zum Erlauben an – und danach geht es ohne Neustart.
 func TestHostGuardExplainsAndOffersHost(t *testing.T) {
