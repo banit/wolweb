@@ -500,3 +500,50 @@ func TestImportListsEveryEntry(t *testing.T) {
 		t.Errorf("%+v", res)
 	}
 }
+
+// Der Bestand der Suchtreffer bleibt begrenzt; ignorierte und angelegte Geräte bleiben dabei.
+func TestFoundCapped(t *testing.T) {
+	s, _, _ := Open(t.TempDir(), "")
+	s.Create(Input{Name: "PC", MAC: "02:00:00:00:00:01"})
+	old := time.Now().Add(-time.Hour)
+	s.MergeFound([]Found{{MAC: "02:00:00:00:00:01", IP: "10.0.0.1", LastSeen: old}, {MAC: "02:00:00:00:00:02", IP: "10.0.0.2", LastSeen: old}})
+	s.SetIgnored("02:00:00:00:00:02", true)
+	var hits []Found
+	for i := range MaxFound + 100 {
+		hits = append(hits, Found{MAC: fmt.Sprintf("02:aa:%02x:%02x:%02x:00", i>>16&0xff, i>>8&0xff, i&0xff), IP: "10.0.1.1", LastSeen: time.Now()})
+	}
+	if _, err := s.MergeFound(hits); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(s.FoundList()); n > MaxFound {
+		t.Fatalf("%d Treffer, erlaubt %d", n, MaxFound)
+	}
+	for _, mac := range []string{"02:00:00:00:00:01", "02:00:00:00:00:02"} {
+		if _, ok := s.FoundByMAC(mac); !ok {
+			t.Errorf("%s entfernt", mac)
+		}
+	}
+}
+
+// Ein angelegtes Gerät behält Netz und IP seines Suchtreffers, auch wenn dieselbe MAC kurz danach
+// in einem anderen Netz antwortet; nach foundNetPin gilt der Wechsel.
+func TestFoundNetworkPinnedForDevices(t *testing.T) {
+	s, _, _ := Open(t.TempDir(), "")
+	s.Create(Input{Name: "NAS", MAC: "02:00:00:00:00:05"})
+	now := time.Now()
+	s.MergeFound([]Found{{MAC: "02:00:00:00:00:05", IP: "192.168.50.20", Network: "192.168.50.0/24", LastSeen: now.Add(-time.Hour)}})
+	s.MergeFound([]Found{{MAC: "02:00:00:00:00:05", IP: "10.0.20.66", Network: "10.0.20.0/24", LastSeen: now}})
+	if f, _ := s.FoundByMAC("02:00:00:00:00:05"); f.IP != "192.168.50.20" {
+		t.Fatalf("Netz gewechselt: %+v", f)
+	}
+	// Im selben Netz ändert sich die IP normal.
+	s.MergeFound([]Found{{MAC: "02:00:00:00:00:05", IP: "192.168.50.21", Network: "192.168.50.0/24", LastSeen: now}})
+	if f, _ := s.FoundByMAC("02:00:00:00:00:05"); f.IP != "192.168.50.21" {
+		t.Fatalf("IP im selben Netz: %+v", f)
+	}
+	// Lange nicht mehr gesehen: der Wechsel gilt.
+	s.MergeFound([]Found{{MAC: "02:00:00:00:00:05", IP: "10.0.20.66", Network: "10.0.20.0/24", LastSeen: now.Add(foundNetPin + time.Hour)}})
+	if f, _ := s.FoundByMAC("02:00:00:00:00:05"); f.IP != "10.0.20.66" {
+		t.Fatalf("Wechsel nach langer Zeit: %+v", f)
+	}
+}

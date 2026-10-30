@@ -954,6 +954,17 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 // Ignorierte Treffer bleiben, sonst tauchten sie beim nächsten Mal wieder als neu auf.
 const FoundRetention = 30 * 24 * time.Hour
 
+// MaxFound begrenzt den Bestand der Suchtreffer. Die MAC einer ARP-Antwort wählt das antwortende
+// Gerät selbst; ohne Grenze könnte eines mit wechselnden MACs den Bestand beliebig aufblähen. Darüber
+// fallen die am längsten nicht gesehenen Treffer weg (nicht ignorierte, keinem Gerät zugeordnete).
+const MaxFound = 4096
+
+// foundNetPin: So lange behält ein Gerät die IP und das Netz seines letzten Suchtreffers, auch wenn
+// dieselbe MAC in einem anderen Netz antwortet (wie lange die Prüfung Suchtreffer-IPs nutzt). Sonst
+// könnte ein Gerät eines anderen durchsuchten Netzes mit fremder MAC die Prüf-IP und das Weckziel
+// eines Geräts ohne feste IP in sein Netz lenken.
+const foundNetPin = 7 * 24 * time.Hour
+
 // MergeFound übernimmt die Treffer eines Scans, entfernt lange nicht gesehene Treffer und
 // liefert die Anzahl neu entdeckter MACs.
 func (s *Store) MergeFound(hits []Found) (int, error) {
@@ -971,6 +982,10 @@ func (s *Store) MergeFound(hits []Found) (int, error) {
 			}
 			continue
 		}
+		if f.Network != "" && h.Network != "" && f.Network != h.Network && s.knownMAC(h.MAC) &&
+			h.LastSeen.Sub(f.LastSeen) < foundNetPin {
+			continue // Netzwechsel eines angelegten Geräts erst, wenn es im alten Netz lange nicht mehr gesehen wurde
+		}
 		f.IP, f.LastSeen, f.Vendor, f.Interface, f.Network = h.IP, h.LastSeen, h.Vendor, h.Interface, h.Network
 		if h.Hostname != "" {
 			f.Hostname, f.HostnameSource = h.Hostname, h.HostnameSource
@@ -981,7 +996,28 @@ func (s *Store) MergeFound(hits []Found) (int, error) {
 			delete(s.found, mac)
 		}
 	}
+	s.capFound()
 	return newCount, s.saveFound()
+}
+
+// capFound kürzt den Bestand auf MaxFound (unter s.mu).
+func (s *Store) capFound() {
+	if len(s.found) <= MaxFound {
+		return
+	}
+	var drop []*Found
+	for _, f := range s.found {
+		if !f.Ignored && !s.knownMAC(f.MAC) {
+			drop = append(drop, f)
+		}
+	}
+	slices.SortFunc(drop, func(a, b *Found) int { return a.LastSeen.Compare(b.LastSeen) })
+	for _, f := range drop {
+		if len(s.found) <= MaxFound {
+			break
+		}
+		delete(s.found, f.MAC)
+	}
 }
 
 func (s *Store) knownMAC(mac string) bool {

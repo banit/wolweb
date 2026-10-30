@@ -420,6 +420,8 @@ unter „Schnittstellen dieses Rechners“; „Übernehmen“ trägt das Netz ei
 Geräte darin weckt wolweb über die richtige Schnittstelle (die Broadcast-Adresse folgt aus der IP des Geräts), und
 die Suche findet sie. Für Geräte ohne IP schlägt der Gerätedialog unter „Erweitert → Broadcast-Adresse“ die
 Broadcasts der eingetragenen Netze vor.
+Bei mehreren Netzen am besten jedem Gerät eine IP oder Broadcast-Adresse geben: Ohne beides folgt sein Weckziel dem
+Netz, in dem die Suche es zuletzt gesehen hat (ein Netzwechsel gilt erst nach einer Woche ohne Sichtung im alten).
 
 Voraussetzung: Der Switch-Port bzw. die Bridge des Rechners reicht das VLAN getaggt durch (Trunk), und wolweb hat im
 VLAN eine eigene, feste Adresse (außerhalb des DHCP-Bereichs oder per DHCP-Reservierung). **Kein Gateway** auf den
