@@ -146,7 +146,7 @@ func (s *Store) RecordWake(evs ...Event) error {
 			ev.Time = time.Now().UTC()
 		}
 		s.state.History = append(s.state.History, ev)
-		if ev.Success && ev.ID != "" {
+		if ev.Success && ev.ID != "" && !ev.Retry { // die Wiederholung verriete sonst, dass es offline blieb
 			s.state.LastWake[ev.ID] = ev.Time
 		}
 	}

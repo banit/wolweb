@@ -583,7 +583,7 @@ wer die Einstellungsseite benutzen darf.
 `authorization: {credentials: <api_token>}`. Ist der Online-Status ausgeblendet ([Privatsphäre](#privatsphäre)),
 bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_seen_timestamp_seconds` leer – bei
 `unlocked` bringt das Token sie zurück. `privacy.wake_history` macht dasselbe mit
-`wolweb_device_last_wake_timestamp_seconds` und `wolweb_wakes_total`.
+`wolweb_device_last_wake_timestamp_seconds` und `wolweb_wakes_total`. Automatische Wiederholungen zählen in beiden nicht mit.
 
 ## Sicherheit
 

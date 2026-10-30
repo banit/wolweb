@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -682,7 +683,7 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 	if err := s.store.RecordWake(evs...); err != nil {
 		log.Printf("Saving history: %v", err)
 	}
-	s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
+	s.wakesChanged(as) // "zuletzt geweckt" in den offenen Fenstern, die es sehen dürfen
 	for _, a := range as {
 		ev := a.ev
 		if ev.Success {
@@ -694,12 +695,12 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 		if !ev.Success {
 			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.rt().lang, "notify.wake_failed", ev.Device, ev.Localized(s.rt().lang).Error)
 		}
+		if ev.Retry {
+			continue // "geweckt" kam schon beim ersten Mal; nicht mitzählen – die Wiederholung verriete, dass es offline blieb
+		}
 		s.wakesMu.Lock()
 		s.wakes[[2]string{ev.ID, result}]++
 		s.wakesMu.Unlock()
-		if ev.Retry && ev.Success {
-			continue // "geweckt" kam schon beim ersten Mal
-		}
 		s.rt().notify.Send(notify.Event{Event: kind, Device: ev.Device, ID: ev.ID, IP: a.d.IP, Source: ev.Source, Message: msg})
 	}
 	s.scheduleRetry(as)
@@ -865,6 +866,9 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	}
 	events := s.store.History(limit)
 	show := vis.status
+	if !show { // eine automatische Wiederholung gibt es nur, wenn das Gerät offline blieb
+		events = slices.DeleteFunc(events, func(ev store.Event) bool { return ev.Retry })
+	}
 	for i := range events {
 		events[i] = events[i].Localized(s.lang(r))
 		if !show { // ob und wann ein Gerät lief, gehört zum Online-Status

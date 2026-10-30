@@ -563,7 +563,7 @@ address accepted the message is of course still visible to anyone who may use th
 `authorization: {credentials: <api_token>}`. If the online status is hidden ([Privacy](#privacy)), `wolweb_device_up`,
 `wolweb_device_rtt_seconds` and `wolweb_device_last_seen_timestamp_seconds` stay empty – with `unlocked`, the token
 brings them back. `privacy.wake_history` does the same for `wolweb_device_last_wake_timestamp_seconds` and
-`wolweb_wakes_total`.
+`wolweb_wakes_total`. Automatic retries count in neither of them.
 
 ## Security
 
@@ -1302,7 +1302,7 @@ wer die Einstellungsseite benutzen darf.
 `authorization: {credentials: <api_token>}`. Ist der Online-Status ausgeblendet ([Privatsphäre](#privatsphäre)),
 bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_seen_timestamp_seconds` leer – bei
 `unlocked` bringt das Token sie zurück. `privacy.wake_history` macht dasselbe mit
-`wolweb_device_last_wake_timestamp_seconds` und `wolweb_wakes_total`.
+`wolweb_device_last_wake_timestamp_seconds` und `wolweb_wakes_total`. Automatische Wiederholungen zählen in beiden nicht mit.
 
 ## Sicherheit
 
