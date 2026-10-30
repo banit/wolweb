@@ -25,10 +25,13 @@ import (
 //
 // Damit ein Angriff Angemeldete nicht aussperrt, haben sie Vorrang und werden sofort geprüft:
 //   - Browser mit dem Nachweis einer Anmeldung in den letzten loginGoodFor (Cookie wolweb_login,
-//     signiert mit dem lokalen Geheimnis, gebunden an die eingestellten Zugangsdaten und den
-//     Aufrufer) – ohne Grenze, denn wer ihn hat, kannte die Zugangsdaten;
-//   - Aufrufer ohne Cookies (Automationen), die sich von derselben Adresse (clientKey) in den letzten
-//     loginGoodFor angemeldet haben – höchstens loginFastMax gleichzeitig; ein Fehlversuch nimmt den
+//     signiert mit dem lokalen Geheimnis, gebunden an die eingestellten Zugangsdaten, den Aufrufer und
+//     die Art – Basic oder Token: wer Basic kennt, rät das mächtigere Token nicht am Vorrang vorbei).
+//     An den Wert der Zugangsdaten ist er bewusst nicht gebunden – dann verriete der Vorrang selbst,
+//     ob ein Versuch stimmt. Wie unten höchstens loginFastMax gleichzeitig, und ein Fehlversuch setzt
+//     ihn für loginCooldown aus;
+//   - Aufrufer ohne Cookies (Automationen), die sich von derselben Adresse (clientKey) mit derselben Art
+//     von Zugangsdaten in den letzten loginGoodFor angemeldet haben – höchstens loginFastMax gleichzeitig; ein Fehlversuch nimmt den
 //     Vorrang für loginCooldown. Wer sich die Adresse mit einem Angemeldeten teilt (NAT, Proxy ohne
 //     X-Forwarded-For), rät so höchstens loginFastMax-mal pro Minute ungebremst.
 // Wer sich zum ersten Mal anmeldet, hat keinen Vorrang: Während eines Angriffs wartet er bis zu
@@ -72,28 +75,20 @@ func (b *loginBrake) check(r *http.Request, authorized func(*http.Request) bool,
 	if r.Header.Get("Authorization") == "" {
 		return false, false
 	}
-	key := clientKey(r)
-	if proven {
-		if ok = authorized(r); ok {
-			b.markGood(key)
-		} else {
-			b.note(key)
-			time.Sleep(loginFailDelay)
-		}
-		return ok, false
-	}
-	if b.claimFast(key) {
+	who := clientKey(r)
+	key := who + "|" + loginKind(r) // Vorrang gilt je Aufrufer und Art der Zugangsdaten
+	if b.claimFast(key, proven) {
 		ok := authorized(r)
 		b.releaseFast(key, ok)
 		if !ok {
-			b.note(key)
+			b.note(who)
 			time.Sleep(loginFailDelay)
 		}
 		return ok, false
 	}
 	src := sourceKey(r)
 	if !b.enqueue(src) {
-		b.note(key)
+		b.note(who)
 		return false, true
 	}
 	defer b.dequeue(src)
@@ -104,9 +99,15 @@ func (b *loginBrake) check(r *http.Request, authorized func(*http.Request) bool,
 		return true, false
 	}
 	b.markFailed(key)
-	b.note(key)
+	b.note(who)
 	time.Sleep(loginFailDelay)
 	return false, false
+}
+
+// loginKind: Art der Zugangsdaten in r ("basic", "bearer" …).
+func loginKind(r *http.Request) string {
+	kind, _, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+	return strings.ToLower(kind)
 }
 
 // sourceKey: woher eine Anfrage kommt, für den Anteil an der Warteschlange – die Adresse der
@@ -146,12 +147,21 @@ func (b *loginBrake) dequeue(src string) {
 	}
 }
 
-// claimFast: key darf sofort geprüft werden (angemeldet, nicht gerade gescheitert, Platz frei).
-func (b *loginBrake) claimFast(key string) bool {
+// claimFast: key darf sofort geprüft werden – mit Nachweis (proven) oder nach einer Anmeldung von
+// dort, nicht gerade gescheitert, Platz frei.
+func (b *loginBrake) claimFast(key string, proven bool) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	c := b.clients[key]
-	if c == nil || c.good.IsZero() || time.Since(c.good) >= loginGoodFor || c.inflight >= loginFastMax {
+	if proven && c == nil {
+		if c = b.client(key); c == nil {
+			return false
+		}
+	}
+	if c == nil || c.inflight >= loginFastMax || time.Since(c.failed) < loginCooldown {
+		return false
+	}
+	if !proven && (c.good.IsZero() || time.Since(c.good) >= loginGoodFor) {
 		return false
 	}
 	c.inflight++
@@ -253,10 +263,10 @@ func (s *Server) loginKey() []byte {
 	return m.Sum(nil)
 }
 
-// loginProof: Nachweis für den Aufrufer von r bis exp (Unix-Sekunden).
+// loginProof: Nachweis für den Aufrufer von r und die Art seiner Zugangsdaten bis exp (Unix-Sekunden).
 func (s *Server) loginProof(r *http.Request, exp string) string {
 	m := hmac.New(sha256.New, s.loginKey())
-	m.Write([]byte(exp + "|" + clientKey(r)))
+	m.Write([]byte(exp + "|" + clientKey(r) + "|" + loginKind(r)))
 	return exp + "." + hex.EncodeToString(m.Sum(nil))[:32]
 }
 

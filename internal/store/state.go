@@ -108,6 +108,9 @@ func (s *Store) loadState() (changed bool, err error) {
 	if s.state.LastSeen == nil {
 		s.state.LastSeen = map[string]time.Time{}
 	}
+	if fixRetryLastWake(&s.state) {
+		changed = true
+	}
 	// Fehlt das Geheimnis oder ist es kaputt (etwa von Hand gekürzt), wird ein neues erzeugt. Ein
 	// leerer Schlüssel machte die Gruppen-Wecklinks für jeden berechenbar.
 	for _, sec := range []*string{&s.state.Secret, &s.state.LocalSecret} {
@@ -119,6 +122,35 @@ func (s *Store) loadState() (changed bool, err error) {
 	}
 	s.state.Version = 1
 	return changed, nil
+}
+
+// fixRetryLastWake: Ältere Versionen setzten "zuletzt geweckt" auch bei automatischen Wiederholungen –
+// das verriete, dass ein Gerät offline blieb. Stammt der Wert von einer Wiederholung, gilt der letzte
+// andere erfolgreiche Weckruf im Verlauf; gibt es keinen, fällt der Wert weg.
+func fixRetryLastWake(st *stateFile) (changed bool) {
+	for id, t := range st.LastWake {
+		var last time.Time
+		retried := false
+		for _, ev := range st.History {
+			switch {
+			case ev.ID != id || !ev.Success:
+			case ev.Retry:
+				retried = retried || ev.Time.Equal(t)
+			case ev.Time.After(last):
+				last = ev.Time
+			}
+		}
+		if !retried {
+			continue
+		}
+		if last.IsZero() {
+			delete(st.LastWake, id)
+		} else {
+			st.LastWake[id] = last
+		}
+		changed = true
+	}
+	return changed
 }
 
 // saveState muss unter s.mu (Schreibsperre) aufgerufen werden.

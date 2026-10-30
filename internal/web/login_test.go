@@ -158,6 +158,13 @@ func TestLoginProofBoundToClient(t *testing.T) {
 	if !s.loginProven(req("192.0.2.11", value)).IsZero() {
 		t.Fatal("Nachweis gilt für einen anderen Aufrufer")
 	}
+	basic := req("192.0.2.10", "")
+	basic.SetBasicAuth("admin", "x")
+	bearer := req("192.0.2.10", s.loginProof(basic, exp))
+	bearer.Header.Set("Authorization", "Bearer x")
+	if !s.loginProven(bearer).IsZero() {
+		t.Fatal("Basic-Nachweis gilt für das Token")
+	}
 	old := fmt.Sprint(time.Now().Add(-time.Minute).Unix())
 	if !s.loginProven(req("192.0.2.10", s.loginProof(req("192.0.2.10", ""), old))).IsZero() {
 		t.Fatal("abgelaufener Nachweis gilt")
@@ -172,24 +179,24 @@ func TestLoginGoodClients(t *testing.T) {
 	req.RemoteAddr = "192.0.2.10:40000"
 	req.Header.Set("Authorization", "Bearer x")
 	yes := func(*http.Request) bool { return true }
-	if ok, _ := b.check(req, yes, false); !ok || !b.claimFast("192.0.2.10") {
+	if ok, _ := b.check(req, yes, false); !ok || !b.claimFast("192.0.2.10|bearer", false) {
 		t.Fatal("Anmeldung nicht gemerkt")
 	}
-	b.releaseFast("192.0.2.10", true)
+	b.releaseFast("192.0.2.10|bearer", true)
 	for range loginFastMax {
-		b.claimFast("192.0.2.10")
+		b.claimFast("192.0.2.10|bearer", false)
 	}
-	if b.claimFast("192.0.2.10") {
+	if b.claimFast("192.0.2.10|bearer", false) {
 		t.Fatalf("mehr als %d gleichzeitige Sofortprüfungen", loginFastMax)
 	}
 	for range loginFastMax {
-		b.releaseFast("192.0.2.10", true)
+		b.releaseFast("192.0.2.10|bearer", true)
 	}
-	if ok, _ := b.check(req, func(*http.Request) bool { return false }, false); ok || b.claimFast("192.0.2.10") {
+	if ok, _ := b.check(req, func(*http.Request) bool { return false }, false); ok || b.claimFast("192.0.2.10|bearer", false) {
 		t.Fatal("Fehlversuch behält Vorrang")
 	}
 	b.check(req, yes, false)
-	if b.claimFast("192.0.2.10") {
+	if b.claimFast("192.0.2.10|bearer", false) {
 		t.Fatal("Erfolg gleich nach einem Fehlversuch gibt den Vorrang zurück")
 	}
 	for i := range loginClientsMax + 10 {
@@ -197,5 +204,66 @@ func TestLoginGoodClients(t *testing.T) {
 	}
 	if n := len(b.clients); n > loginClientsMax {
 		t.Fatalf("%d gemerkte Aufrufer, erlaubt %d", n, loginClientsMax)
+	}
+}
+
+// Ein Nachweis aus einer Basic-Anmeldung hilft nicht beim Raten des API-Tokens: Bearer-Versuche damit
+// laufen durch die Bremse, gleichzeitige einzeln.
+func TestLoginProofNotForOtherKind(t *testing.T) {
+	h, _ := newTestServer(t, func(c *config.Config) {
+		c.Auth.Username, c.Auth.Password, c.Auth.APIToken = "admin", "geheim-lang-genug", "tok-lang-genug-1234567"
+	})
+	do := func(cookie *http.Cookie, set func(*http.Request)) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/api/v1/info", nil)
+		req.RemoteAddr = "192.0.2.10:40000"
+		set(req)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	var proof *http.Cookie
+	for _, c := range do(nil, func(r *http.Request) { r.SetBasicAuth("admin", "geheim-lang-genug") }).Result().Cookies() {
+		if c.Name == loginCookie {
+			proof = c
+		}
+	}
+	if proof == nil {
+		t.Fatal("kein Nachweis")
+	}
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := range 3 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			do(proof, func(r *http.Request) { r.Header.Set("Authorization", fmt.Sprint("Bearer falsch", i)) })
+		}()
+	}
+	wg.Wait()
+	if d := time.Since(start); d < 3*loginFailDelay-50*time.Millisecond {
+		t.Fatalf("3 Bearer-Versuche mit Basic-Nachweis in %s – nicht gebremst", d)
+	}
+}
+
+// Mit Nachweis höchstens loginFastMax gleichzeitig; ein Fehlversuch setzt den Vorrang aus.
+func TestLoginProofCappedAndSuspended(t *testing.T) {
+	var b loginBrake
+	for range loginFastMax {
+		if !b.claimFast("192.0.2.20", true) {
+			t.Fatal("Nachweis ohne Vorrang")
+		}
+	}
+	if b.claimFast("192.0.2.20", true) {
+		t.Fatalf("mehr als %d gleichzeitige Prüfungen mit Nachweis", loginFastMax)
+	}
+	for range loginFastMax - 1 {
+		b.releaseFast("192.0.2.20", true)
+	}
+	b.releaseFast("192.0.2.20", false)
+	if b.claimFast("192.0.2.20", true) {
+		t.Fatal("Nachweis gilt gleich nach einem Fehlversuch")
 	}
 }

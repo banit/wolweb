@@ -66,3 +66,35 @@ func TestWaitOnlineLimited(t *testing.T) {
 		t.Fatalf("hat trotz voller Plätze gewartet: %s", time.Since(start))
 	}
 }
+
+// Ändert sich das Ziel, während eine Prüfung läuft, teilt sich der nächste Aufruf sie nicht: Er bekäme
+// sonst das Ergebnis der alten IP.
+func TestSharedCheckFollowsTarget(t *testing.T) {
+	s, _, _ := settingsServer(t, `{"port": 8089}`)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	port := l.Addr().(*net.TCPAddr).Port
+	old, err := s.store.Create(store.Input{Name: "NAS", MAC: "02:00:00:00:00:01", IP: "192.0.2.1", Ports: []int{port}, Broadcast: udpSink(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := old
+	moved.IP = "127.0.0.1"
+	go s.sharedCheck(context.Background(), old) // läuft gegen die alte, nicht erreichbare IP
+	time.Sleep(10 * time.Millisecond)
+	if st, ok := s.sharedCheck(context.Background(), moved); !ok || st.State != "online" {
+		t.Fatalf("neues Ziel: %v %+v", ok, st)
+	}
+}

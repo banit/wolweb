@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -32,21 +33,25 @@ type checkCall struct {
 // selbst hängt nicht am Aufrufer (sie ist durch das Zeitlimit der Prüfung begrenzt); ok ist false,
 // wenn ctx vorher endet.
 func (s *Server) sharedCheck(ctx context.Context, d store.Device) (st status.State, ok bool) {
+	// Zusammengelegt wird nur, was dasselbe Ziel prüft: Ändert sich die IP (Gerät bearbeitet, neuer
+	// Suchtreffer), bekäme ein späterer Aufruf sonst das Ergebnis des alten Ziels.
+	ip, _ := s.monitor.Target(d)
+	key := fmt.Sprint(d.ID, "|", ip, "|", d.Ports)
 	f := &s.flights
 	f.mu.Lock()
 	if f.m == nil {
 		f.m = map[string]*checkCall{}
 	}
-	c, running := f.m[d.ID]
+	c, running := f.m[key]
 	if !running {
 		c = &checkCall{done: make(chan struct{})}
-		f.m[d.ID] = c
+		f.m[key] = c
 		go func() {
 			cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			c.st = s.monitor.Check(cctx, d)
 			f.mu.Lock()
-			delete(f.m, d.ID)
+			delete(f.m, key)
 			f.mu.Unlock()
 			close(c.done)
 		}()
