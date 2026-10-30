@@ -21,11 +21,17 @@ import (
 
 // --- Gruppen ---
 
-// groupKey ist der Schlüssel des öffentlichen Gruppen-Wecklinks. Er wird aus dem Geheimnis der
-// Installation abgeleitet, muss also nirgends gespeichert werden.
+// groupKey ist der Schlüssel des öffentlichen Gruppen-Wecklinks für den Namen name (auch einen
+// früheren Namen). Er wird aus dem Geheimnis der Installation und dem Salz der Gruppe abgeleitet:
+// Eine gelöschte und neu angelegte Gruppe gleichen Namens hat ein anderes Salz, alte Links gelten
+// dann nicht. Gruppen ohne Salz (aus 1.3 und früher) behalten ihren bisherigen Schlüssel.
 func (s *Server) groupKey(name string) string {
+	msg := "gruppe:" + strings.ToLower(name)
+	if g, ok := s.store.FindGroup(name); ok && g.Salt != "" {
+		msg += "|" + g.Salt
+	}
 	m := hmac.New(sha256.New, s.store.Secret())
-	m.Write([]byte("gruppe:" + strings.ToLower(name)))
+	m.Write([]byte(msg))
 	return hex.EncodeToString(m.Sum(nil))[:24]
 }
 
@@ -101,6 +107,18 @@ func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	s.devicesChanged()
 	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.visibility(r)))
+}
+
+// renewGroupKey gibt der Gruppe einen neuen Wecklink-Schlüssel; bisherige Links gelten nicht mehr.
+func (s *Server) renewGroupKey(w http.ResponseWriter, r *http.Request) {
+	g, err := s.store.RenewGroupKey(r.PathValue("name"))
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	log.Printf("Group wake link key renewed: %s", g.Name)
+	s.devicesChanged()
+	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), true, s.visibility(r)))
 }
 
 func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {

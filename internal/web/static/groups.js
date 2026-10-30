@@ -59,6 +59,7 @@
       el("span", {}, d.name, d.group && !inGroup(d) ? el("small", { class: "muted", text: t("ui.grp.in_x", d.group) }) : null))));
     $("#group-no-devices").hidden = devices.length > 0;
     $("#group-delete").hidden = !g;
+    $("#group-rotate-key").hidden = !(g && g.key); // Schlüssel gibt es nur mit auth.wake_keys
     showError("");
     renderHint();
     dlg.showModal();
@@ -147,6 +148,26 @@
     } catch (err) {
       if (stillOpen(mine)) showError(err.message);
       else o.toast("err", t("ui.grp.delete_failed"), err.message);
+    }
+  });
+
+  // Neuer Schlüssel: Bisherige Gruppen-Wecklinks gelten danach ohne Anmeldung nicht mehr.
+  $("#group-rotate-key").addEventListener("click", async () => {
+    if (!cur || !cur.group) return;
+    const mine = cur;
+    const { group: g, opts: o } = mine;
+    if (!(await confirm(t("ui.rotate.title", g.name), t("ui.rotate.text"), t("ui.rotate.ok")))) {
+      if (stillOpen(mine)) $("#group-rotate-key").focus();
+      return;
+    }
+    try {
+      const ng = await o.api("POST", "groups/" + encodeURIComponent(g.name) + "/wake-key");
+      if (stillOpen(mine)) mine.group = ng;
+      o.toast("ok", t("ui.rotate.done"), "");
+      o.onSaved(ng.name);
+    } catch (err) {
+      if (stillOpen(mine)) showError(err.message);
+      else o.toast("err", t("ui.not_possible"), err.message);
     }
   });
 

@@ -138,6 +138,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+api+"groups", s.listGroups)
 	mux.HandleFunc("POST "+api+"groups", s.change(s.createGroup))
 	mux.HandleFunc("PUT "+api+"groups/{name}", s.change(s.updateGroup))
+	mux.HandleFunc("POST "+api+"groups/{name}/wake-key", s.change(s.renewGroupKey))
 	mux.HandleFunc("DELETE "+api+"groups/{name}", s.change(s.deleteGroup))
 	mux.HandleFunc("PUT "+api+"order", s.change(s.arrange))
 	mux.HandleFunc("POST "+api+"groups/{name}/wake", s.wakeGroupAPI)

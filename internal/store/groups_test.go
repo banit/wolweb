@@ -240,3 +240,19 @@ func TestFormerGroupNameMeansThatGroup(t *testing.T) {
 		t.Fatalf("Mitglieder: %q", names(m))
 	}
 }
+
+// Gruppen aus 1.3 und früher haben kein Salz: Laden lässt es leer (ihre Links gelten weiter), neue
+// Gruppen bekommen eins.
+func TestGroupSaltOnlyForNewGroups(t *testing.T) {
+	devs := []Device{{ID: "a", Name: "A", Group: "Alt"}}
+	if g := syncGroups(devs, nil, false); len(g) != 1 || g[0].Salt != "" {
+		t.Fatalf("beim Laden: %+v", g)
+	}
+	if g := syncGroups(devs, nil, true); len(g) != 1 || len(g[0].Salt) != 16 {
+		t.Fatalf("bei Änderungen: %+v", g)
+	}
+	g := mergeGroups(nil, []Group{{Name: "X", Salt: "0011223344556677"}, {Name: "Y", Salt: "kaputt"}})
+	if g[0].Salt != "0011223344556677" || g[1].Salt != "" {
+		t.Fatalf("aus Datei: %+v", g)
+	}
+}

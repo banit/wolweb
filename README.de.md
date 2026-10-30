@@ -593,7 +593,7 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
   Entsperren oder niemand –, siehe [Privatsphäre](#privatsphäre).
 - **Öffentliche Wecklinks** (`auth.public_wake`): Mit Anmeldung bleiben `/wake/<Name>` und die Weckseite ohne Login
   erreichbar. Damit niemand Geräte über erratene Namen weckt, verlangt `auth.wake_keys` zusätzlich einen Schlüssel
-  je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern.
+  je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern (Gruppenschlüssel im Gruppendialog). Eine gelöschte und gleichnamig neu angelegte Gruppe bekommt einen neuen Schlüssel.
 - **Kein doppeltes Wecken**: Jedes Gerät bekommt höchstens alle 10 s einen Weckruf – mit und ohne Anmeldung, über
   Wecklink, Gruppenlink, Weckseite und API gemeinsam. Ein zweiter Aufruf in dieser Zeit (zweimal getippt, Seite neu
   geladen) ist kein Fehler: Er meldet „wird bereits geweckt“ (`"already": true`) und die Seite verfolgt den

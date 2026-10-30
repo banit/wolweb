@@ -278,7 +278,7 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 	}
 	// Bis 1.2 gab es Gruppen nur als Namen am Gerät: Einträge anlegen (alphabetisch, wie bisher gezeigt).
 	nGroups := len(s.groups)
-	s.groups = syncGroups(s.devices, s.groups)
+	s.groups = syncGroups(s.devices, s.groups, false)
 	missingKey = missingKey || len(s.groups) != nGroups
 	// last_wake erst nach dem Speichern von state.json aus devices.json entfernen. Nach einem
 	// Versionswechsel einmal neu schreiben, damit die Datei die neue Version nennt (und die
@@ -683,7 +683,7 @@ func (s *Store) SetGroup(ids []string, group string) ([]Device, error) {
 		}
 		changed = append(changed, next[i])
 	}
-	if err := s.commitGroups(next, syncGroups(next, s.groups)); err != nil {
+	if err := s.commitGroups(next, syncGroups(next, s.groups, true)); err != nil {
 		return nil, err
 	}
 	return changed, nil
@@ -719,7 +719,7 @@ func (s *Store) Create(in Input) (Device, error) {
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
 	next := append(slices.Clone(s.devices), d)
 	releaseAlias(next, d.Name, d.ID)
-	groups := syncGroups(next, s.groups)
+	groups := syncGroups(next, s.groups, true)
 	if err := s.commitGroups(next, groups); err != nil {
 		return d, err
 	}
@@ -757,7 +757,7 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 	next := slices.Clone(s.devices)
 	next[i] = d
 	releaseAlias(next, d.Name, d.ID)
-	if err := s.commitGroups(next, syncGroups(next, s.groups)); err != nil {
+	if err := s.commitGroups(next, syncGroups(next, s.groups, true)); err != nil {
 		return d, err
 	}
 	return next[i], nil
@@ -933,7 +933,7 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 		res.SecretRestored = true
 	}
 	// Gruppen der Datei mit Reihenfolge und früheren Namen übernehmen, soweit es sie noch nicht gibt.
-	if err := s.commitGroups(next, syncGroups(next, mergeGroups(slices.Clone(s.groups), decodeGroups(b)))); err != nil {
+	if err := s.commitGroups(next, syncGroups(next, mergeGroups(slices.Clone(s.groups), decodeGroups(b)), true)); err != nil {
 		return ImportResult{}, err
 	}
 	return res, nil
