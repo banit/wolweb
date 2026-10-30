@@ -933,7 +933,15 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 		res.SecretRestored = true
 	}
 	// Gruppen der Datei mit Reihenfolge und früheren Namen übernehmen, soweit es sie noch nicht gibt.
-	if err := s.commitGroups(next, syncGroups(next, mergeGroups(slices.Clone(s.groups), decodeGroups(b)), true)); err != nil {
+	// Ihr Salz (Teil des Wecklink-Schlüssels) nur beim Wiederherstellen: Sonst brächte eine alte Datei
+	// die Links einer inzwischen gelöschten oder erneuerten Gruppe zurück.
+	add := decodeGroups(b)
+	if !restore {
+		for i := range add {
+			add[i].Salt = newGroupSalt()
+		}
+	}
+	if err := s.commitGroups(next, syncGroups(next, mergeGroups(slices.Clone(s.groups), add), true)); err != nil {
 		return ImportResult{}, err
 	}
 	return res, nil
