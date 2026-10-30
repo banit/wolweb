@@ -41,6 +41,7 @@
  "err.invalid_json": "Ungültige Daten: {0}",
  "err.json_multiple": "Ungültige Daten: mehr als ein JSON-Wert",
  "err.locked": "Änderungen sind gesperrt. Entsperre die Ansicht mit dem Passwort.",
+ "err.login_wait": "Zu viele fehlgeschlagene Anmeldungen – bitte gleich noch einmal versuchen.",
  "err.networks_locked": "Die Netze sind per Umgebungsvariable (WOLWEB_NETWORKS) festgelegt.",
  "err.none_selected": "Keine Geräte ausgewählt",
  "err.notify_empty": "Weder Webhook noch ntfy eingetragen",

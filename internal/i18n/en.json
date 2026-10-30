@@ -41,6 +41,7 @@
  "err.invalid_json": "Invalid data: {0}",
  "err.json_multiple": "Invalid data: more than one JSON value",
  "err.locked": "Changes are locked. Unlock the view with the password.",
+ "err.login_wait": "Too many failed logins – please try again shortly.",
  "err.networks_locked": "The networks are set by an environment variable (WOLWEB_NETWORKS).",
  "err.none_selected": "No devices selected",
  "err.notify_empty": "Neither webhook nor ntfy entered",

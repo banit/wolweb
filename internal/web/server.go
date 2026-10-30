@@ -49,6 +49,7 @@ type Server struct {
 	flights   checkFlights   // laufende Online-Prüfungen je Gerät (gemeinsam genutzt)
 	waitSlots chan struct{}  // Plätze für gleichzeitige ?wait=-Schleifen (maxWaiters)
 	attempts  attemptLimiter // Fehlversuche beim Entsperren
+	logins    loginBrake     // gescheiterte Anmeldungen (Basic, API-Token)
 	rejected  rejectedHosts  // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
 	schedRan  ranSchedules   // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
 	hub       hub
@@ -187,6 +188,10 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		if p == base+"health" || strings.HasPrefix(p, base+"static/") ||
 			(s.conf().Auth.PublicWake && (strings.HasPrefix(p, base+"wake/") || strings.HasPrefix(p, base+"wake-group/"))) {
 			next.ServeHTTP(w, markPublic(r)) // ohne Anmeldung: Schlüssel und Begrenzung greifen
+			return
+		}
+		if r.Header.Get("Authorization") != "" && !s.logins.fail(clientKey(r)) { // falsche Zugangsdaten: bremsen
+			s.fail(w, r, http.StatusTooManyRequests, "err.login_wait")
 			return
 		}
 		if s.conf().Auth.Username != "" {

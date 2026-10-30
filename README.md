@@ -569,6 +569,9 @@ brings them back. `privacy.wake_history` does the same for `wolweb_device_last_w
 
 - **Login**: `auth.username`/`auth.password` (HTTP Basic, on the internet only behind HTTPS) and/or `auth.api_token`
   for automations.
+- **Login**: failed logins (HTTP Basic or API token) are slowed down – at most two per second in total, correct
+  credentials never wait – and noted in the log (at most once a minute). Still use a long password and a long random
+  token; wolweb warns at startup if they are short.
 - **Password for changes**: viewing and waking stay open, changes need unlocking – see
   [Password for changes](#password-for-changes).
 - **Online status and wake history**: who sees whether devices are running and when they were woken – everyone,
@@ -1308,6 +1311,9 @@ bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_
 
 - **Anmeldung**: `auth.username`/`auth.password` (HTTP Basic, im Internet nur hinter HTTPS) und/oder `auth.api_token`
   für Automationen.
+- **Anmeldung**: Fehlgeschlagene Anmeldungen (HTTP Basic oder API-Token) werden gebremst – insgesamt höchstens zwei
+  pro Sekunde, richtige Zugangsdaten warten nie – und im Log vermerkt (höchstens einmal pro Minute). Trotzdem ein
+  langes Passwort und ein langes zufälliges Token nehmen; wolweb warnt beim Start, wenn sie kurz sind.
 - **Passwort für Änderungen**: Ansehen und Wecken bleiben frei, Ändern erst nach dem Entsperren – siehe
   [Passwort für Änderungen](#passwort-für-änderungen).
 - **Online-Status und Weckverlauf**: Wer sieht, ob Geräte laufen und wann sie geweckt wurden – alle, nur nach dem
