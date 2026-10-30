@@ -70,12 +70,18 @@ func (ev Event) Localized(l i18n.Lang) Event {
 	return ev
 }
 
-// HistoryMax begrenzt den Verlauf (älteste Einträge fallen heraus).
+// HistoryMax begrenzt den Verlauf (älteste Einträge fallen heraus). Automatische Wiederholungen zählen
+// nicht mit: Sie gibt es nur, wenn ein Gerät offline blieb – verdrängten sie andere Einträge, sähe das
+// auch, wer den Online-Status nicht sehen darf. Wiederholungen vor dem ältesten behaltenen Eintrag
+// fallen mit heraus.
 const HistoryMax = 500
 
 type stateFile struct {
 	Version int    `json:"version"`
-	Secret  string `json:"secret,omitempty"`
+	Secret  string `json:"secret,omitempty"` // auch im Export: Gruppen-Wecklinks überstehen so eine Wiederherstellung
+	// LocalSecret signiert Entsperrungen und watch-Werte. Es verlässt die Installation nie (nicht im
+	// Export), damit eine alte Exportdatei keine dieser Berechtigungen nachbilden kann.
+	LocalSecret string `json:"local_secret,omitempty"`
 	// Password ist der Hash des Passworts für Änderungen (siehe password.go), leer = keins.
 	Password string               `json:"edit_password,omitempty"`
 	LastWake map[string]time.Time `json:"last_wake,omitempty"`
@@ -102,15 +108,49 @@ func (s *Store) loadState() (changed bool, err error) {
 	if s.state.LastSeen == nil {
 		s.state.LastSeen = map[string]time.Time{}
 	}
+	if fixRetryLastWake(&s.state) {
+		changed = true
+	}
 	// Fehlt das Geheimnis oder ist es kaputt (etwa von Hand gekürzt), wird ein neues erzeugt. Ein
 	// leerer Schlüssel machte die Gruppen-Wecklinks für jeden berechenbar.
-	if b, err := hex.DecodeString(s.state.Secret); err != nil || len(b) < 16 {
-		b := make([]byte, 32)
-		_, _ = rand.Read(b)
-		s.state.Secret, changed = hex.EncodeToString(b), true
+	for _, sec := range []*string{&s.state.Secret, &s.state.LocalSecret} {
+		if b, err := hex.DecodeString(*sec); err != nil || len(b) < 16 {
+			b := make([]byte, 32)
+			_, _ = rand.Read(b)
+			*sec, changed = hex.EncodeToString(b), true
+		}
 	}
 	s.state.Version = 1
 	return changed, nil
+}
+
+// fixRetryLastWake: Ältere Versionen setzten "zuletzt geweckt" auch bei automatischen Wiederholungen –
+// das verriete, dass ein Gerät offline blieb. Stammt der Wert von einer Wiederholung, gilt der letzte
+// andere erfolgreiche Weckruf im Verlauf; gibt es keinen, fällt der Wert weg.
+func fixRetryLastWake(st *stateFile) (changed bool) {
+	for id, t := range st.LastWake {
+		var last time.Time
+		retried := false
+		for _, ev := range st.History {
+			switch {
+			case ev.ID != id || !ev.Success:
+			case ev.Retry:
+				retried = retried || ev.Time.Equal(t)
+			case ev.Time.After(last):
+				last = ev.Time
+			}
+		}
+		if !retried {
+			continue
+		}
+		if last.IsZero() {
+			delete(st.LastWake, id)
+		} else {
+			st.LastWake[id] = last
+		}
+		changed = true
+	}
+	return changed
 }
 
 // saveState muss unter s.mu (Schreibsperre) aufgerufen werden.
@@ -141,13 +181,11 @@ func (s *Store) RecordWake(evs ...Event) error {
 			ev.Time = time.Now().UTC()
 		}
 		s.state.History = append(s.state.History, ev)
-		if ev.Success && ev.ID != "" {
+		if ev.Success && ev.ID != "" && !ev.Retry { // die Wiederholung verriete sonst, dass es offline blieb
 			s.state.LastWake[ev.ID] = ev.Time
 		}
 	}
-	if n := len(s.state.History); n > HistoryMax {
-		s.state.History = slices.Clone(s.state.History[n-HistoryMax:])
-	}
+	s.state.History = trimHistory(s.state.History)
 	return s.saveState()
 }
 
@@ -204,6 +242,20 @@ func (s *Store) LastSeen(id string) time.Time {
 }
 
 // History liefert die letzten limit Einträge, neueste zuerst (nur, was noch aufbewahrt wird).
+// trimHistory kürzt h auf HistoryMax Einträge ohne die Wiederholungen (siehe HistoryMax).
+func trimHistory(h []Event) []Event {
+	kept := 0
+	for i := len(h) - 1; i > 0; i-- {
+		if h[i].Retry {
+			continue
+		}
+		if kept++; kept == HistoryMax {
+			return slices.Clone(h[i:])
+		}
+	}
+	return h
+}
+
 func (s *Store) History(limit int) []Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -223,11 +275,20 @@ func (s *Store) History(limit int) []Event {
 	return out
 }
 
-// Secret ist ein zufälliger Schlüssel dieser Installation (z. B. für Gruppen-Wecklinks).
+// Secret ist ein zufälliger Schlüssel dieser Installation für Gruppen-Wecklinks. Er steht im Export.
 func (s *Store) Secret() []byte {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	b, _ := hex.DecodeString(s.state.Secret)
+	return b
+}
+
+// LocalSecret ist ein zufälliger Schlüssel nur dieser Installation (Entsperrung, watch-Werte). Er steht
+// nie im Export und wird beim Import nicht übernommen.
+func (s *Store) LocalSecret() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	b, _ := hex.DecodeString(s.state.LocalSecret)
 	return b
 }
 

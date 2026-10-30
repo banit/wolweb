@@ -240,3 +240,45 @@ func TestFormerGroupNameMeansThatGroup(t *testing.T) {
 		t.Fatalf("Mitglieder: %q", names(m))
 	}
 }
+
+// Gruppen aus 1.3 und früher haben kein Salz: Laden lässt es leer (ihre Links gelten weiter), neue
+// Gruppen bekommen eins.
+func TestGroupSaltOnlyForNewGroups(t *testing.T) {
+	devs := []Device{{ID: "a", Name: "A", Group: "Alt"}}
+	if g := syncGroups(devs, nil, false); len(g) != 1 || g[0].Salt != "" {
+		t.Fatalf("beim Laden: %+v", g)
+	}
+	if g := syncGroups(devs, nil, true); len(g) != 1 || len(g[0].Salt) != 16 {
+		t.Fatalf("bei Änderungen: %+v", g)
+	}
+	g := mergeGroups(nil, []Group{{Name: "X", Salt: "0011223344556677"}, {Name: "Y", Salt: "kaputt"}})
+	if g[0].Salt != "0011223344556677" || g[1].Salt != "" {
+		t.Fatalf("aus Datei: %+v", g)
+	}
+}
+
+// Ein Import in eine bestehende Installation bringt keine alten Gruppenschlüssel zurück; nur die
+// Wiederherstellung in eine leere Installation übernimmt das Salz der Datei.
+func TestImportGroupSaltOnlyOnRestore(t *testing.T) {
+	file := []byte(`{"version":2,"devices":[{"name":"PC","mac":"02:00:00:00:00:09","group":"Gast"}],"groups":[{"name":"Gast","salt":"0011223344556677"}]}`)
+	st, _, err := Open(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Import(file, i18n.EN); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := st.FindGroup("Gast"); g.Salt != "0011223344556677" {
+		t.Fatalf("Wiederherstellung: Salz %q", g.Salt)
+	}
+	other, _, _ := Open(t.TempDir(), "")
+	if _, err := other.Create(Input{Name: "Da", MAC: "02:00:00:00:00:08"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Import(file, i18n.EN); err != nil {
+		t.Fatal(err)
+	}
+	if g, ok := other.FindGroup("Gast"); !ok || g.Salt == "" || g.Salt == "0011223344556677" {
+		t.Fatalf("Import in bestehende Installation: %+v", g)
+	}
+}

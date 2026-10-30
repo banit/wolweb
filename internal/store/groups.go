@@ -1,6 +1,8 @@
 package store
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -19,6 +21,25 @@ type Group struct {
 	Name string `json:"name"`
 	// Aliases sind frühere Namen: Gruppen-Wecklinks mit dem alten Namen gelten nach dem Umbenennen weiter.
 	Aliases []string `json:"aliases,omitempty"`
+	// Salt geht in den Schlüssel des Gruppen-Wecklinks ein: Eine gelöschte und gleichnamig neu angelegte
+	// Gruppe bekommt einen neuen Schlüssel, und "Schlüssel erneuern" macht alte Links ungültig. Leer bei
+	// Gruppen aus 1.3 und früher – deren Links gelten unverändert weiter.
+	Salt string `json:"salt,omitempty"`
+}
+
+// newGroupSalt erzeugt das Salz für eine neue Gruppe bzw. einen erneuerten Schlüssel.
+func newGroupSalt() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// validSalt übernimmt ein Salz aus einer Datei nur, wenn es die erwartete Form hat.
+func validSalt(s string) string {
+	if b, err := hex.DecodeString(s); err == nil && len(b) == 8 {
+		return s
+	}
+	return ""
 }
 
 // ErrGroupNotFound: Es gibt keine Gruppe dieses Namens (die Oberfläche bekommt err.group_not_found).
@@ -56,8 +77,9 @@ func releaseGroupAlias(groups []Group, name string, except int) {
 // Name gilt als die Gruppe, die ihn trägt – wie im Gruppen-Wecklink; so lenkt ein getippter alter
 // Name (Gerätedialog, Mehrfachauswahl, Import) keine Links um. Für unbekannte Namen entsteht ein
 // Eintrag (alphabetisch hinten angefügt, wie Gruppen bis 1.2 angezeigt wurden). devs wird dabei
-// geändert, groups bekommt eine neue Liste.
-func syncGroups(devs []Device, groups []Group) []Group {
+// geändert, groups bekommt eine neue Liste. fresh: neue Einträge bekommen ein eigenes Salz (bei
+// Änderungen); beim Laden alter Daten nicht, damit deren Gruppen-Wecklinks weiter gelten.
+func syncGroups(devs []Device, groups []Group, fresh bool) []Group {
 	groups = slices.Clone(groups)
 	var missing []string
 	for _, d := range devs {
@@ -68,7 +90,11 @@ func syncGroups(devs []Device, groups []Group) []Group {
 	}
 	slices.SortFunc(missing, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
 	for _, name := range missing {
-		groups = append(groups, Group{Name: name})
+		g := Group{Name: name}
+		if fresh {
+			g.Salt = newGroupSalt()
+		}
+		groups = append(groups, g)
 	}
 	for i := range devs {
 		if devs[i].Group == "" {
@@ -109,7 +135,7 @@ func mergeGroups(groups, add []Group) []Group {
 				aliases = append(aliases, a)
 			}
 		}
-		groups = append(groups, Group{Name: name, Aliases: aliases})
+		groups = append(groups, Group{Name: name, Aliases: aliases, Salt: validSalt(g.Salt)})
 	}
 	return groups
 }
@@ -212,13 +238,14 @@ func (s *Store) CreateGroup(name string, members []string, takeOver bool) (Group
 	if err != nil {
 		return Group{}, err
 	}
-	groups := append(slices.Clone(s.groups), Group{Name: name})
+	g := Group{Name: name, Salt: newGroupSalt()}
+	groups := append(slices.Clone(s.groups), g)
 	releaseGroupAlias(groups, name, len(groups)-1)
 	next := slices.Clone(s.devices)
 	if err := setMembers(next, name, members, time.Now().UTC()); err != nil {
 		return Group{}, err
 	}
-	return Group{Name: name}, s.commitGroups(next, groups)
+	return g, s.commitGroups(next, groups)
 }
 
 // UpdateGroup benennt die Gruppe name um (newName; der alte Name bleibt als früherer Name für
@@ -236,7 +263,7 @@ func (s *Store) UpdateGroup(name, newName string, members []string, takeOver boo
 	}
 	groups := slices.Clone(s.groups)
 	old := groups[i]
-	g := Group{Name: newName, Aliases: formerNames(old.Aliases, old.Name, newName)}
+	g := Group{Name: newName, Aliases: formerNames(old.Aliases, old.Name, newName), Salt: old.Salt}
 	groups[i] = g
 	releaseGroupAlias(groups, newName, i)
 	next := slices.Clone(s.devices)
@@ -252,6 +279,21 @@ func (s *Store) UpdateGroup(name, newName string, members []string, takeOver boo
 		}
 	}
 	return g, s.commitGroups(next, groups)
+}
+
+// RenewGroupKey gibt der Gruppe name ein neues Salz: Ihre bisherigen Wecklink-Schlüssel (auch die
+// früheren Namen) gelten danach nicht mehr.
+func (s *Store) RenewGroupKey(name string) (Group, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := groupIndex(s.groups, name)
+	if i < 0 {
+		return Group{}, ErrGroupNotFound
+	}
+	groups := slices.Clone(s.groups)
+	groups[i].Aliases = slices.Clone(groups[i].Aliases)
+	groups[i].Salt = newGroupSalt()
+	return groups[i], s.commitGroups(slices.Clone(s.devices), groups)
 }
 
 // DeleteGroup löscht eine Gruppe; ihre Geräte bleiben, nur ohne Gruppe.

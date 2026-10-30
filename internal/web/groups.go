@@ -21,11 +21,17 @@ import (
 
 // --- Gruppen ---
 
-// groupKey ist der Schlüssel des öffentlichen Gruppen-Wecklinks. Er wird aus dem Geheimnis der
-// Installation abgeleitet, muss also nirgends gespeichert werden.
+// groupKey ist der Schlüssel des öffentlichen Gruppen-Wecklinks für den Namen name (auch einen
+// früheren Namen). Er wird aus dem Geheimnis der Installation und dem Salz der Gruppe abgeleitet:
+// Eine gelöschte und neu angelegte Gruppe gleichen Namens hat ein anderes Salz, alte Links gelten
+// dann nicht. Gruppen ohne Salz (aus 1.3 und früher) behalten ihren bisherigen Schlüssel.
 func (s *Server) groupKey(name string) string {
+	msg := "gruppe:" + strings.ToLower(name)
+	if g, ok := s.store.FindGroup(name); ok && g.Salt != "" {
+		msg += "|" + g.Salt
+	}
 	m := hmac.New(sha256.New, s.store.Secret())
-	m.Write([]byte("gruppe:" + strings.ToLower(name)))
+	m.Write([]byte(msg))
 	return hex.EncodeToString(m.Sum(nil))[:24]
 }
 
@@ -103,6 +109,18 @@ func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.visibility(r)))
 }
 
+// renewGroupKey gibt der Gruppe einen neuen Wecklink-Schlüssel; bisherige Links gelten nicht mehr.
+func (s *Server) renewGroupKey(w http.ResponseWriter, r *http.Request) {
+	g, err := s.store.RenewGroupKey(r.PathValue("name"))
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	log.Printf("Group wake link key renewed: %s", g.Name)
+	s.devicesChanged()
+	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), true, s.visibility(r)))
+}
+
 func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteGroup(r.PathValue("name")); err != nil {
 		s.storeError(w, r, err)
@@ -155,15 +173,19 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 	ok := 0
 	var attempts []wakeAttempt
 	for _, d := range members {
-		if wr, busy := s.alreadyWaking(r, d); busy { // eben erst geweckt (einzeln oder als Gruppe)
+		if wr, _, busy := s.alreadyWaking(r, d); busy { // eben erst geweckt (einzeln oder als Gruppe) oder gescheitert
 			res.Results = append(res.Results, wr)
-			ok++
+			if wr.Success {
+				ok++
+			} else {
+				res.Success = false
+			}
 			continue
 		}
 		s.supersedeRetry(d.ID)
 		wr, _, a := s.sendWake(r, d, source, name)
 		if !wr.Success {
-			s.limiter.release(d.ID)
+			s.limiter.fail(d.ID, wr)
 		}
 		attempts = append(attempts, a)
 		res.Results = append(res.Results, wr)
@@ -222,7 +244,8 @@ func (s *Server) groupLink(w http.ResponseWriter, r *http.Request) {
 		}
 		vis := s.visibility(r)
 		g := s.groupView(name, members, false, vis)
-		pd := pageData{Group: &g, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status}
+		pd := pageData{Group: &g, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status,
+			Confirm: s.confirmWake(r, s.groupKey(r.PathValue("name")))}
 		if s.needsKey(r) {
 			pd.Key = s.groupKey(name)
 		}
@@ -279,7 +302,7 @@ func (s *Server) groupLinkStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 		return
 	}
-	if !s.statusVisible(r) && !s.watching(r, watchGroup(name)) {
+	if !s.checkVisible(r) && !s.watching(r, watchGroup(name)) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}

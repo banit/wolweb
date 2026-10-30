@@ -276,6 +276,9 @@ delete old backup folders once you no longer need them.
 - *History expires* (new): the wake history, “last woken” and “last online” are now deleted after 30 days
   (`privacy.retention_days`, up to 365); `privacy.recording: "off"` stores none of them. On the first start, older
   history entries disappear – the backup (see above) still has them.
+- *Behind a reverse proxy:* without login, wolweb now also checks the host name the proxy passes on
+  (`X-Forwarded-Host`, `Forwarded`). If that is your own domain, allow it as described in step 1.
+- *Check ports:* `status.ports` takes at most 16 ports (duplicates are dropped); with more, wolweb does not start.
 
 **What changes with 1.2 – and whether you need to act:**
 
@@ -402,6 +405,8 @@ on the machine running wolweb. Once it exists, it appears on the settings page u
 “Add” lists the network, and you can give it a name (“IoT”) and the VLAN ID. wolweb wakes devices in it through the
 right interface (the broadcast address follows from the device's IP), and the scan finds them. For devices without an
 IP, the device dialog suggests the broadcasts of the configured networks under “Advanced → Broadcast address”.
+With several networks, give each device an IP or a broadcast address: without both, its wake target follows the
+network the scan last saw it in (a change of network only counts after a week without a sighting in the old one).
 
 Requirements: the switch port or bridge of the machine carries the VLAN tagged (trunk), and wolweb has its own fixed
 address in the VLAN (outside the DHCP range or via a DHCP reservation). **Do not set a gateway** on the additional
@@ -503,7 +508,7 @@ variable names are given, the first is the one of the original wolweb – both w
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatic scan, `0` = off (at least `1m`) |
 | `discovery.max_hosts` | – | `1024` | largest allowed segment |
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | online check of all devices, `0` = off (at least `5s`) |
-| `status.ports` | – | 22, 80, 443, 445, … | ports for the online check |
+| `status.ports` | – | 22, 80, 443, 445, … | ports for the online check (at most 16) |
 | `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | how long the wake page waits (`5s` to `10m`) |
 | `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | if a woken machine does not respond for this long, the wake-up call is sent once more; `0` = never |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | login (HTTP Basic) |
@@ -561,36 +566,46 @@ address accepted the message is of course still visible to anyone who may use th
 `authorization: {credentials: <api_token>}`. If the online status is hidden ([Privacy](#privacy)), `wolweb_device_up`,
 `wolweb_device_rtt_seconds` and `wolweb_device_last_seen_timestamp_seconds` stay empty – with `unlocked`, the token
 brings them back. `privacy.wake_history` does the same for `wolweb_device_last_wake_timestamp_seconds` and
-`wolweb_wakes_total`.
+`wolweb_wakes_total`. Automatic retries count in neither of them.
 
 ## Security
 
 - **Login**: `auth.username`/`auth.password` (HTTP Basic, on the internet only behind HTTPS) and/or `auth.api_token`
   for automations.
+- **Login**: credentials (HTTP Basic or API token) are checked one at a time, and a failed login holds the check for
+  0.5 s – at most two per second in total; failed logins are noted in the log (at most once a minute). Browsers and
+  clients that logged in within the last 7 days (with the same kind of credentials) are checked right away, so an
+  attack does not lock them out; a first login may have to wait during an attack (up to about 16 s, or “try again
+  shortly”), public wake pages stay reachable. Still use a long password and a long random token; wolweb warns at
+  startup if they are short.
 - **Password for changes**: viewing and waking stay open, changes need unlocking – see
   [Password for changes](#password-for-changes).
 - **Online status and wake history**: who sees whether devices are running and when they were woken – everyone,
   only after unlocking or nobody – see [Privacy](#privacy).
 - **Public wake links** (`auth.public_wake`): with login enabled, `/wake/<name>` and the wake page stay reachable
   without login. So that nobody can wake devices by guessing names, `auth.wake_keys` additionally requires a key per
-  device – “Copy wake link” appends it (`/wake/NAS?key=…`), and it can be renewed in the device dialog.
+  device – “Copy wake link” appends it (`/wake/NAS?key=…`), and it can be renewed in the device dialog (group keys in the group dialog). A group that is deleted and created again under the same name gets a new key.
 - **No double waking**: every device gets at most one wake-up call every 10 s – with and without login, across wake
   link, group link, wake page and API. A second call within that time (tapped twice, page reloaded) is not an error:
   it reports “already being woken” (`"already": true`), and the page follows the running start without sending
-  again. Schedules and the automatic retry are never throttled.
+  again. If sending fails, further calls within 3 s get the same error without sending again. Schedules and the
+  automatic retry are never throttled.
 - **Wake links from other websites**: a wake link wakes when it is opened – on purpose, also when it sits on another
   page (Home Assistant dashboard, Glance, a bookmark page). But it also means: any website you visit can send your
   browser to `/wake/<name>` or `/wake-group/<name>`, and the wake page it gets then wakes. Nothing beyond waking is
   possible this way, and `HEAD` (link previews in messengers, link checkers) never wakes. To prevent even that,
   enable the login together with `auth.wake_keys`: then every link – device and group alike – needs the key that
-  “Copy wake link” appends, and names cannot be guessed. This is a deliberate exception to the protection against
+  “Copy wake link” appends, and names cannot be guessed. A browser logged in to wolweb needs no key; if another
+  website sends it to a wake link without the key, the wake page only wakes after a click. This is a deliberate exception to the protection against
   cross-site requests: wake links are meant to work from anywhere, every other change needs wolweb's own page or a
   token.
 - **DNS rebinding**: without login, wolweb only accepts requests under IP addresses, names without a dot (`nas`),
   local suffixes (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) and the names in
   `allowed_hosts` (`"wol.example.com"`, `"*.example.com"`; `"*"` switches the check off). Otherwise a foreign website
   could point its name at wolweb's IP and remote-control the API in your browser. With login, the check only applies
-  when `allowed_hosts` is set.
+  when `allowed_hosts` is set. Behind a reverse proxy, let it pass the original host name on (nginx:
+  `proxy_set_header Host $host;`, Apache: `ProxyPreserveHost On`); names a proxy reports in `X-Forwarded-Host` or
+  `Forwarded: host=` must be allowed as well.
 
 ## Language
 
@@ -999,6 +1014,9 @@ Sicherung, wie sie beim Update waren – alte Sicherungsordner löschen, sobald 
 - *Verlauf verfällt* (neu): Weckverlauf, „zuletzt geweckt“ und „zuletzt online“ werden jetzt nach 30 Tagen gelöscht
   (`privacy.retention_days`, bis 365); `privacy.recording: "off"` speichert nichts davon. Beim ersten Start
   verschwinden ältere Einträge des Verlaufs – die Sicherung (siehe oben) enthält sie noch.
+- *Hinter einem Reverse-Proxy:* Ohne Anmeldung prüft wolweb jetzt auch den Hostnamen, den der Proxy weiterreicht
+  (`X-Forwarded-Host`, `Forwarded`). Ist das deine eigene Domain, erlaube sie wie in Schritt 1 beschrieben.
+- *Prüfports:* `status.ports` nimmt höchstens 16 Ports (Doppelte fallen weg); mit mehr startet wolweb nicht.
 
 **Was sich mit 1.2 ändert – und ob du etwas tun musst:**
 
@@ -1133,6 +1151,8 @@ unter „Schnittstellen dieses Rechners“; „Übernehmen“ trägt das Netz ei
 Geräte darin weckt wolweb über die richtige Schnittstelle (die Broadcast-Adresse folgt aus der IP des Geräts), und
 die Suche findet sie. Für Geräte ohne IP schlägt der Gerätedialog unter „Erweitert → Broadcast-Adresse“ die
 Broadcasts der eingetragenen Netze vor.
+Bei mehreren Netzen am besten jedem Gerät eine IP oder Broadcast-Adresse geben: Ohne beides folgt sein Weckziel dem
+Netz, in dem die Suche es zuletzt gesehen hat (ein Netzwechsel gilt erst nach einer Woche ohne Sichtung im alten).
 
 Voraussetzung: Der Switch-Port bzw. die Bridge des Rechners reicht das VLAN getaggt durch (Trunk), und wolweb hat im
 VLAN eine eigene, feste Adresse (außerhalb des DHCP-Bereichs oder per DHCP-Reservierung). **Kein Gateway** auf den
@@ -1235,7 +1255,7 @@ Variablennamen stehen, ist der erste der des ursprünglichen wolweb – beide fu
 | `discovery.interval` | `WOLWEB_SCAN_INTERVAL` | `30m` | automatische Suche, `0` = aus (mindestens `1m`) |
 | `discovery.max_hosts` | – | `1024` | größtes erlaubtes Segment |
 | `status.interval` | `WOLWEB_STATUS_INTERVAL` | `30s` | Online-Prüfung aller Geräte, `0` = aus (mindestens `5s`) |
-| `status.ports` | – | 22, 80, 443, 445, … | Ports für die Online-Prüfung |
+| `status.ports` | – | 22, 80, 443, 445, … | Ports für die Online-Prüfung (höchstens 16) |
 | `status.wake_timeout` | `WOLWEB_WAKE_TIMEOUT` | `3m` | so lange wartet die Weckseite (`5s` bis `10m`) |
 | `status.wake_retry` | `WOLWEB_WAKE_RETRY` | `45s` | antwortet ein geweckter Rechner so lange nicht, geht der Weckruf einmal erneut raus; `0` = nie |
 | `auth.username/password` | `WOLWEB_USER`, `WOLWEB_PASSWORD` | – | Anmeldung (HTTP Basic) |
@@ -1294,36 +1314,46 @@ wer die Einstellungsseite benutzen darf.
 `authorization: {credentials: <api_token>}`. Ist der Online-Status ausgeblendet ([Privatsphäre](#privatsphäre)),
 bleiben `wolweb_device_up`, `wolweb_device_rtt_seconds` und `wolweb_device_last_seen_timestamp_seconds` leer – bei
 `unlocked` bringt das Token sie zurück. `privacy.wake_history` macht dasselbe mit
-`wolweb_device_last_wake_timestamp_seconds` und `wolweb_wakes_total`.
+`wolweb_device_last_wake_timestamp_seconds` und `wolweb_wakes_total`. Automatische Wiederholungen zählen in beiden nicht mit.
 
 ## Sicherheit
 
 - **Anmeldung**: `auth.username`/`auth.password` (HTTP Basic, im Internet nur hinter HTTPS) und/oder `auth.api_token`
   für Automationen.
+- **Anmeldung**: Zugangsdaten (HTTP Basic oder API-Token) werden nacheinander geprüft, ein Fehlversuch hält die
+  Prüfung 0,5 s auf – insgesamt höchstens zwei pro Sekunde; Fehlversuche stehen im Log (höchstens einmal pro Minute).
+  Wer sich in den letzten 7 Tagen (mit derselben Art von Zugangsdaten) angemeldet hat, wird sofort geprüft – ein
+  Angriff sperrt diese Aufrufer nicht aus; eine erste Anmeldung muss während eines Angriffs unter Umständen warten
+  (bis etwa 16 s, oder „gleich noch einmal versuchen“), öffentliche Weckseiten bleiben erreichbar. Trotzdem ein langes
+  Passwort und ein langes zufälliges Token nehmen; wolweb warnt beim Start, wenn sie kurz sind.
 - **Passwort für Änderungen**: Ansehen und Wecken bleiben frei, Ändern erst nach dem Entsperren – siehe
   [Passwort für Änderungen](#passwort-für-änderungen).
 - **Online-Status und Weckverlauf**: Wer sieht, ob Geräte laufen und wann sie geweckt wurden – alle, nur nach dem
   Entsperren oder niemand –, siehe [Privatsphäre](#privatsphäre).
 - **Öffentliche Wecklinks** (`auth.public_wake`): Mit Anmeldung bleiben `/wake/<Name>` und die Weckseite ohne Login
   erreichbar. Damit niemand Geräte über erratene Namen weckt, verlangt `auth.wake_keys` zusätzlich einen Schlüssel
-  je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern.
+  je Gerät – „Wecklink kopieren“ hängt ihn an (`/wake/NAS?key=…`), im Gerätedialog lässt er sich erneuern (Gruppenschlüssel im Gruppendialog). Eine gelöschte und gleichnamig neu angelegte Gruppe bekommt einen neuen Schlüssel.
 - **Kein doppeltes Wecken**: Jedes Gerät bekommt höchstens alle 10 s einen Weckruf – mit und ohne Anmeldung, über
   Wecklink, Gruppenlink, Weckseite und API gemeinsam. Ein zweiter Aufruf in dieser Zeit (zweimal getippt, Seite neu
   geladen) ist kein Fehler: Er meldet „wird bereits geweckt“ (`"already": true`) und die Seite verfolgt den
-  laufenden Start, ohne erneut zu senden. Zeitpläne und die automatische Wiederholung werden nie gebremst.
+  laufenden Start, ohne erneut zu senden. Scheitert das Senden, bekommen weitere Aufrufe binnen 3 s denselben Fehler,
+  ohne erneut zu senden. Zeitpläne und die automatische Wiederholung werden nie gebremst.
 - **Wecklinks von fremden Seiten**: Ein Wecklink weckt beim Öffnen – mit Absicht, auch wenn er auf einer anderen
   Seite steht (Home-Assistant-Dashboard, Glance, Lesezeichenseite). Das heißt aber auch: Jede Webseite, die du
   besuchst, kann deinen Browser zu `/wake/<Name>` oder `/wake-group/<Name>` schicken, und die ausgelieferte
   Weckseite weckt dann. Mehr als Wecken ist so nicht möglich, und `HEAD` (Linkvorschauen in Messengern, Linkprüfer)
   weckt nie. Wer auch das verhindern will, schaltet die Anmeldung samt `auth.wake_keys` ein: Dann braucht jeder
   Link – Gerät wie Gruppe gleichermaßen – den Schlüssel, den „Wecklink kopieren“ anhängt, und Namen lassen sich
-  nicht erraten. Das ist eine bewusste Ausnahme vom Schutz gegen Cross-Site-Anfragen: Wecklinks sollen von überall
+  nicht erraten. Ein bei wolweb angemeldeter Browser braucht keinen Schlüssel; schickt ihn eine fremde Webseite
+  ohne Schlüssel auf einen Wecklink, weckt die Weckseite erst auf Knopfdruck. Das ist eine bewusste Ausnahme vom Schutz gegen Cross-Site-Anfragen: Wecklinks sollen von überall
   funktionieren, jede andere Änderung braucht die Seite von wolweb selbst oder ein Token.
 - **DNS-Rebinding**: Ohne Anmeldung nimmt wolweb nur Aufrufe unter IP-Adressen, Namen ohne Punkt (`nas`), lokalen
   Endungen (`.lan`, `.local`, `.home`, `.internal`, `.home.arpa`, `.fritz.box` …) und den Namen aus
   `allowed_hosts` an (`"wol.example.com"`, `"*.example.com"`, `"*"` schaltet die Prüfung ab). Sonst könnte eine
   fremde Webseite ihren Namen auf die IP von wolweb umbiegen und die API im Browser fernsteuern. Mit Anmeldung wird
-  nur geprüft, wenn `allowed_hosts` gesetzt ist.
+  nur geprüft, wenn `allowed_hosts` gesetzt ist. Hinter einem Reverse-Proxy soll dieser den ursprünglichen Hostnamen
+  weitergeben (nginx: `proxy_set_header Host $host;`, Apache: `ProxyPreserveHost On`); Namen, die ein Proxy in
+  `X-Forwarded-Host` oder `Forwarded: host=` meldet, müssen ebenfalls erlaubt sein.
 
 ## Sprache
 

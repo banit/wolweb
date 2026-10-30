@@ -240,6 +240,45 @@ func TestHostGuard(t *testing.T) {
 	}
 }
 
+// Schreibt ein Reverse-Proxy den Host-Kopf auf seine Upstream-Adresse um, prüft wolweb zusätzlich die
+// weitergereichten Originalnamen – nur als Ablehnung, nie als Freigabe.
+func TestHostGuardForwardedHost(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		header  string
+		value   string
+		allowed []string
+		want    int
+	}{
+		{"fremder Name hinter IP", "X-Forwarded-Host", "rebind.evil.example", nil, http.StatusForbidden},
+		{"Liste mit fremdem Namen", "X-Forwarded-Host", "wol.example.com, rebind.evil.example", []string{"wol.example.com"}, http.StatusForbidden},
+		{"Forwarded host=", "Forwarded", `for=192.0.2.1;host="rebind.evil.example";proto=https`, nil, http.StatusForbidden},
+		{"erlaubter Proxy-Name", "X-Forwarded-Host", "wol.example.com", []string{"wol.example.com"}, http.StatusOK},
+		{"lokaler Name", "X-Forwarded-Host", "wol.lan:8443", nil, http.StatusOK},
+		{"abgeschaltete Prüfung", "X-Forwarded-Host", "rebind.evil.example", []string{"*"}, http.StatusOK},
+	} {
+		h, _ := newTestServer(t, func(c *config.Config) { c.AllowedHosts = tc.allowed })
+		req := httptest.NewRequest("GET", "/api/v1/devices", nil)
+		req.Host = "192.168.1.10:8089"
+		req.Header.Set(tc.header, tc.value)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s: %d statt %d", tc.name, rec.Code, tc.want)
+		}
+	}
+	// Ein erlaubter Weiterleitungsname gibt einen fremden Host-Kopf nicht frei.
+	h, _ := newTestServer(t, func(c *config.Config) { c.AllowedHosts = []string{"wol.example.com"} })
+	req := httptest.NewRequest("GET", "/api/v1/devices", nil)
+	req.Host = "rebind.evil.example"
+	req.Header.Set("X-Forwarded-Host", "wol.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("Freigabe über X-Forwarded-Host: %d", rec.Code)
+	}
+}
+
 // Update von 1.0.x hinter einem Reverse-Proxy: Die Ablehnung nennt Namen und Abhilfe, die
 // Einstellungen bieten den Namen zum Erlauben an – und danach geht es ohne Neustart.
 func TestHostGuardExplainsAndOffersHost(t *testing.T) {
@@ -662,19 +701,32 @@ func TestWakeDedupEverywhere(t *testing.T) {
 		t.Errorf("%d Verlaufseinträge statt 2 – Nachfassen darf nichts auftürmen", n)
 	}
 
-	// Ein gescheiterter Weckruf blockiert nichts: gleich nochmal versuchen sendet wieder.
+	// Ein gescheiterter Weckruf gilt kurz (wakeFailBackoff) weiter: Nachfassen bekommt das Ergebnis,
+	// ohne erneut zu senden oder den Verlauf zu füllen; danach sendet ein neuer Versuch wieder.
 	bad, err := st.Create(store.Input{Name: "Kaputt", MAC: "02:00:00:00:00:03", Interface: "gibtsnicht0"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := range 2 {
+	before := len(st.History(0))
+	tryBad := func(i int) {
 		req := httptest.NewRequest("POST", "/api/v1/devices/"+bad.ID+"/wake", nil)
 		req.Host, req.Header["X-Wolweb"] = "192.168.1.10:8089", []string{"1"}
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "already") {
-			t.Errorf("Versuch %d: %d %s", i+1, rec.Code, rec.Body)
+			t.Errorf("Versuch %d: %d %s", i, rec.Code, rec.Body)
 		}
+	}
+	for i := range 5 {
+		tryBad(i + 1)
+	}
+	if n := len(st.History(0)) - before; n != 1 {
+		t.Errorf("%d Verlaufseinträge für 5 Versuche binnen %s – erwartet 1", n, wakeFailBackoff)
+	}
+	s.limiter.failed[bad.ID] = wakeFailure{at: time.Now().Add(-wakeFailBackoff), res: wakeResult{}} // Pause vorbei
+	tryBad(6)
+	if n := len(st.History(0)) - before; n != 2 {
+		t.Errorf("nach der Pause: %d Verlaufseinträge statt 2", n)
 	}
 
 	// Ein Zeitplan weckt immer, zählt aber mit: der Wecklink gleich danach sendet nicht nochmal.
@@ -1060,5 +1112,69 @@ func TestHistoryErrorsTranslated(t *testing.T) {
 		if ev := out.Events[0]; ev.Success || ev.ErrorKey != "wol.iface" || !strings.Contains(ev.Error, want) || !strings.Contains(ev.Error, "gibtsnicht0") {
 			t.Errorf("%s: %+v", lang, ev)
 		}
+	}
+}
+
+// Mit auth.wake_keys weckt die Weckseite nach einem Aufruf von einer fremden Seite ohne gültigen
+// Schlüssel erst auf Knopfdruck – auch wenn der Browser angemeldet ist und keinen braucht.
+func TestCrossSiteWakePageNeedsConfirm(t *testing.T) {
+	h, st := newTestServer(t, func(c *config.Config) {
+		c.Auth.Username, c.Auth.Password, c.Auth.WakeKeys = "admin", "geheim", true
+	})
+	d, _ := st.Create(store.Input{Name: "NAS", MAC: "00:11:22:33:44:55", Broadcast: udpSink(t), Group: "Keller"})
+	page := func(path, sfs string, auth bool) string {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Accept", "text/html")
+		if sfs != "" {
+			req.Header.Set("Sec-Fetch-Site", sfs)
+		}
+		if auth {
+			req.SetBasicAuth("admin", "geheim")
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s %s: %d", path, sfs, rec.Code)
+		}
+		return rec.Body.String()
+	}
+	groupKey := func() string {
+		req := httptest.NewRequest("GET", "/api/v1/groups", nil)
+		req.SetBasicAuth("admin", "geheim")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var out []groupView
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return out[0].Key
+	}()
+	for _, tc := range []struct {
+		path, sfs string
+		auth      bool
+		confirm   bool
+	}{
+		{"/wake/NAS", "cross-site", true, true},
+		{"/wake/NAS", "same-site", true, true},
+		{"/wake/NAS?key=falsch", "cross-site", true, true},
+		{"/wake/NAS?key=" + d.WakeKey, "cross-site", true, false},
+		{"/wake/NAS?key=" + d.WakeKey, "cross-site", false, false}, // öffentlich mit Schlüssel: wie bisher
+		{"/wake/NAS", "same-origin", true, false},
+		{"/wake/NAS", "", true, false},
+		{"/wake-group/Keller", "cross-site", true, true},
+		{"/wake-group/Keller?key=" + groupKey, "cross-site", true, false},
+	} {
+		if got := strings.Contains(page(tc.path, tc.sfs, tc.auth), `data-confirm="1"`); got != tc.confirm {
+			t.Errorf("%s (%s, Anmeldung %v): Rückfrage %v statt %v", tc.path, tc.sfs, tc.auth, got, tc.confirm)
+		}
+	}
+	// Ohne wake_keys bleibt es beim dokumentierten Verhalten: fremde Seiten dürfen wecken.
+	h2, st2 := newTestServer(t, nil)
+	st2.Create(store.Input{Name: "NAS", MAC: "00:11:22:33:44:55", Broadcast: udpSink(t)})
+	req := httptest.NewRequest("GET", "/wake/NAS", nil)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	h2.ServeHTTP(rec, req)
+	if strings.Contains(rec.Body.String(), `data-confirm="1"`) {
+		t.Error("Rückfrage ohne wake_keys")
 	}
 }

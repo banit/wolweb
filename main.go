@@ -46,6 +46,12 @@ func main() {
 			"*.local, *.fritz.box …) – protection against DNS rebinding. Behind a reverse proxy with its own domain, " +
 			`allow that domain: in the settings under Security, or with "allowed_hosts" or WOLWEB_ALLOWED_HOSTS.`)
 	}
+	if p := cfg.Auth.Password; p != "" && len([]rune(p)) < 12 {
+		log.Print("Note: auth.password is short – the login can be guessed; use at least 12 characters")
+	}
+	if t := cfg.Auth.APIToken; t != "" && len(t) < 20 {
+		log.Print("Note: auth.api_token is short – use a long random value (e.g. openssl rand -hex 24)")
+	}
 	if cfg.Auth.WakeKeys && !cfg.AuthEnabled() {
 		log.Print("Note: auth.wake_keys only takes effect together with a login (auth.username/password or api_token)")
 	}

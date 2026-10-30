@@ -278,7 +278,7 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 	}
 	// Bis 1.2 gab es Gruppen nur als Namen am Gerät: Einträge anlegen (alphabetisch, wie bisher gezeigt).
 	nGroups := len(s.groups)
-	s.groups = syncGroups(s.devices, s.groups)
+	s.groups = syncGroups(s.devices, s.groups, false)
 	missingKey = missingKey || len(s.groups) != nGroups
 	// last_wake erst nach dem Speichern von state.json aus devices.json entfernen. Nach einem
 	// Versionswechsel einmal neu schreiben, damit die Datei die neue Version nennt (und die
@@ -683,7 +683,7 @@ func (s *Store) SetGroup(ids []string, group string) ([]Device, error) {
 		}
 		changed = append(changed, next[i])
 	}
-	if err := s.commitGroups(next, syncGroups(next, s.groups)); err != nil {
+	if err := s.commitGroups(next, syncGroups(next, s.groups, true)); err != nil {
 		return nil, err
 	}
 	return changed, nil
@@ -719,7 +719,7 @@ func (s *Store) Create(in Input) (Device, error) {
 	d.ID, d.CreatedAt, d.UpdatedAt, d.WakeKey = newID(), now, now, newWakeKey()
 	next := append(slices.Clone(s.devices), d)
 	releaseAlias(next, d.Name, d.ID)
-	groups := syncGroups(next, s.groups)
+	groups := syncGroups(next, s.groups, true)
 	if err := s.commitGroups(next, groups); err != nil {
 		return d, err
 	}
@@ -757,7 +757,7 @@ func (s *Store) Update(id string, in Input, ifUpdated *time.Time) (Device, error
 	next := slices.Clone(s.devices)
 	next[i] = d
 	releaseAlias(next, d.Name, d.ID)
-	if err := s.commitGroups(next, syncGroups(next, s.groups)); err != nil {
+	if err := s.commitGroups(next, syncGroups(next, s.groups, true)); err != nil {
 		return d, err
 	}
 	return next[i], nil
@@ -933,7 +933,15 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 		res.SecretRestored = true
 	}
 	// Gruppen der Datei mit Reihenfolge und früheren Namen übernehmen, soweit es sie noch nicht gibt.
-	if err := s.commitGroups(next, syncGroups(next, mergeGroups(slices.Clone(s.groups), decodeGroups(b)))); err != nil {
+	// Ihr Salz (Teil des Wecklink-Schlüssels) nur beim Wiederherstellen: Sonst brächte eine alte Datei
+	// die Links einer inzwischen gelöschten oder erneuerten Gruppe zurück.
+	add := decodeGroups(b)
+	if !restore {
+		for i := range add {
+			add[i].Salt = newGroupSalt()
+		}
+	}
+	if err := s.commitGroups(next, syncGroups(next, mergeGroups(slices.Clone(s.groups), add), true)); err != nil {
 		return ImportResult{}, err
 	}
 	return res, nil
@@ -945,6 +953,17 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 // sammelten sich z. B. Handys mit wechselnder Zufalls-MAC dauerhaft unter "Neu".
 // Ignorierte Treffer bleiben, sonst tauchten sie beim nächsten Mal wieder als neu auf.
 const FoundRetention = 30 * 24 * time.Hour
+
+// MaxFound begrenzt den Bestand der Suchtreffer. Die MAC einer ARP-Antwort wählt das antwortende
+// Gerät selbst; ohne Grenze könnte eines mit wechselnden MACs den Bestand beliebig aufblähen. Darüber
+// fallen die am längsten nicht gesehenen Treffer weg (nicht ignorierte, keinem Gerät zugeordnete).
+const MaxFound = 4096
+
+// foundNetPin: So lange behält ein Gerät die IP und das Netz seines letzten Suchtreffers, auch wenn
+// dieselbe MAC in einem anderen Netz antwortet (wie lange die Prüfung Suchtreffer-IPs nutzt). Sonst
+// könnte ein Gerät eines anderen durchsuchten Netzes mit fremder MAC die Prüf-IP und das Weckziel
+// eines Geräts ohne feste IP in sein Netz lenken.
+const foundNetPin = 7 * 24 * time.Hour
 
 // MergeFound übernimmt die Treffer eines Scans, entfernt lange nicht gesehene Treffer und
 // liefert die Anzahl neu entdeckter MACs.
@@ -963,6 +982,10 @@ func (s *Store) MergeFound(hits []Found) (int, error) {
 			}
 			continue
 		}
+		if f.Network != "" && h.Network != "" && f.Network != h.Network && s.knownMAC(h.MAC) &&
+			h.LastSeen.Sub(f.LastSeen) < foundNetPin {
+			continue // Netzwechsel eines angelegten Geräts erst, wenn es im alten Netz lange nicht mehr gesehen wurde
+		}
 		f.IP, f.LastSeen, f.Vendor, f.Interface, f.Network = h.IP, h.LastSeen, h.Vendor, h.Interface, h.Network
 		if h.Hostname != "" {
 			f.Hostname, f.HostnameSource = h.Hostname, h.HostnameSource
@@ -973,7 +996,28 @@ func (s *Store) MergeFound(hits []Found) (int, error) {
 			delete(s.found, mac)
 		}
 	}
+	s.capFound()
 	return newCount, s.saveFound()
+}
+
+// capFound kürzt den Bestand auf MaxFound (unter s.mu).
+func (s *Store) capFound() {
+	if len(s.found) <= MaxFound {
+		return
+	}
+	var drop []*Found
+	for _, f := range s.found {
+		if !f.Ignored && !s.knownMAC(f.MAC) {
+			drop = append(drop, f)
+		}
+	}
+	slices.SortFunc(drop, func(a, b *Found) int { return a.LastSeen.Compare(b.LastSeen) })
+	for _, f := range drop {
+		if len(s.found) <= MaxFound {
+			break
+		}
+		delete(s.found, f.MAC)
+	}
 }
 
 func (s *Store) knownMAC(mac string) bool {

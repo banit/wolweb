@@ -53,6 +53,16 @@ func (s *Server) statusVisible(r *http.Request) bool {
 	return shownTo(s.conf().Privacy.OnlineStatus, s.privileged(r))
 }
 
+// checkVisible: wie statusVisible, für die Routen, die bei jeder Abfrage frisch prüfen (…/status). Das
+// Entsperr-Cookie zählt dort nur zusammen mit X-WolWeb (das senden alle eigenen Seiten): Ein Cookie
+// geht auch an Anfragen anderer Seiten derselben Site mit (anderer Port, Schwester-Subdomain), und
+// deren Antwortzeit verriete den ausgeblendeten Status – online antwortet schnell, offline erst nach
+// dem Zeitlimit der Prüfung.
+func (s *Server) checkVisible(r *http.Request) bool {
+	priv := s.tokenAuthorized(r) || (r.Header.Get("X-WolWeb") != "" && s.store.HasPassword() && !s.unlockUntil(r).IsZero())
+	return shownTo(s.conf().Privacy.OnlineStatus, priv)
+}
+
 // visibility: was eine Anfrage von den Geräten sehen darf.
 type visibility struct {
 	status bool // Online-Status (privacy.online_status)
@@ -78,14 +88,14 @@ const watchTTL = 15 * time.Minute
 
 // watchToken bekommt, wer eben geweckt hat: Mit ihm zeigt …/status den Start des
 // Geräts (target "device:<ID>") bzw. der Gruppe ("group:<Name>"), auch wenn der Online-Status sonst
-// ausgeblendet ist. Signiert mit dem Geheimnis der Installation, gültig für watchTTL.
+// ausgeblendet ist. Signiert mit dem lokalen Geheimnis der Installation (nicht im Export), gültig für watchTTL.
 func (s *Server) watchToken(target string) string {
 	exp := strconv.FormatInt(time.Now().Add(watchTTL).Unix(), 10)
 	return exp + "." + s.watchSig(target, exp)
 }
 
 func (s *Server) watchSig(target, exp string) string {
-	m := hmac.New(sha256.New, s.store.Secret())
+	m := hmac.New(sha256.New, s.store.LocalSecret())
 	m.Write([]byte("watch|" + strings.ToLower(target) + "|" + exp))
 	return hex.EncodeToString(m.Sum(nil))[:32]
 }

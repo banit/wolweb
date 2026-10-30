@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,22 +34,25 @@ import (
 var assets embed.FS
 
 type Server struct {
-	cur      atomic.Pointer[live] // Einstellungen; die Einstellungsseite tauscht sie im Betrieb aus
-	settings *config.Manager      // nil: Einstellungen nur aus config.json (Tests)
-	applyMu  sync.Mutex           // nur eine Übernahme zur Zeit
-	saveMu   sync.Mutex           // Speichern und Übernehmen der Einstellungen als ein Schritt
-	store    *store.Store
-	monitor  *status.Monitor
-	scanner  *discovery.Scanner
-	icmp     bool
-	version  string
-	retry    retries
-	tmpl     *template.Template
-	limiter  wakeLimiter
-	attempts attemptLimiter // Fehlversuche beim Entsperren
-	rejected rejectedHosts  // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
-	schedRan ranSchedules   // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
-	hub      hub
+	cur       atomic.Pointer[live] // Einstellungen; die Einstellungsseite tauscht sie im Betrieb aus
+	settings  *config.Manager      // nil: Einstellungen nur aus config.json (Tests)
+	applyMu   sync.Mutex           // nur eine Übernahme zur Zeit
+	saveMu    sync.Mutex           // Speichern und Übernehmen der Einstellungen als ein Schritt
+	store     *store.Store
+	monitor   *status.Monitor
+	scanner   *discovery.Scanner
+	icmp      bool
+	version   string
+	retry     retries
+	tmpl      *template.Template
+	limiter   wakeLimiter
+	flights   checkFlights   // laufende Online-Prüfungen je Gerät (gemeinsam genutzt)
+	waitSlots chan struct{}  // Plätze für gleichzeitige ?wait=-Schleifen (maxWaiters)
+	attempts  attemptLimiter // Fehlversuche beim Entsperren
+	logins    loginBrake     // gescheiterte Anmeldungen (Basic, API-Token)
+	rejected  rejectedHosts  // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
+	schedRan  ranSchedules   // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
+	hub       hub
 
 	wakesMu sync.Mutex
 	wakes   map[[2]string]int // {Geräte-ID, "ok"/"error"} -> Anzahl seit dem Start (für /metrics)
@@ -85,8 +89,9 @@ func (s *Server) conf() *config.Config { return &s.cur.Load().cfg }
 func New(cfg config.Config, st *store.Store, mon *status.Monitor, sc *discovery.Scanner, icmp bool, version string) *Server {
 	s := &Server{
 		store: st, monitor: mon, scanner: sc, icmp: icmp, version: version,
-		tmpl:  template.Must(template.ParseFS(assets, "templates/*.html")),
-		wakes: map[[2]string]int{},
+		tmpl:      template.Must(template.ParseFS(assets, "templates/*.html")),
+		wakes:     map[[2]string]int{},
+		waitSlots: make(chan struct{}, maxWaiters),
 	}
 	s.cur.Store(s.newLive(cfg))
 	s.applyRecording(cfg)
@@ -138,6 +143,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+api+"groups", s.listGroups)
 	mux.HandleFunc("POST "+api+"groups", s.change(s.createGroup))
 	mux.HandleFunc("PUT "+api+"groups/{name}", s.change(s.updateGroup))
+	mux.HandleFunc("POST "+api+"groups/{name}/wake-key", s.change(s.renewGroupKey))
 	mux.HandleFunc("DELETE "+api+"groups/{name}", s.change(s.deleteGroup))
 	mux.HandleFunc("PUT "+api+"order", s.change(s.arrange))
 	mux.HandleFunc("POST "+api+"groups/{name}/wake", s.wakeGroupAPI)
@@ -175,13 +181,24 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	base := s.conf().VDir
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if s.authorized(r) {
+		proof := s.loginProven(r)
+		ok, busy := s.logins.check(r, s.authorized, !proof.IsZero()) // Zugangsdaten nur unter der Bremse prüfen
+		if ok {
+			s.setLoginProof(w, r, proof)
 			next.ServeHTTP(w, r)
 			return
 		}
 		if p == base+"health" || strings.HasPrefix(p, base+"static/") ||
 			(s.conf().Auth.PublicWake && (strings.HasPrefix(p, base+"wake/") || strings.HasPrefix(p, base+"wake-group/"))) {
+			if r.Header.Get("Authorization") != "" { // falsch oder (Bremse voll) ungeprüft: dahinter nicht mehr auswerten
+				r = r.Clone(r.Context())
+				r.Header.Del("Authorization")
+			}
 			next.ServeHTTP(w, markPublic(r)) // ohne Anmeldung: Schlüssel und Begrenzung greifen
+			return
+		}
+		if busy {
+			s.fail(w, r, http.StatusTooManyRequests, "err.login_wait")
 			return
 		}
 		if s.conf().Auth.Username != "" {
@@ -338,6 +355,7 @@ type pageData struct {
 	Retry   int // Sekunden bis zur automatischen Wiederholung, 0 = keine
 	Missing string
 	Key     string // Weckschlüssel, den die Weckseite bei ihren Aufrufen mitschickt
+	Confirm bool   // Seite weckt erst auf Knopfdruck (Aufruf einer fremden Seite ohne Schlüssel, siehe confirmWake)
 	Host    string // abgelehnter Hostname (blocked.html)
 	Group   *groupView
 
@@ -559,7 +577,7 @@ func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
-	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
+	if !s.checkVisible(r) && !s.watching(r, "device:"+d.ID) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}
@@ -571,7 +589,10 @@ func (s *Server) freshStatus(ctx context.Context, d store.Device) status.State {
 	if st, ok := s.monitor.Current(d, time.Second); ok {
 		return st
 	}
-	return s.monitor.Check(ctx, d)
+	if st, ok := s.sharedCheck(ctx, d); ok {
+		return st
+	}
+	return status.State{State: "unknown", CheckedAt: time.Now().UTC()} // Aufrufer ist weg
 }
 
 type wakeResult struct {
@@ -633,13 +654,13 @@ const (
 // (Zeitplan); source sagt, woher der Auftrag kam, group nennt bei Gruppen deren Namen.
 // Wurde d eben erst geweckt, geht kein weiterer Weckruf raus (siehe wakeDedupWindow).
 func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wakeResult, int) {
-	if res, busy := s.alreadyWaking(r, d); busy {
-		return res, http.StatusOK
+	if res, code, busy := s.alreadyWaking(r, d); busy { // eben geweckt oder eben gescheitert
+		return res, code
 	}
 	s.supersedeRetry(d.ID)
 	res, code, a := s.sendWake(r, d, source, group)
 	if !res.Success {
-		s.limiter.release(d.ID)
+		s.limiter.fail(d.ID, res)
 	}
 	s.recordWakes(a)
 	return res, code
@@ -671,7 +692,7 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 	if err := s.store.RecordWake(evs...); err != nil {
 		log.Printf("Saving history: %v", err)
 	}
-	s.devicesChanged() // "zuletzt geweckt" in allen offenen Fenstern
+	s.wakesChanged(as) // "zuletzt geweckt" in den offenen Fenstern, die es sehen dürfen
 	for _, a := range as {
 		ev := a.ev
 		if ev.Success {
@@ -683,12 +704,12 @@ func (s *Server) recordWakes(as ...wakeAttempt) {
 		if !ev.Success {
 			result, kind, msg = "error", notify.WakeFailed, i18n.T(s.rt().lang, "notify.wake_failed", ev.Device, ev.Localized(s.rt().lang).Error)
 		}
+		if ev.Retry {
+			continue // "geweckt" kam schon beim ersten Mal; nicht mitzählen – die Wiederholung verriete, dass es offline blieb
+		}
 		s.wakesMu.Lock()
 		s.wakes[[2]string{ev.ID, result}]++
 		s.wakesMu.Unlock()
-		if ev.Retry && ev.Success {
-			continue // "geweckt" kam schon beim ersten Mal
-		}
 		s.rt().notify.Send(notify.Event{Event: kind, Device: ev.Device, ID: ev.ID, IP: a.d.IP, Source: ev.Source, Message: msg})
 	}
 	s.scheduleRetry(as)
@@ -783,7 +804,8 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 		}
 		vis := s.visibility(r)
 		v := s.view(d, vis)
-		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status}
+		pd := pageData{Device: &v, Timeout: int(s.rt().wakeTimeout.Seconds()), Retry: int(s.rt().wakeRetry.Seconds()), StatusHidden: !vis.status,
+			Confirm: s.confirmWake(r, d.WakeKey)}
 		if s.needsKey(r) {
 			pd.Key = d.WakeKey
 		}
@@ -813,21 +835,6 @@ func (s *Server) wakeLink(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, code, res)
 }
 
-func (s *Server) waitOnline(ctx context.Context, d store.Device, max time.Duration) bool {
-	ctx, cancel := context.WithTimeout(ctx, max)
-	defer cancel()
-	for {
-		if s.monitor.Check(ctx, d).State == "online" {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(2 * time.Second):
-		}
-	}
-}
-
 func (s *Server) wakeLinkPost(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.findForLink(r)
 	if !ok {
@@ -847,7 +854,7 @@ func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
-	if !s.statusVisible(r) && !s.watching(r, "device:"+d.ID) {
+	if !s.checkVisible(r) && !s.watching(r, "device:"+d.ID) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}
@@ -866,8 +873,12 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		s.hidden(w, r, "err.history_hidden")
 		return
 	}
-	events := s.store.History(limit)
 	show := vis.status
+	events := s.store.History(limit)
+	if !show { // eine automatische Wiederholung gibt es nur, wenn das Gerät offline blieb – vor dem Limit filtern
+		events = slices.DeleteFunc(s.store.History(0), func(ev store.Event) bool { return ev.Retry })
+		events = events[:min(limit, len(events))]
+	}
 	for i := range events {
 		events[i] = events[i].Localized(s.lang(r))
 		if !show { // ob und wann ein Gerät lief, gehört zum Online-Status

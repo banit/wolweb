@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"wolweb/internal/i18n"
+	"wolweb/internal/store"
 )
 
 // --- Bearbeitungsschutz ---
@@ -30,40 +32,51 @@ const (
 	unlockRenew  = 10 * time.Minute // so alt darf die Frist werden, bevor sie verlängert wird
 )
 
-// lockKey ist der Schlüssel für Entsperr-Cookies. Er hängt am Passwort: Ein neues (oder
-// entferntes) Passwort macht alle bisherigen Entsperrungen ungültig.
-func (s *Server) lockKey() []byte {
-	m := hmac.New(sha256.New, s.store.Secret())
-	m.Write([]byte("unlock|" + s.store.PasswordStamp()))
+// lockKeyFor ist der Schlüssel für Entsperr-Cookies. Er hängt am Passwort: Ein neues (oder
+// entferntes) Passwort macht alle bisherigen Entsperrungen ungültig. Grundlage ist das lokale
+// Geheimnis, das nie im Export steht.
+func (s *Server) lockKeyFor(stamp string) []byte {
+	m := hmac.New(sha256.New, s.store.LocalSecret())
+	m.Write([]byte("unlock|" + stamp))
 	return m.Sum(nil)
 }
 
-func (s *Server) unlockToken(until time.Time) string {
+// unlockTokenFor stellt eine Entsperrung für einen bestimmten, eben geprüften Passwortstand aus. Hat
+// sich das Passwort inzwischen geändert, gilt sie nicht.
+func (s *Server) unlockTokenFor(stamp string, until time.Time) string {
 	exp := strconv.FormatInt(until.Unix(), 10)
-	m := hmac.New(sha256.New, s.lockKey())
+	m := hmac.New(sha256.New, s.lockKeyFor(stamp))
 	m.Write([]byte(exp))
 	return exp + "." + hex.EncodeToString(m.Sum(nil))
 }
 
 // unlockUntil liefert das Ende der Entsperrung aus dem Cookie (Null, wenn keins gilt).
 func (s *Server) unlockUntil(r *http.Request) time.Time {
+	until, _ := s.unlockStamp(r)
+	return until
+}
+
+// unlockStamp wie unlockUntil, dazu der Passwortstand, für den das Cookie geprüft wurde – eine
+// Verlängerung gilt nur für diesen Stand (ein Passwortwechsel dazwischen beendet auch sie).
+func (s *Server) unlockStamp(r *http.Request) (time.Time, string) {
 	c, err := r.Cookie(unlockCookie)
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, ""
 	}
 	exp, sig, ok := strings.Cut(c.Value, ".")
 	n, err := strconv.ParseInt(exp, 10, 64)
 	if !ok || err != nil {
-		return time.Time{}
+		return time.Time{}, ""
 	}
-	m := hmac.New(sha256.New, s.lockKey())
+	stamp := s.store.PasswordStamp()
+	m := hmac.New(sha256.New, s.lockKeyFor(stamp))
 	m.Write([]byte(exp))
 	want := hex.EncodeToString(m.Sum(nil))
 	until := time.Unix(n, 0)
 	if !hmac.Equal([]byte(sig), []byte(want)) || time.Now().After(until) || time.Until(until) > unlockIdle {
-		return time.Time{}
+		return time.Time{}, ""
 	}
-	return until
+	return until, stamp
 }
 
 // unlocked sagt, ob die Anfrage ändern darf: kein Passwort gesetzt, API-Token oder gültige
@@ -88,8 +101,8 @@ func (s *Server) setUnlockCookie(w http.ResponseWriter, r *http.Request, value s
 // Nur bei geschützten Aufrufen, nicht bei jeder Anfrage: Eine offene Übersicht fragt im Hintergrund
 // ständig nach – das hielte die Entsperrung sonst unbegrenzt am Leben.
 func (s *Server) renewUnlock(w http.ResponseWriter, r *http.Request) {
-	if until := s.unlockUntil(r); !until.IsZero() && time.Until(until) < unlockIdle-unlockRenew {
-		s.setUnlockCookie(w, r, s.unlockToken(time.Now().Add(unlockIdle)), false)
+	if until, stamp := s.unlockStamp(r); !until.IsZero() && time.Until(until) < unlockIdle-unlockRenew {
+		s.setUnlockCookie(w, r, s.unlockTokenFor(stamp, time.Now().Add(unlockIdle)), false)
 	}
 }
 
@@ -123,10 +136,19 @@ func (s *Server) unlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := clientKey(r)
-	ok, wait := s.attempts.try(key, func() bool { return s.store.CheckPassword(in.Password) })
+	var stamp string
+	ok, wait := s.attempts.try(key, func() bool {
+		var good bool
+		stamp, good = s.store.CheckPasswordStamp(in.Password)
+		return good
+	})
 	if wait > 0 {
 		s.fail(w, r, http.StatusTooManyRequests, "err.unlock_wait", int(wait.Seconds()+0.999))
 		return
+	}
+	// Während der Prüfung neu gesetztes Passwort: Das alte entsperrt nicht mehr.
+	if ok && s.store.PasswordStamp() != stamp {
+		ok = false
 	}
 	if !ok {
 		log.Printf("Unlock failed from %s", key)
@@ -134,7 +156,8 @@ func (s *Server) unlock(w http.ResponseWriter, r *http.Request) {
 			"message": i18n.T(s.lang(r), "err.password_wrong")})
 		return
 	}
-	s.setUnlockCookie(w, r, s.unlockToken(time.Now().Add(unlockIdle)), false)
+	// An den geprüften Stand gebunden: Ändert sich das Passwort gerade jetzt, gilt das Cookie nicht.
+	s.setUnlockCookie(w, r, s.unlockTokenFor(stamp, time.Now().Add(unlockIdle)), false)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "locked": false})
 }
 
@@ -157,19 +180,32 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
+	wrongCurrent := func() {
+		writeJSON(w, http.StatusForbidden, map[string]any{"success": false, "field": "current",
+			"message": i18n.T(s.lang(r), "err.password_wrong")})
+	}
+	expect := "" // ohne gesetztes Passwort: nur, wenn nicht gleichzeitig jemand eins setzt
 	if s.store.HasPassword() {
-		ok, wait := s.attempts.try(clientKey(r), func() bool { return s.store.CheckPassword(in.Current) })
+		ok, wait := s.attempts.try(clientKey(r), func() bool {
+			var good bool
+			expect, good = s.store.CheckPasswordStamp(in.Current)
+			return good
+		})
 		if wait > 0 {
 			s.fail(w, r, http.StatusTooManyRequests, "err.unlock_wait", int(wait.Seconds()+0.999))
 			return
 		}
 		if !ok {
-			writeJSON(w, http.StatusForbidden, map[string]any{"success": false, "field": "current",
-				"message": i18n.T(s.lang(r), "err.password_wrong")})
+			wrongCurrent()
 			return
 		}
 	}
-	if err := s.store.SetPassword(in.Password); err != nil {
+	stamp, err := s.store.SetPasswordIf(expect, in.Password)
+	if errors.Is(err, store.ErrPasswordChanged) {
+		wrongCurrent() // inzwischen hat jemand anderes das Passwort geändert
+		return
+	}
+	if err != nil {
 		s.storeError(w, r, err)
 		return
 	}
@@ -178,8 +214,8 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request) {
 		s.setUnlockCookie(w, r, "", true)
 	} else {
 		log.Print("Password for changes set")
-		// Wer es eben gesetzt hat, bleibt entsperrt (der Schlüssel hängt am neuen Passwort).
-		s.setUnlockCookie(w, r, s.unlockToken(time.Now().Add(unlockIdle)), false)
+		// Wer es eben gesetzt hat, bleibt entsperrt – für genau dieses Passwort.
+		s.setUnlockCookie(w, r, s.unlockTokenFor(stamp, time.Now().Add(unlockIdle)), false)
 	}
 	s.hub.dropPrivileged()                // bisherige Entsperrungen gelten nicht mehr
 	s.hub.publish("settings", struct{}{}) // offene Fenster fragen neu, ob sie ändern dürfen

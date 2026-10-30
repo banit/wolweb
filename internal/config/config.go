@@ -345,6 +345,9 @@ func invalid(field, key string, args ...any) error {
 	return FieldError{Field: field, Err: i18n.M(key, args...)}
 }
 
+// maxStatusPorts begrenzt die Standard-Prüfports (wie die Prüfports eines Geräts).
+const maxStatusPorts = 16
+
 // Untergrenzen, damit sich niemand über die Oberfläche das Netz oder die Geräte zuschüttet.
 const (
 	minStatusInterval = 5 * time.Second
@@ -430,10 +433,22 @@ func (c *Config) normalize() error {
 			return invalid("discovery.networks", "cfg.vlan", n.VLAN)
 		}
 	}
+	// Wie bei den Prüfports eines Geräts: ohne Doppelte, höchstens maxStatusPorts – jeder Eintrag ist
+	// je Prüfung ein Verbindungsversuch, eine lange Liste schüttete Netz und Geräte zu.
+	var ports []int
 	for _, p := range c.Status.Ports {
 		if p <= 0 || p > 65535 {
 			return invalid("status.ports", "cfg.status_port", p)
 		}
+		if !slices.Contains(ports, p) {
+			ports = append(ports, p)
+		}
+	}
+	if len(ports) > maxStatusPorts {
+		return invalid("status.ports", "cfg.status_ports_max", maxStatusPorts)
+	}
+	if len(ports) != len(c.Status.Ports) {
+		c.Status.Ports = ports // Doppelte entfernt
 	}
 	if c.Discovery.MaxHosts <= 0 {
 		c.Discovery.MaxHosts = 1024

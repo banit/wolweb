@@ -465,7 +465,7 @@ func TestStatusEventsFollowUnlock(t *testing.T) {
 	}
 
 	// Ablauf der Entsperrung beendet die Verbindung.
-	soon := &http.Cookie{Name: unlockCookie, Value: s.unlockToken(time.Now().Add(1500 * time.Millisecond))}
+	soon := &http.Cookie{Name: unlockCookie, Value: s.unlockTokenFor(s.store.PasswordStamp(), time.Now().Add(1500*time.Millisecond))}
 	events, closed = sse(t, s, srv.URL, soon)
 	if !statusEvent(events) {
 		t.Fatal("kurz entsperrt: kein Status")
@@ -482,5 +482,82 @@ func TestStatusEventsFollowUnlock(t *testing.T) {
 	}
 	if isClosed(guestClosed, 0) {
 		t.Error("Verbindung ohne Entsperrung wurde beendet")
+	}
+}
+
+// Bei ausgeblendetem Online-Status verrät der Verlauf keine automatischen Wiederholungen (es gibt sie
+// nur, wenn das Gerät offline blieb), und "zuletzt geweckt" bleibt beim ersten Weckruf.
+func TestHistoryHidesRetries(t *testing.T) {
+	s, h, d := privacyServer(t, "unlocked")
+	first := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+	s.store.RecordWake(store.Event{Time: first, ID: d.ID, Device: d.Name, Source: "link", Success: true},
+		store.Event{Time: first.Add(45 * time.Second), ID: d.ID, Device: d.Name, Source: "link", Success: true, Retry: true})
+	guest := &browser{t: t, h: h}
+	body := guest.do("GET", "/api/v1/history", "").Body.String()
+	if strings.Contains(body, `"retry"`) || strings.Count(body, `"device":"NAS"`) != 1 {
+		t.Fatalf("Verlauf für Gäste: %s", body)
+	}
+	if lw := s.store.LastWake(d.ID); !lw.Equal(first) {
+		t.Fatalf("zuletzt geweckt %v statt %v", lw, first)
+	}
+	// Wer den Status sehen darf, sieht die Wiederholung.
+	admin := &browser{t: t, h: h}
+	admin.do("PUT", "/api/v1/password", `{"password":"geheim123"}`)
+	if body := admin.do("GET", "/api/v1/history", "").Body.String(); !strings.Contains(body, `"retry":true`) {
+		t.Fatalf("Verlauf für Entsperrte: %s", body)
+	}
+}
+
+// Das Live-Ereignis nach einem Weckruf geht nur an Verbindungen, die Weckzeiten sehen dürfen.
+func TestWakeEventsFollowWakeHistory(t *testing.T) {
+	s, _, _ := settingsServer(t, `{"privacy": {"wake_history": "unlocked"}}`)
+	d, _ := s.store.Create(store.Input{Name: "NAS", MAC: "02:00:00:00:00:01", Broadcast: udpSink(t)})
+	guest, stopG := s.hub.subscribe(i18n.DE, false)
+	defer stopG()
+	priv, stopP := s.hub.subscribe(i18n.DE, true)
+	defer stopP()
+	s.recordWakes(wakeAttempt{ev: store.Event{ID: d.ID, Device: d.Name, Source: "link", Success: true}, d: d})
+	select {
+	case m := <-priv:
+		if !strings.HasPrefix(string(m), "event: devices") {
+			t.Fatalf("privilegiert: %s", m)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("privilegierte Verbindung bekam kein Ereignis")
+	}
+	select {
+	case m := <-guest:
+		t.Fatalf("Gast bekam %s", m)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// Die frisch prüfenden Status-Routen erkennen die Entsperrung nur zusammen mit X-WolWeb an: Eine
+// andere Seite derselben Site schickt das Cookie mit, aber nicht den Kopf.
+func TestStatusCheckNeedsOwnPage(t *testing.T) {
+	_, h, d := privacyServer(t, "unlocked")
+	admin := &browser{t: t, h: h}
+	admin.do("PUT", "/api/v1/password", `{"password":"geheim123"}`)
+	for _, path := range []string{"/wake/NAS/status", "/api/v1/devices/" + d.ID + "/status", "/wake-group/B%C3%BCro/status"} {
+		if rec := admin.do("GET", path, ""); rec.Code != http.StatusOK {
+			t.Errorf("%s mit X-WolWeb: %d", path, rec.Code)
+		}
+		other := &browser{t: t, h: h, cookie: admin.cookie, setup: func(r *http.Request) { r.Header.Del("X-WolWeb") }}
+		if rec := other.do("GET", path, ""); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"hidden":true`) {
+			t.Errorf("%s ohne X-WolWeb: %d %s", path, rec.Code, rec.Body)
+		}
+	}
+}
+
+// Wiederholungen werden vor dem Limit herausgefiltert: limit=1 liefert den letzten Weckruf, auch wenn
+// danach eine (verborgene) Wiederholung kam.
+func TestHistoryLimitAfterRetryFilter(t *testing.T) {
+	s, h, d := privacyServer(t, "unlocked")
+	at := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+	s.store.RecordWake(store.Event{Time: at, ID: d.ID, Device: d.Name, Source: "link", Success: true},
+		store.Event{Time: at.Add(45 * time.Second), ID: d.ID, Device: d.Name, Source: "link", Success: true, Retry: true})
+	body := (&browser{t: t, h: h}).do("GET", "/api/v1/history?limit=1", "").Body.String()
+	if strings.Contains(body, `"retry"`) || strings.Count(body, `"device":"NAS"`) != 1 {
+		t.Fatalf("limit=1 für Gäste: %s", body)
 	}
 }

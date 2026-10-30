@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -190,6 +191,17 @@ func (h *hub) subscribers() int {
 
 // devicesChanged meldet der Oberfläche, dass sie die Geräteliste neu laden soll.
 func (s *Server) devicesChanged() { s.hub.publish("devices", struct{}{}) }
+
+// wakesChanged meldet einen Weckruf (neues "zuletzt geweckt") – nur an Verbindungen, die Weckzeiten
+// sehen dürfen (privacy.wake_history). Das Ereignis selbst verriete sonst, wann geweckt wurde, und
+// eine automatische Wiederholung zusätzlich, dass das Gerät offline blieb (dafür auch online_status).
+func (s *Server) wakesChanged(as []wakeAttempt) {
+	retry := slices.ContainsFunc(as, func(a wakeAttempt) bool { return a.ev.Retry })
+	s.hub.publishTo("devices", func(i18n.Lang) any { return struct{}{} }, func(sub subscriber) bool {
+		pv := s.conf().Privacy
+		return s.recording() && shownTo(pv.WakeHistory, sub.privileged) && (!retry || shownTo(pv.OnlineStatus, sub.privileged))
+	})
+}
 
 // statusChanged wird vom Monitor nach jeder Statusänderung aufgerufen.
 func (s *Server) statusChanged(d store.Device, old status.State, hadOld bool, st status.State) {

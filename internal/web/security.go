@@ -29,7 +29,8 @@ var lanSuffixes = []string{".local", ".lan", ".home", ".internal", ".intranet", 
 
 // Eine sichere Automatik gibt es hier nicht: Der Name eines echten Reverse-Proxys und der einer
 // Angriffsseite sehen für wolweb gleich aus (öffentliche Domain, Anfrage aus dem LAN), und
-// X-Forwarded-Host kann das Skript der Angriffsseite selbst setzen. Deshalb nennt die Ablehnung den
+// X-Forwarded-Host kann das Skript der Angriffsseite selbst setzen (darum zählt er nur als zusätzliche
+// Ablehnung, siehe deniedHost). Deshalb nennt die Ablehnung den
 // Namen samt der Zeile zum Eintragen, und die Einstellungsseite – über die IP geöffnet – bietet die
 // zuletzt abgelehnten Namen zum Erlauben an. Ein Klick dort braucht X-WolWeb und die vertrauenswürdige
 // Adresse, eine fremde Seite kann ihn nicht auslösen.
@@ -44,9 +45,13 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		host := hostOnly(r.Host)
 		// /health für Healthchecks, static/ für die Fehlerseite selbst (CSS, Symbole – nichts Geheimes).
-		if r.URL.Path == c.VDir+"health" || strings.HasPrefix(r.URL.Path, c.VDir+"static/") || hostAllowed(host, self, c.AllowedHosts) {
+		if r.URL.Path == c.VDir+"health" || strings.HasPrefix(r.URL.Path, c.VDir+"static/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		host := deniedHost(r, self, c.AllowedHosts)
+		if host == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -104,6 +109,44 @@ func (h *rejectedHosts) list(self string, allowed []string) []string {
 	return out
 }
 
+// deniedHost liefert den ersten nicht erlaubten Hostnamen der Anfrage, sonst "". Geprüft werden der
+// Host-Kopf und – nur als zusätzliche Ablehnung, nie als Freigabe – die Namen, die ein Reverse-Proxy
+// in X-Forwarded-Host bzw. Forwarded (host=) weiterreicht. Schreibt der Proxy den Host-Kopf auf seine
+// Upstream-Adresse um, sähe wolweb sonst immer nur eine IP und ließe jeden Namen durch.
+func deniedHost(r *http.Request, self string, allowed []string) string {
+	for _, h := range append([]string{r.Host}, forwardedHosts(r)...) {
+		if h = hostOnly(h); !hostAllowed(h, self, allowed) {
+			return h
+		}
+	}
+	return ""
+}
+
+// forwardedHosts liest die von Proxys gemeldeten Original-Hostnamen (alle Einträge, auch mehrfache Köpfe).
+func forwardedHosts(r *http.Request) []string {
+	var out []string
+	for _, v := range r.Header.Values("X-Forwarded-Host") {
+		for _, h := range strings.Split(v, ",") {
+			if h = strings.TrimSpace(h); h != "" {
+				out = append(out, h)
+			}
+		}
+	}
+	for _, v := range r.Header.Values("Forwarded") {
+		for _, elem := range strings.Split(v, ",") {
+			for _, pair := range strings.Split(elem, ";") {
+				k, val, ok := strings.Cut(strings.TrimSpace(pair), "=")
+				if ok && strings.EqualFold(k, "host") {
+					if val = strings.Trim(strings.TrimSpace(val), `"`); val != "" {
+						out = append(out, val)
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
 func selfHost() string {
 	h, _ := os.Hostname()
 	return strings.ToLower(h)
@@ -139,6 +182,20 @@ func hostAllowed(host, self string, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+// confirmWake: Mit auth.wake_keys sollen fremde Seiten keine Geräte über erratene Namen wecken. Ein
+// angemeldeter Browser braucht den Schlüssel aber nicht (needsKey) – und schickt seine Zugangsdaten
+// auch bei einer von einer fremden Seite ausgelösten Navigation mit. Kommt der Aufruf von einer
+// fremden Seite und trägt keinen gültigen Schlüssel (want), weckt die Seite deshalb erst auf Knopfdruck.
+func (s *Server) confirmWake(r *http.Request, want string) bool {
+	if !s.conf().Auth.WakeKeys || s.tokenAuthorized(r) || s.needsKey(r) { // ohne Anmeldung ist der Schlüssel schon geprüft
+		return false
+	}
+	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "cross-site" && sfs != "same-site" {
+		return false
+	}
+	return want == "" || subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), []byte(want)) != 1
 }
 
 // --- Öffentliche Wecklinks ---
@@ -184,26 +241,65 @@ func (s *Server) findForLink(r *http.Request) (store.Device, bool) {
 const wakeDedupWindow = 10 * time.Second
 
 type wakeLimiter struct {
-	mu   sync.Mutex
-	last map[string]time.Time // Geräte-ID -> letzter Weckruf
+	mu     sync.Mutex
+	last   map[string]time.Time   // Geräte-ID -> letzter Weckruf
+	failed map[string]wakeFailure // Geräte-ID -> zuletzt gescheiterter Weckruf
+}
+
+// wakeFailBackoff: So lange nach einem gescheiterten Weckruf bekommt jeder weitere Aufruf dessen
+// Ergebnis, ohne erneut zu senden, einzutragen oder zu melden. "Gleich nochmal" bleibt möglich, ein
+// Dauerfeuer auf ein Gerät, dessen Senden scheitert, schreibt aber nicht bei jedem Aufruf den
+// Verlauf auf die Platte und füllt nicht die Benachrichtigungen.
+const wakeFailBackoff = 3 * time.Second
+
+type wakeFailure struct {
+	at  time.Time
+	res wakeResult
 }
 
 // claim reserviert den Weckruf für ein Gerät. false: Es wurde eben erst geweckt.
-func (l *wakeLimiter) claim(id string) bool {
+// claim reserviert den Weckruf für id. false: eben erst geweckt – oder eben gescheitert, dann ist
+// failed das Ergebnis jenes Versuchs. Beides wird unter derselben Sperre geprüft wie reserviert,
+// sonst sendete ein gleichzeitiger Aufruf nach einem Fehlschlag doch gleich nochmal.
+func (l *wakeLimiter) claim(id string) (ok bool, failed *wakeResult) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if f, hit := l.failed[id]; hit && time.Since(f.at) < wakeFailBackoff {
+		res := f.res
+		return false, &res
+	}
 	if time.Since(l.last[id]) < wakeDedupWindow {
-		return false
+		return false, nil
 	}
 	l.markLocked(id)
-	return true
+	return true, nil
 }
 
-// release gibt eine Reservierung zurück – das Senden ist gescheitert, gleich nochmal ist richtig.
+// fail gibt eine Reservierung zurück – das Senden ist gescheitert, gleich nochmal ist richtig – und
+// merkt sich das Ergebnis für wakeFailBackoff.
+func (l *wakeLimiter) fail(id string, res wakeResult) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.last, id)
+	if l.failed == nil {
+		l.failed = map[string]wakeFailure{}
+	}
+	l.failed[id] = wakeFailure{at: time.Now(), res: res}
+	if len(l.failed) > 1000 {
+		for k, f := range l.failed {
+			if time.Since(f.at) > wakeFailBackoff {
+				delete(l.failed, k)
+			}
+		}
+	}
+}
+
+// release vergisst Reservierung und Fehlschlag eines Geräts (Tests).
 func (l *wakeLimiter) release(id string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.last, id)
+	delete(l.failed, id)
 }
 
 // mark merkt einen Weckruf, der nicht über claim kam (Zeitplan, Wiederholung).
@@ -229,10 +325,15 @@ func (l *wakeLimiter) markLocked(id string) {
 
 // alreadyWaking reserviert den Weckruf für d. Wurde d eben erst geweckt, kommt stattdessen die
 // freundliche Antwort zurück (Erfolg, Already gesetzt) – die Seite zeigt dann den laufenden Start.
-func (s *Server) alreadyWaking(r *http.Request, d store.Device) (wakeResult, bool) {
-	if s.limiter.claim(d.ID) {
-		return wakeResult{}, false
+// Ist eben ein Weckruf gescheitert (wakeFailBackoff), kommt dessen Ergebnis mit Code 500.
+func (s *Server) alreadyWaking(r *http.Request, d store.Device) (wakeResult, int, bool) {
+	ok, failed := s.limiter.claim(d.ID)
+	switch {
+	case ok:
+		return wakeResult{}, 0, false
+	case failed != nil:
+		return *failed, http.StatusInternalServerError, true
 	}
 	return wakeResult{Success: true, Already: true, Device: d.Name, ID: d.ID, Target: s.wakeTarget(d),
-		Message: i18n.T(s.lang(r), "msg.already_waking", d.Name)}, true
+		Message: i18n.T(s.lang(r), "msg.already_waking", d.Name)}, http.StatusOK, true
 }

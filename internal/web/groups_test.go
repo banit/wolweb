@@ -108,3 +108,64 @@ func TestGroupAPILocked(t *testing.T) {
 		t.Fatalf("entsperrt: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// Eine gelöschte Gruppe nimmt ihre Wecklinks mit: Eine neue gleichnamige Gruppe hat einen anderen
+// Schlüssel, und "Schlüssel erneuern" macht bisherige Links ungültig.
+func TestGroupKeyBoundToGroup(t *testing.T) {
+	h, st := newTestServer(t, func(c *config.Config) {
+		c.Auth.Username, c.Auth.Password, c.Auth.WakeKeys = "admin", "geheim", true
+	})
+	sink := udpSink(t)
+	a, _ := st.Create(store.Input{Name: "A", MAC: "02:00:00:00:00:01", Broadcast: sink})
+	b, _ := st.Create(store.Input{Name: "B", MAC: "02:00:00:00:00:02", Broadcast: sink})
+	do := func(method, path, body string, auth bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("X-WolWeb", "1")
+		if auth {
+			req.SetBasicAuth("admin", "geheim")
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	key := func(name string) string {
+		var out []groupView
+		json.Unmarshal(do("GET", "/api/v1/groups", "", true).Body.Bytes(), &out)
+		for _, g := range out {
+			if strings.EqualFold(g.Name, name) {
+				return g.Key
+			}
+		}
+		t.Fatalf("Gruppe %s fehlt", name)
+		return ""
+	}
+	do("POST", "/api/v1/groups", `{"name":"Gast","members":["`+a.ID+`"]}`, true)
+	old := key("Gast")
+	if rec := do("POST", "/wake-group/Gast?key="+old, "", false); rec.Code != http.StatusOK {
+		t.Fatalf("Link vor dem Löschen: %d %s", rec.Code, rec.Body)
+	}
+	do("DELETE", "/api/v1/groups/Gast", "", true)
+	if rec := do("POST", "/api/v1/groups", `{"name":"gast","members":["`+b.ID+`"]}`, true); rec.Code != http.StatusCreated {
+		t.Fatalf("neu anlegen: %d %s", rec.Code, rec.Body)
+	}
+	if key("gast") == old {
+		t.Fatal("neue gleichnamige Gruppe hat den alten Schlüssel")
+	}
+	if rec := do("POST", "/wake-group/Gast?key="+old, "", false); rec.Code != http.StatusNotFound {
+		t.Fatalf("alter Link weckt die neue Gruppe: %d %s", rec.Code, rec.Body)
+	}
+	// Erneuern: neuer Schlüssel, alter gilt nicht mehr.
+	cur := key("gast")
+	if rec := do("POST", "/api/v1/groups/gast/wake-key", "", true); rec.Code != http.StatusOK {
+		t.Fatalf("erneuern: %d %s", rec.Code, rec.Body)
+	}
+	if next := key("gast"); next == cur || next == "" {
+		t.Fatalf("Schlüssel nicht erneuert: %q", next)
+	}
+	if rec := do("POST", "/wake-group/gast?key="+cur, "", false); rec.Code != http.StatusNotFound {
+		t.Fatalf("alter Schlüssel nach dem Erneuern: %d", rec.Code)
+	}
+	if rec := do("POST", "/api/v1/groups/gast/wake-key", "", false); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("erneuern ohne Anmeldung: %d", rec.Code)
+	}
+}

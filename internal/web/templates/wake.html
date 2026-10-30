@@ -21,7 +21,7 @@
 {{template "icons"}}
 <main class="wake-card" id="wake"
   {{with .Device}}data-name="{{.Name}}" data-path="{{.WakePath}}" data-has-ip="{{if .CheckIP}}1{{end}}" data-target="{{.WakeTarget}}"{{end}} data-key="{{.Key}}"
-  {{if .StatusHidden}}data-status-hidden="1"{{end}}
+  {{if .StatusHidden}}data-status-hidden="1"{{end}} {{if .Confirm}}data-confirm="1"{{end}}
   data-timeout="{{.Timeout}}" data-retry="{{.Retry}}" data-state="{{if .Device}}start{{else}}missing{{end}}">
 {{if .Device}}
   <div class="wake-visual">
