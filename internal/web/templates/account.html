@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="{{.Lang}}" data-accent="{{.Accent}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>{{.T "acc.title"}} · Wake on LAN</title>
+<base href="{{.Base}}">
+<link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="{{.ThemeColor}}">
+<link rel="stylesheet" href="static/app.css?v={{.Version}}">
+<script id="i18n" type="application/json">{{.I18N}}</script>
+<script src="static/theme.js?v={{.Version}}"></script>
+<script src="static/i18n.js?v={{.Version}}" defer></script>
+<script src="static/account.js?v={{.Version}}" defer></script>
+</head>
+<body class="app">
+{{template "icons"}}
+<header class="topbar">
+  <div class="brand">
+    <a class="btn btn-ghost icon-only" href="./" title="{{.T "page.overview"}}" aria-label="{{.T "page.overview"}}"><svg aria-hidden="true" class="ico"><use href="#i-arrow-left"/></svg></a>
+    <div>
+      <h1>{{.T "acc.title"}}</h1>
+      <p class="muted" id="acc-who">{{.T "page.loading"}}</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button type="button" class="btn btn-secondary" id="acc-logout"><svg aria-hidden="true" class="ico"><use href="#i-logout"/></svg>{{.T "acc.logout"}}</button>
+  </div>
+</header>
+
+<main class="container settings">
+  <section class="set-section" aria-labelledby="acc-mail-title">
+    <h2 id="acc-mail-title">{{.T "acc.email.title"}}</h2>
+    <form id="acc-mail-form" novalidate>
+      <label class="field">
+        <span>{{.T "acc.email"}}</span>
+        <input type="email" name="email" autocomplete="email" maxlength="254" aria-describedby="acc-mail-hint">
+        <small class="muted" id="acc-mail-hint">{{.T "acc.email_hint"}}</small>
+      </label>
+      <p class="form-error" id="acc-mail-error" role="alert" tabindex="-1" hidden></p>
+      <div class="row gap-start">
+        <button type="submit" class="btn btn-primary" id="acc-mail-save"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.save"}}</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="set-section" aria-labelledby="acc-pw-title">
+    <h2 id="acc-pw-title">{{.T "acc.pw.title"}}</h2>
+    <form id="acc-pw-form" novalidate>
+      <label class="field">
+        <span>{{.T "set.pw.current"}}</span>
+        <input type="password" name="current" autocomplete="current-password" maxlength="128">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "set.pw.new"}}</span>
+          <input type="password" name="password" autocomplete="new-password" maxlength="128" aria-describedby="acc-pw-hint">
+        </label>
+        <label class="field">
+          <span>{{.T "set.pw.repeat"}}</span>
+          <input type="password" name="repeat" autocomplete="new-password" maxlength="128" aria-describedby="acc-pw-hint">
+        </label>
+      </div>
+      <small class="muted" id="acc-pw-hint">{{.T "acc.pw.hint"}}</small>
+      <p class="form-error" id="acc-pw-error" role="alert" tabindex="-1" hidden></p>
+      <div class="row gap-start">
+        <button type="submit" class="btn btn-primary" id="acc-pw-save"><svg aria-hidden="true" class="ico"><use href="#i-lock"/></svg>{{.T "acc.pw.save"}}</button>
+      </div>
+    </form>
+  </section>
+</main>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+</body>
+</html>

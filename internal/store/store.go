@@ -188,7 +188,7 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 			return nil, nil, fmt.Errorf("%s: %w", path, err)
 		}
 		s.devices, migratedWake = devs, lw
-		s.groups = decodeGroups(b)
+		s.groups = decodeGroups(b, true)
 		notes = append(notes, problemNotes(path, problems)...)
 		// Die Dateien werden gleich im neuen Format geschrieben. Eine ältere Version (1.0.x, das
 		// Original-wolweb) verwürfe dabei, was sie nicht kennt – vorher alles sichern, damit der
@@ -280,6 +280,7 @@ func Open(dir, legacyPath string) (*Store, []string, error) {
 	nGroups := len(s.groups)
 	s.groups = syncGroups(s.devices, s.groups, false)
 	missingKey = missingKey || len(s.groups) != nGroups
+	missingKey = ensureGroupIDs(s.groups) || missingKey
 	// last_wake erst nach dem Speichern von state.json aus devices.json entfernen. Nach einem
 	// Versionswechsel einmal neu schreiben, damit die Datei die neue Version nennt (und die
 	// Sicherung nicht bei jedem Start erneut entsteht).
@@ -404,6 +405,7 @@ func writeAtomic(path string, v any) error { return atomicfile.WriteJSON(path, v
 
 // saveDevices muss unter s.mu (Schreibsperre) oder vor der Freigabe des Stores aufgerufen werden.
 func (s *Store) saveDevices() error {
+	ensureGroupIDs(s.groups) // neue Gruppen (anlegen, Import, Name am Gerät) bekommen ihre ID hier
 	return writeAtomic(filepath.Join(s.dir, "devices.json"), devicesFile{Version: 2, Writer: AppVersion, Devices: s.devices, Groups: s.groups})
 }
 
@@ -935,7 +937,7 @@ func (s *Store) Import(b []byte, l i18n.Lang) (ImportResult, error) {
 	// Gruppen der Datei mit Reihenfolge und früheren Namen übernehmen, soweit es sie noch nicht gibt.
 	// Ihr Salz (Teil des Wecklink-Schlüssels) nur beim Wiederherstellen: Sonst brächte eine alte Datei
 	// die Links einer inzwischen gelöschten oder erneuerten Gruppe zurück.
-	add := decodeGroups(b)
+	add := decodeGroups(b, false)
 	if !restore {
 		for i := range add {
 			add[i].Salt = newGroupSalt()

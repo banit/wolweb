@@ -69,6 +69,7 @@ type settingsView struct {
 	ReadOnly     bool              `json:"read_only"`
 	Auth         bool              `json:"auth"`
 	Password     bool              `json:"password"` // Passwort für Änderungen gesetzt
+	Users        bool              `json:"users"`    // Benutzerverwaltung aktiv
 	Networks     []networkView     `json:"networks"`
 	Interfaces   []interfaceView   `json:"interfaces"`
 	Events       []string          `json:"events"`  // alle Ereignisarten
@@ -129,7 +130,7 @@ func (s *Server) settingsState() settingsView {
 	return settingsView{
 		Settings: cfg.Editable(), Locked: s.settings.Locked(), Stored: s.settings.Stored(),
 		File: s.settings.Path(), FileFound: s.settings.FileFound(), SettingsFile: s.settings.SettingsPath(),
-		ReadOnly: cfg.ReadOnly, Auth: cfg.AuthEnabled(), Password: s.store.HasPassword(), Networks: nets, Interfaces: ifs, Events: notify.Kinds, Accents: config.Accents,
+		ReadOnly: cfg.ReadOnly, Auth: cfg.AuthEnabled() || s.usersOn(), Password: s.store.HasPassword(), Users: s.usersOn(), Networks: nets, Interfaces: ifs, Events: notify.Kinds, Accents: config.Accents,
 		RejectedHosts: s.rejected.list(selfHost(), cfg.AllowedHosts),
 		AutoNetwork:   autoNetwork(s),
 	}
@@ -154,6 +155,10 @@ func (s *Server) withSettings(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
+	if s.usersOn() && !s.isAdmin(r) { // Benutzer ohne Administratorrechte: zurück zur Übersicht
+		http.Redirect(w, r, s.conf().VDir, http.StatusSeeOther)
+		return
+	}
 	s.render(w, r, http.StatusOK, "settings.html", pageData{})
 }
 

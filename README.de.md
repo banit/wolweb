@@ -373,6 +373,27 @@ Unten auf der Einstellungsseite lässt sich ein Passwort für Änderungen setzen
   Ohne Docker: den Dienst anhalten, `wolweb -c config.json -reset-password` mit derselben Konfiguration ausführen
   (damit es das Datenverzeichnis findet) und den Dienst wieder starten.
 
+### Benutzer und Benutzergruppen
+
+Sollen mehrere Leute wolweb nutzen, jeder nur mit seinen Geräten? Unter **Benutzer** auf der Einstellungsseite legt
+„Benutzer einrichten“ das erste Konto an – das bist du, als Administrator, und du bleibst gleich angemeldet.
+
+- Ab dann braucht wolweb eine **Anmeldung** (Name oder E-Mail und Passwort; sie hält 30 Tage). Das Passwort für
+  Änderungen entfällt – jeder hat sein eigenes Passwort.
+- **Administratoren** dürfen alles wie bisher. Alle anderen sehen und wecken **nur die Geräte ihrer
+  Benutzergruppen** und ändern nur ihr eigenes Konto (**Mein Konto**: E-Mail, Passwort, Abmelden).
+- **Benutzergruppen** geben ihren Mitgliedern Geräte frei: einzelne Geräte oder ganze **Gerätegruppen** ankreuzen
+  (dann auch Geräte, die später in die Gruppe kommen). Ein Benutzer kann in mehreren Gruppen sein; seine Gruppen
+  lassen sich auch direkt im Benutzer-Dialog ankreuzen.
+- Feste Wecklinks gelten weiter für angemeldete Benutzer mit Freigabe. Ohne Anmeldung („Wecklinks ohne Anmeldung“)
+  brauchen sie immer den Schlüssel des Geräts – die von einem Administrator kopierten Links enthalten ihn.
+- Automationen mit `auth.api_token` zählen als Administrator. Die HTTP-Basic-Anmeldung (falls eingerichtet) bleibt
+  davor.
+- Die Konten stehen in `data/state.json` (Passwort als PBKDF2-Hash), nie im Geräte-Export.
+- **Passwort vergessen?** Ein Administrator setzt im Benutzer-Dialog ein neues. Hat sich der letzte Administrator
+  ausgesperrt: wolweb anhalten und einmal mit `-reset-user <Name>` starten – das gibt ein neues Zufallspasswort aus
+  und beendet sich.
+
 ### Privatsphäre
 
 Unter „Privatsphäre“ auf der Einstellungsseite legst du fest, wer sieht, ob Geräte laufen (`privacy.online_status`):

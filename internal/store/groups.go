@@ -25,6 +25,22 @@ type Group struct {
 	// Gruppe bekommt einen neuen Schlüssel, und "Schlüssel erneuern" macht alte Links ungültig. Leer bei
 	// Gruppen aus 1.3 und früher – deren Links gelten unverändert weiter.
 	Salt string `json:"salt,omitempty"`
+	// ID bleibt beim Umbenennen gleich; Benutzergruppen verweisen damit auf die Gerätegruppe. Eine
+	// gelöschte und gleichnamig neu angelegte Gruppe bekommt eine neue – alte Freigaben gelten nicht.
+	ID string `json:"id,omitempty"`
+}
+
+// ensureGroupIDs gibt Gruppen ohne (oder mit doppelter) ID eine neue; true, wenn sich etwas änderte.
+func ensureGroupIDs(groups []Group) bool {
+	changed := false
+	seen := map[string]bool{}
+	for i := range groups {
+		if groups[i].ID == "" || seen[groups[i].ID] {
+			groups[i].ID, changed = newSecretID(), true
+		}
+		seen[groups[i].ID] = true
+	}
+	return changed
 }
 
 // newGroupSalt erzeugt das Salz für eine neue Gruppe bzw. einen erneuerten Schlüssel.
@@ -111,11 +127,16 @@ func syncGroups(devs []Device, groups []Group, fresh bool) []Group {
 
 // decodeGroups liest die Gruppen aus devices.json (oder einem Export). Ungültige und doppelte Namen
 // fallen weg; frühere Namen nur, soweit sie keine andere Gruppe trägt.
-func decodeGroups(b []byte) []Group {
+func decodeGroups(b []byte, keepIDs bool) []Group {
 	var f struct {
 		Groups []Group `json:"groups"`
 	}
 	_ = json.Unmarshal(b, &f)
+	if !keepIDs { // Import: eigene IDs, damit keine Freigabe an einer fremden Gruppe hängt
+		for i := range f.Groups {
+			f.Groups[i].ID = ""
+		}
+	}
 	return mergeGroups(nil, f.Groups)
 }
 
@@ -135,7 +156,7 @@ func mergeGroups(groups, add []Group) []Group {
 				aliases = append(aliases, a)
 			}
 		}
-		groups = append(groups, Group{Name: name, Aliases: aliases, Salt: validSalt(g.Salt)})
+		groups = append(groups, Group{Name: name, Aliases: aliases, Salt: validSalt(g.Salt), ID: g.ID})
 	}
 	return groups
 }
@@ -238,7 +259,7 @@ func (s *Store) CreateGroup(name string, members []string, takeOver bool) (Group
 	if err != nil {
 		return Group{}, err
 	}
-	g := Group{Name: name, Salt: newGroupSalt()}
+	g := Group{Name: name, Salt: newGroupSalt(), ID: newSecretID()}
 	groups := append(slices.Clone(s.groups), g)
 	releaseGroupAlias(groups, name, len(groups)-1)
 	next := slices.Clone(s.devices)
@@ -263,7 +284,7 @@ func (s *Store) UpdateGroup(name, newName string, members []string, takeOver boo
 	}
 	groups := slices.Clone(s.groups)
 	old := groups[i]
-	g := Group{Name: newName, Aliases: formerNames(old.Aliases, old.Name, newName), Salt: old.Salt}
+	g := Group{Name: newName, Aliases: formerNames(old.Aliases, old.Name, newName), Salt: old.Salt, ID: old.ID}
 	groups[i] = g
 	releaseGroupAlias(groups, newName, i)
 	next := slices.Clone(s.devices)

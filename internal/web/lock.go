@@ -82,6 +82,9 @@ func (s *Server) unlockStamp(r *http.Request) (time.Time, string) {
 // unlocked sagt, ob die Anfrage ändern darf: kein Passwort gesetzt, API-Token oder gültige
 // Entsperrung.
 func (s *Server) unlocked(r *http.Request) bool {
+	if s.usersOn() { // mit Benutzern: nur Administratoren (und das Token)
+		return s.isAdmin(r)
+	}
 	if !s.store.HasPassword() || s.tokenAuthorized(r) {
 		return true
 	}

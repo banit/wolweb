@@ -30,6 +30,7 @@ func main() {
 	legacyPath := flag.String("d", "devices.json", "devices.json of the original wolweb, imported on first start")
 	healthcheck := flag.Bool("healthcheck", false, "checks /health of the running server (for Docker) and exits")
 	resetPassword := flag.Bool("reset-password", false, "removes the password for changes and exits (stop the server first)")
+	resetUser := flag.String("reset-user", "", "sets a new random password for this user (name or e-mail), prints it and exits (stop the server first)")
 	flag.Parse()
 
 	settings, err := config.Open(*configPath)
@@ -83,6 +84,15 @@ func main() {
 			log.Fatalf("Removing the password: %v", err)
 		}
 		log.Print("Password for changes removed")
+		return
+	}
+	if *resetUser != "" {
+		pw := store.RandomPassword()
+		u, err := st.ResetUserPassword(*resetUser, pw)
+		if err != nil {
+			log.Fatalf("Resetting the password of %q: %v", *resetUser, err)
+		}
+		log.Printf("New password for user %s: %s (change it after logging in under My account)", u.Name, pw)
 		return
 	}
 	devices, _ := st.Devices()
