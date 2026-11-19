@@ -64,6 +64,11 @@
     const res = await fetch("api/v1/" + url, opts);
     let data = null;
     try { data = await res.json(); } catch (e) { /* leer */ }
+    // Abgemeldet (Benutzerverwaltung, Sitzung abgelaufen): zur Anmeldung.
+    if (res.status === 401 && data && data.login) {
+      location.href = "login?next=" + encodeURIComponent(location.pathname + location.search);
+      throw Object.assign(new Error(data.message || ""), { status: 401, data });
+    }
     // Gesperrt (Passwort für Änderungen): nach dem Passwort fragen und die Anfrage wiederholen.
     if (res.status === 403 && data && data.locked && !again) {
       if (await window.wolwebLock.unlock()) {
@@ -215,6 +220,8 @@
     $("#sort-toggle").hidden = !editable() || (total < 2 && state.groups.length < 2);
     for (const id of state.selected) if (!state.devices.some((d) => d.id === id)) state.selected.delete(id);
     $("#empty").hidden = total !== 0;
+    // Benutzer ohne Administratorrechte, denen noch nichts freigegeben ist: an wen sie sich wenden.
+    $("#empty-text").textContent = state.info.users && !state.info.admin ? t("page.empty.none_shared") : t("page.empty.text");
     $("#empty-filter").hidden = total === 0 || list.length !== 0 || state.sorting;
     if (state.sorting) return renderSort();
     const existing = new Map([...grid.querySelectorAll(".card")].map((c) => [c.dataset.id, c]));
@@ -1207,6 +1214,7 @@
 
   async function loadDiscovery() {
     clearTimeout(discoveryTimer);
+    if (state.info.users && !state.info.admin) return; // Netzwerksuche nur für Administratoren
     try {
       const data = await api("GET", "discovery");
       state.found = data.found;
@@ -1608,7 +1616,7 @@
     connectEvents();
   }
   function connectEvents() {
-    if (!window.EventSource) return;
+    if (!window.EventSource || state.info.live === false) return; // ohne Live-Verbindung: regelmäßig nachfragen
     es = new EventSource("api/v1/events"); // verbindet sich bei Abbruch selbst neu
     let opened = false;
     es.addEventListener("open", () => {
@@ -1639,7 +1647,10 @@
 
   // applyInfo übernimmt, was von den Einstellungen abhängt (auch nach einer Änderung im Betrieb).
   function applyInfo() {
-    $("#open-settings").hidden = !state.info.settings;
+    $("#open-settings").hidden = !state.info.settings || state.info.admin === false;
+    // Benutzerverwaltung: Name oben rechts führt zu „Mein Konto“ (E-Mail, Passwort, Abmelden).
+    $("#open-account").hidden = !state.info.user;
+    $("#account-name").textContent = state.info.user || "";
     if (state.info.accent) { // auf der Einstellungsseite geändert: gleich übernehmen
       document.documentElement.dataset.accent = state.info.accent;
       $('meta[name="theme-color"]').setAttribute("content", state.info.theme_color);

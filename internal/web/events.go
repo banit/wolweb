@@ -115,6 +115,17 @@ func (h *hub) dropPrivileged() {
 	}
 }
 
+// dropAll beendet alle Verbindungen (die Benutzerverwaltung wurde eingeschaltet: Was bisher ohne
+// Anmeldung lief, muss sich neu anmelden).
+func (h *hub) dropAll() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for ch := range h.subs {
+		delete(h.subs, ch)
+		close(ch)
+	}
+}
+
 // Close beendet alle offenen Ereignis-Verbindungen und verwirft ausstehende Wiederholungen (für
 // http.Server.RegisterOnShutdown).
 func (s *Server) Close() {
@@ -128,6 +139,12 @@ func (s *Server) Close() {
 var sseWriteTimeout = 10 * time.Second
 
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+	// Mit Benutzern nur für Administratoren: Auch leere Ereignisse verrieten, wann sich etwas tut. Die
+	// Übersicht der anderen fragt regelmäßig nach (nur ihre Geräte).
+	if s.usersOn() && !s.isAdmin(r) {
+		s.fail(w, r, http.StatusForbidden, "err.admin_only")
+		return
+	}
 	rc := http.NewResponseController(w)
 	// Die Verbindung bleibt offen: keine Lesefrist (sonst bricht net/http sie nach ReadTimeout ab)
 	// und statt der allgemeinen Schreibfrist eine kurze je Ereignis.
@@ -147,7 +164,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	// den Online-Status weiter. Beim Neuverbinden zählt das dann gültige Cookie (eine inzwischen
 	// verlängerte Entsperrung gilt also weiter).
 	var expired <-chan time.Time
-	if until := s.unlockUntil(r); privileged && !s.tokenAuthorized(r) && !until.IsZero() {
+	until := s.unlockUntil(r)
+	if _, end, ok := s.session(r); ok && s.usersOn() {
+		until = end // mit Benutzern: bis die Sitzung endet
+	}
+	if privileged && !s.tokenAuthorized(r) && !until.IsZero() {
 		t := time.NewTimer(time.Until(until))
 		defer t.Stop()
 		expired = t.C

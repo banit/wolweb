@@ -49,6 +49,7 @@ type Server struct {
 	flights   checkFlights   // laufende Online-Prüfungen je Gerät (gemeinsam genutzt)
 	waitSlots chan struct{}  // Plätze für gleichzeitige ?wait=-Schleifen (maxWaiters)
 	attempts  attemptLimiter // Fehlversuche beim Entsperren
+	resets    resetLimiter   // Mails "Passwort vergessen" (reset.go)
 	logins    loginBrake     // gescheiterte Anmeldungen (Basic, API-Token)
 	rejected  rejectedHosts  // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
 	schedRan  ranSchedules   // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
@@ -150,7 +151,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+api+"history", s.history)
 	mux.HandleFunc("GET "+api+"export", s.editable(s.export)) // mit Weckschlüsseln
 	mux.HandleFunc("POST "+api+"import", s.change(s.importDevices))
-	mux.HandleFunc("GET "+api+"discovery", s.discovery)
+	mux.HandleFunc("GET "+api+"discovery", s.adminOnly(s.discovery))
 	mux.HandleFunc("POST "+api+"discovery/scan", s.editable(s.startScan))
 	mux.HandleFunc("POST "+api+"discovery/cancel", s.editable(s.cancelScan))
 	mux.HandleFunc("POST "+api+"discovery/{mac}/ignore", s.change(s.ignoreFound))
@@ -161,15 +162,37 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT "+api+"settings", s.withSettings(s.change(s.putSettings)))
 	mux.HandleFunc("DELETE "+api+"settings", s.withSettings(s.change(s.resetSettings)))
 	mux.HandleFunc("POST "+api+"settings/test-notify", s.withSettings(s.change(s.testNotify)))
-	mux.HandleFunc("POST "+api+"unlock", s.unlock)
-	mux.HandleFunc("POST "+api+"lock", s.lock)
-	mux.HandleFunc("PUT "+api+"password", s.change(s.setPassword))
+	mux.HandleFunc("POST "+api+"unlock", s.legacyLock(s.unlock))
+	mux.HandleFunc("POST "+api+"lock", s.legacyLock(s.lock))
+	mux.HandleFunc("PUT "+api+"password", s.legacyLock(s.change(s.setPassword)))
+	// Benutzer (users.go)
+	mux.HandleFunc("GET "+base+"login", s.loginPage)
+	mux.HandleFunc("POST "+api+"login", s.login)
+	mux.HandleFunc("POST "+api+"logout", s.logout)
+	mux.HandleFunc("GET "+base+"account", s.accountPage)
+	mux.HandleFunc("GET "+api+"account", s.getAccount)
+	mux.HandleFunc("PUT "+api+"account", s.writable(s.putAccount))
+	mux.HandleFunc("PUT "+api+"account/password", s.writable(s.putAccountPassword))
+	mux.HandleFunc("GET "+api+"users", s.editable(s.listUsers))
+	mux.HandleFunc("POST "+api+"users", s.change(s.createUser))
+	mux.HandleFunc("PUT "+api+"users/{id}", s.change(s.updateUser))
+	mux.HandleFunc("DELETE "+api+"users/{id}", s.change(s.deleteUser))
+	mux.HandleFunc("GET "+base+"reset", s.resetPage)
+	mux.HandleFunc("POST "+api+"password-reset", s.requestReset)
+	mux.HandleFunc("POST "+api+"password-reset/confirm", s.writable(s.confirmReset))
+	mux.HandleFunc("GET "+api+"mail", s.editable(s.getMail))
+	mux.HandleFunc("PUT "+api+"mail", s.change(s.putMail))
+	mux.HandleFunc("POST "+api+"mail/test", s.change(s.testMail))
+	mux.HandleFunc("GET "+api+"user-groups", s.editable(s.listUserGroups))
+	mux.HandleFunc("POST "+api+"user-groups", s.change(s.createUserGroup))
+	mux.HandleFunc("PUT "+api+"user-groups/{id}", s.change(s.updateUserGroup))
+	mux.HandleFunc("DELETE "+api+"user-groups/{id}", s.change(s.deleteUserGroup))
 
 	// Kompatibel zum Original: Geräteliste im alten Format
-	mux.HandleFunc("GET "+base+"data/get", s.legacyData)
-	mux.HandleFunc("GET "+base+"metrics", s.metrics)
+	mux.HandleFunc("GET "+base+"data/get", s.adminOnly(s.legacyData))
+	mux.HandleFunc("GET "+base+"metrics", s.adminOnly(s.metrics))
 
-	return s.recoverer(s.hostGuard(s.auth(s.csrf(securityHeaders(mux)))))
+	return s.recoverer(s.hostGuard(s.auth(s.accounts(s.csrf(securityHeaders(mux))))))
 }
 
 // --- Middleware ---
@@ -358,6 +381,8 @@ type pageData struct {
 	Confirm bool   // Seite weckt erst auf Knopfdruck (Aufruf einer fremden Seite ohne Schlüssel, siehe confirmWake)
 	Host    string // abgelehnter Hostname (blocked.html)
 	Group   *groupView
+	// MailReset: Ein Mailserver ist eingetragen – "Passwort vergessen?" geht per Mail (reset.go).
+	MailReset bool
 
 	Lang         i18n.Lang         // Sprache der Seite
 	OtherLang    i18n.Lang         // Ziel des Umschalters
@@ -428,6 +453,15 @@ func (s *Server) view(d store.Device, vis visibility) deviceView {
 	if st, ok := s.monitor.Get(d.ID); ok && vis.status {
 		v.Status = &st
 	}
+	if vis.limited { // Benutzer ohne Administratorrechte: nur, was zum Wecken nötig ist
+		// Die IP bleibt: Weckseite und Übersicht verfolgen damit den Start des eigenen Geräts.
+		v.WakeKey, v.SecureOn, v.Aliases, v.Interface, v.Broadcast, v.Ports, v.MAC, v.WakeTarget = "", "", nil, "", "", nil, "", ""
+		if v.Status != nil {
+			st := *v.Status
+			st.Conflict, st.IPSource, st.Note = "", "", ""
+			v.Status = &st
+		}
+	}
 	return v
 }
 
@@ -471,6 +505,7 @@ func (s *Server) defaultBroadcast() string {
 
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	devices, _ := s.store.Devices()
+	devices = s.access(r).filter(devices)
 	vis := s.visibility(r)
 	out := make([]deviceView, 0, len(devices))
 	for _, d := range devices {
@@ -573,7 +608,7 @@ func (s *Server) rotateWakeKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.store.Get(r.PathValue("id"))
-	if !ok {
+	if !ok || !s.access(r).can(d.ID) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
@@ -581,7 +616,7 @@ func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
+	writeJSON(w, http.StatusOK, s.limitStatus(r, s.freshStatus(r.Context(), d)))
 }
 
 // freshStatus prüft sofort, außer die letzte Prüfung ist jünger als eine Sekunde.
@@ -621,6 +656,9 @@ func (s *Server) caller(r *http.Request) (client, user string) {
 	if xff, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ","); strings.TrimSpace(xff) != "" {
 		client = clip(strings.TrimSpace(xff), 64) + " via " + client
 	}
+	if u, _, ok := s.session(r); ok && s.usersOn() {
+		return client, u.Name
+	}
 	if s.conf().AuthEnabled() && s.authorized(r) {
 		if u, _, ok := r.BasicAuth(); ok {
 			user = u
@@ -655,7 +693,7 @@ const (
 // Wurde d eben erst geweckt, geht kein weiterer Weckruf raus (siehe wakeDedupWindow).
 func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wakeResult, int) {
 	if res, code, busy := s.alreadyWaking(r, d); busy { // eben geweckt oder eben gescheitert
-		return res, code
+		return s.limitWake(r, res), code
 	}
 	s.supersedeRetry(d.ID)
 	res, code, a := s.sendWake(r, d, source, group)
@@ -663,7 +701,15 @@ func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wa
 		s.limiter.fail(d.ID, res)
 	}
 	s.recordWakes(a)
-	return res, code
+	return s.limitWake(r, res), code
+}
+
+// limitWake nimmt für Benutzer ohne Administratorrechte Ziel und technische Fehlerdetails heraus.
+func (s *Server) limitWake(r *http.Request, res wakeResult) wakeResult {
+	if r != nil && s.limited(r) {
+		res.Target, res.Error = "", ""
+	}
+	return res
 }
 
 // wakeAttempt ist ein Weckversuch, der noch eingetragen und gemeldet werden muss.
@@ -751,7 +797,7 @@ func (s *Server) sendWakeWith(r *http.Request, d store.Device, source, group str
 
 func (s *Server) wakeDevice(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.store.Get(r.PathValue("id"))
-	if !ok {
+	if !ok || !s.access(r).can(d.ID) {
 		s.fail(w, r, http.StatusNotFound, "err.device_not_found")
 		return
 	}
@@ -858,7 +904,7 @@ func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
+	writeJSON(w, http.StatusOK, s.limitStatus(r, s.freshStatus(r.Context(), d)))
 }
 
 // --- Verlauf, Export, Import ---
@@ -874,13 +920,20 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	show := vis.status
+	acc := s.access(r)
 	events := s.store.History(limit)
-	if !show { // eine automatische Wiederholung gibt es nur, wenn das Gerät offline blieb – vor dem Limit filtern
-		events = slices.DeleteFunc(s.store.History(0), func(ev store.Event) bool { return ev.Retry })
+	if !show || !acc.all { // vor dem Limit filtern: Wiederholungen (verraten "offline") und fremde Geräte
+		events = slices.DeleteFunc(s.store.History(0), func(ev store.Event) bool {
+			return (!show && ev.Retry) || (!acc.all && !acc.can(ev.ID))
+		})
 		events = events[:min(limit, len(events))]
 	}
 	for i := range events {
 		events[i] = events[i].Localized(s.lang(r))
+		if vis.limited { // wer geweckt hat und von wo, sehen nur Administratoren
+			events[i].Client, events[i].User, events[i].Target, events[i].Group, events[i].Error = "", "", "", "", ""
+			events[i].ErrorKey, events[i].ErrorArgs = "", nil
+		}
 		if !show { // ob und wann ein Gerät lief, gehört zum Online-Status
 			events[i].Checkable, events[i].WasOnline, events[i].Started = false, false, nil
 		}
@@ -923,7 +976,7 @@ func (s *Server) importDevices(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 	vis := s.visibility(r)
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"version":           s.version,
 		"read_only":         s.conf().ReadOnly,
 		"networks":          s.scanner.Networks(),
@@ -935,21 +988,33 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"local_networks":    discovery.LocalNets(),
 		"icmp":              s.icmp,
 		"default_broadcast": s.defaultBroadcast(),
-		"auth":              s.conf().AuthEnabled(),
+		"auth":              s.conf().AuthEnabled() || s.usersOn(),
 		"public_wake":       s.conf().Auth.PublicWake,
 		"wake_timeout":      int(s.rt().wakeTimeout.Seconds()),
 		"wake_retry":        int(s.rt().wakeRetry.Seconds()),
 		"ports":             s.conf().Status.Ports,
-		"wake_keys":         s.conf().Auth.WakeKeys && s.conf().AuthEnabled(),
+		"wake_keys":         s.keysOn(),
 		"timezone":          localZone(),                  // Zeitpläne laufen in der Ortszeit des Servers
 		"status_hidden":     !vis.status,                  // Privatsphäre: kein Online-Status für diese Anfrage
 		"history_hidden":    !vis.wakes || !s.recording(), // … kein „Zuletzt geweckt“ und kein Verlauf
 		"found_hidden":      !s.foundVisible(r),           // … und keine Suchtreffer
 		"accent":            s.conf().Accent,
 		"theme_color":       config.AccentColor(s.conf().Accent),
-		"password":          s.store.HasPassword(), // Bearbeitungsschutz eingerichtet
-		"locked":            !s.unlocked(r),        // diese Anfrage darf nichts ändern
-	})
+		"password":          s.store.HasPassword() && !s.usersOn(), // Bearbeitungsschutz eingerichtet
+		"locked":            !s.unlocked(r),                        // diese Anfrage darf nichts ändern
+		"users":             s.usersOn(),                           // Benutzerverwaltung aktiv (Anmeldung)
+		"admin":             !s.usersOn() || s.isAdmin(r),
+		"live":              !s.usersOn() || s.isAdmin(r), // Live-Verbindung nur für Administratoren
+	}
+	if u, _, ok := s.session(r); ok && s.usersOn() {
+		out["user"] = u.Name
+	}
+	if vis.limited { // Netzdetails sehen nur Administratoren
+		for _, k := range []string{"networks", "network_choices", "segments", "local_networks", "default_broadcast", "ports", "icmp"} {
+			delete(out, k)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 type foundView struct {

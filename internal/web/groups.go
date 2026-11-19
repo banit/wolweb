@@ -36,6 +36,7 @@ func (s *Server) groupKey(name string) string {
 }
 
 type groupView struct {
+	ID      string       `json:"id,omitempty"` // für Benutzergruppen (nur Administratoren)
 	Name    string       `json:"name"`
 	Path    string       `json:"path"`
 	Key     string       `json:"key,omitempty"`
@@ -58,8 +59,17 @@ func (s *Server) groupView(name string, members []store.Device, withKey bool, vi
 func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
 	out := []groupView{}
 	vis := s.visibility(r)
-	for _, name := range s.store.Groups() {
-		out = append(out, s.groupView(name, s.store.GroupMembers(name), s.conf().Auth.WakeKeys, vis))
+	acc := s.access(r)
+	for _, g := range s.store.GroupList() {
+		members := acc.filter(s.store.GroupMembers(g.Name))
+		if vis.limited && len(members) == 0 {
+			continue // Benutzer sehen nur Gruppen mit Geräten, die sie wecken dürfen
+		}
+		v := s.groupView(g.Name, members, s.keysOn() && !vis.limited, vis)
+		if !vis.limited {
+			v.ID = g.ID
+		}
+		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -85,7 +95,7 @@ func (s *Server) createGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Group created: %s (%d devices)", g.Name, len(in.Members))
 	s.devicesChanged()
-	writeJSON(w, http.StatusCreated, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.visibility(r)))
+	writeJSON(w, http.StatusCreated, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.keysOn(), s.visibility(r)))
 }
 
 func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +116,7 @@ func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Group changed: %s", g.Name)
 	}
 	s.devicesChanged()
-	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.conf().Auth.WakeKeys, s.visibility(r)))
+	writeJSON(w, http.StatusOK, s.groupView(g.Name, s.store.GroupMembers(g.Name), s.keysOn(), s.visibility(r)))
 }
 
 // renewGroupKey gibt der Gruppe einen neuen Wecklink-Schlüssel; bisherige Links gelten nicht mehr.
@@ -149,13 +159,14 @@ func (s *Server) arrange(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
-// groupByName findet eine Gruppe samt Mitgliedern über ihren Namen oder einen früheren Namen.
-func (s *Server) groupByName(name string) (string, []store.Device, bool) {
+// groupByName findet eine Gruppe samt Mitgliedern über ihren Namen oder einen früheren Namen – mit
+// Benutzern nur die Mitglieder, die die Anfrage wecken darf.
+func (s *Server) groupByName(r *http.Request, name string) (string, []store.Device, bool) {
 	g, ok := s.store.FindGroup(name)
 	if !ok {
 		return "", nil, false
 	}
-	members := s.store.GroupMembers(g.Name)
+	members := s.access(r).filter(s.store.GroupMembers(g.Name))
 	return g.Name, members, len(members) > 0
 }
 
@@ -196,6 +207,9 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 		}
 	}
 	s.recordWakes(attempts...) // ein Schreibvorgang, ein Ereignis für die ganze Gruppe
+	for i := range res.Results {
+		res.Results[i] = s.limitWake(r, res.Results[i])
+	}
 	res.Message = i18n.T(s.lang(r), "msg.group_sent", ok, len(members), name)
 	code := http.StatusOK
 	if ok == 0 {
@@ -205,7 +219,7 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 }
 
 func (s *Server) wakeGroupAPI(w http.ResponseWriter, r *http.Request) {
-	name, members, ok := s.groupByName(r.PathValue("name"))
+	name, members, ok := s.groupByName(r, r.PathValue("name"))
 	if !ok {
 		s.fail(w, r, http.StatusNotFound, "err.group_not_found")
 		return
@@ -224,7 +238,7 @@ func (s *Server) wakeGroupAPI(w http.ResponseWriter, r *http.Request) {
 // findGroupForLink: wie findForLink, mit dem abgeleiteten Gruppenschlüssel. Nach dem Umbenennen gilt
 // ein alter Link mit dem Schlüssel seines Namens weiter.
 func (s *Server) findGroupForLink(r *http.Request) (string, []store.Device, bool) {
-	name, members, ok := s.groupByName(r.PathValue("name"))
+	name, members, ok := s.groupByName(r, r.PathValue("name"))
 	if !ok {
 		return "", nil, false
 	}
@@ -317,7 +331,7 @@ func (s *Server) groupLinkStatus(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			out[i] = memberStatus{ID: d.ID, Name: d.Name, Status: s.freshStatus(r.Context(), d)}
+			out[i] = memberStatus{ID: d.ID, Name: d.Name, Status: s.limitStatus(r, s.freshStatus(r.Context(), d))}
 		}()
 	}
 	wg.Wait()

@@ -48,6 +48,10 @@
     const res = await fetch("api/v1/" + url, opts);
     let data = null;
     try { data = await res.json(); } catch (e) { /* keine JSON-Antwort */ }
+    if (res.status === 401 && data && data.login) { // Benutzerverwaltung: abgemeldet
+      location.href = "login?next=settings";
+      throw new Error(data.message || "");
+    }
     // Entsperrung abgelaufen (Passwort für Änderungen): nachfragen und die Anfrage wiederholen.
     if (res.status === 403 && data && data.locked && !again && view && await window.wolwebLock.unlock()) {
       return api(method, url, body, true);
@@ -388,7 +392,7 @@
   const privacyNotes = [["privacy.online_status", "privacy-no-pw", "hint-privacy-unlocked"], ["privacy.wake_history", "wakes-no-pw", "hint-wakes-unlocked"]];
   function renderPrivacyNote() {
     for (const [key, note, hint] of privacyNotes) {
-      const show = !!view && !view.password && form.elements[key].value === "unlocked";
+      const show = !!view && !view.password && !view.users && form.elements[key].value === "unlocked"; // mit Benutzern: Administratoren
       $("#" + note).hidden = !show;
       // nur ansagen, was zu sehen ist (ein verborgenes, aber verknüpftes Element läse der Screenreader mit)
       form.querySelector(`input[name="${key}"][value="unlocked"]`).setAttribute("aria-describedby", show ? hint + " " + note : hint);
@@ -400,7 +404,8 @@
   const pwForm = $("#pw-form");
   function renderPassword() {
     const on = view.password;
-    $("#pw-section").hidden = false;
+    $("#pw-section").hidden = !!view.users; // mit Benutzern hat jeder sein eigenes Passwort (Mein Konto)
+    if (view.users) return;
     $("#pw-state").textContent = on ? t("set.pw.on") : t("set.pw.off");
     $("#pw-state").className = "pw-state " + (on ? "ok" : "warn");
     pwForm.hidden = view.read_only;
@@ -478,6 +483,7 @@
       return;
     }
     renderGroups(focus);
+    if (window.wolwebUsers && view) window.wolwebUsers.load(view); // Benutzergruppen verweisen auf Gerätegruppen
   }
   // renderGroups zeichnet die Liste; focus nennt danach den Knopf, der den Fokus bekommt ("name|aktion").
   function renderGroups(focus) {
@@ -530,7 +536,9 @@
   // erst danach heraus.
   function showLockscreen(on) {
     $("#set-lockscreen").hidden = !on;
-    for (const id of ["#set-intro", "#settings-form", "#pw-section", "#grp-section"]) $(id).hidden = on;
+    for (const id of ["#set-intro", "#settings-form"]) $(id).hidden = on;
+    // Die übrigen Abschnitte blenden ihre eigenen Darstellungen ein (je nach Benutzerverwaltung).
+    if (on) for (const id of ["#pw-section", "#grp-section", "#usr-section", "#ugrp-section", "#mail-section"]) $(id).hidden = true;
     if (on) {
       for (const id of ["#set-no-auth", "#set-read-only"]) $(id).hidden = true;
       $("#set-source").textContent = t("set.lockscreen.title");

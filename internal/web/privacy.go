@@ -34,6 +34,9 @@ import (
 // den Status nur Entsperrten zeigen will, braucht ein Passwort. Die Anmeldung per HTTP Basic zählt
 // nicht, wie beim Bearbeitungsschutz.
 func (s *Server) privileged(r *http.Request) bool {
+	if s.usersOn() {
+		return s.isAdmin(r)
+	}
 	return s.tokenAuthorized(r) || (s.store.HasPassword() && !s.unlockUntil(r).IsZero())
 }
 
@@ -60,6 +63,9 @@ func (s *Server) statusVisible(r *http.Request) bool {
 // dem Zeitlimit der Prüfung.
 func (s *Server) checkVisible(r *http.Request) bool {
 	priv := s.tokenAuthorized(r) || (r.Header.Get("X-WolWeb") != "" && s.store.HasPassword() && !s.unlockUntil(r).IsZero())
+	if s.usersOn() {
+		priv = s.tokenAuthorized(r) || (r.Header.Get("X-WolWeb") != "" && s.isAdmin(r))
+	}
 	return shownTo(s.conf().Privacy.OnlineStatus, priv)
 }
 
@@ -67,11 +73,13 @@ func (s *Server) checkVisible(r *http.Request) bool {
 type visibility struct {
 	status bool // Online-Status (privacy.online_status)
 	wakes  bool // wann zuletzt geweckt, Verlauf (privacy.wake_history)
+	// limited: angemeldeter Benutzer ohne Administratorrechte – ohne technische Details (users.go)
+	limited bool
 }
 
 func (s *Server) visibility(r *http.Request) visibility {
 	p, pv := s.privileged(r), s.conf().Privacy
-	return visibility{status: shownTo(pv.OnlineStatus, p), wakes: shownTo(pv.WakeHistory, p)}
+	return visibility{status: shownTo(pv.OnlineStatus, p), wakes: shownTo(pv.WakeHistory, p), limited: s.limited(r)}
 }
 
 // foundVisible: Die Anfrage darf die Suchtreffer sehen. Sie sind ein Werkzeug zum Anlegen von

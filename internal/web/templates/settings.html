@@ -15,6 +15,7 @@
 <script src="static/i18n.js?v={{.Version}}" defer></script>
 <script src="static/lock.js?v={{.Version}}" defer></script>
 <script src="static/groups.js?v={{.Version}}" defer></script>
+<script src="static/users.js?v={{.Version}}" defer></script>
 <script src="static/settings.js?v={{.Version}}" defer></script>
 </head>
 <body class="app">
@@ -49,7 +50,7 @@
   <p class="notice warn" id="set-no-auth" hidden>{{.T "set.no_auth"}}</p>
   <p class="notice" id="set-read-only" hidden>{{.T "set.read_only"}}</p>
 
-  <form id="settings-form" tabindex="-1" novalidate>
+  <form id="settings-form" method="post" tabindex="-1" novalidate>
     <!-- Netze und VLANs -->
     <section class="set-section" aria-labelledby="sec-networks" data-key="discovery.networks">
       <h2 id="sec-networks">{{.T "set.net.title"}}</h2>
@@ -264,12 +265,89 @@ ip link set eth0.20 up</code></pre>
     </div>
   </section>
 
+  <!-- Benutzer: gelten sofort, nicht über „Speichern“ (users.js) -->
+  <section class="set-section" id="usr-section" aria-labelledby="sec-users" hidden>
+    <h2 id="sec-users">{{.T "set.usr.title"}}</h2>
+    <p class="muted small" id="usr-intro"></p>
+    <ul class="grp-list" id="usr-list"></ul>
+    <p class="sr-only" id="usr-status" role="status"></p>
+    <div class="row gap-start">
+      <button type="button" class="btn btn-secondary" id="usr-add"><svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg><span id="usr-add-text">{{.T "set.usr.add"}}</span></button>
+    </div>
+  </section>
+
+  <!-- Benutzergruppen: gelten sofort (users.js) -->
+  <section class="set-section" id="ugrp-section" aria-labelledby="sec-ugroups" hidden>
+    <h2 id="sec-ugroups">{{.T "set.ugrp.title"}}</h2>
+    <p class="muted small">{{.T "set.ugrp.intro"}}</p>
+    <ul class="grp-list" id="ugrp-list"></ul>
+    <p class="muted small" id="ugrp-empty" hidden>{{.T "set.ugrp.empty"}}</p>
+    <div class="row gap-start">
+      <button type="button" class="btn btn-secondary" id="ugrp-add"><svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg>{{.T "set.ugrp.add"}}</button>
+    </div>
+  </section>
+
+  <!-- Mailversand für Passwort vergessen und Einladungen (users.js) -->
+  <section class="set-section" id="mail-section" aria-labelledby="sec-mail" hidden>
+    <h2 id="sec-mail">{{.T "set.mail.title"}}</h2>
+    <p class="muted small">{{.T "set.mail.intro"}}</p>
+    <p class="pw-state" id="mail-state"></p>
+    <form id="mail-form" method="post" novalidate>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "set.mail.host"}}</span>
+          <input name="host" class="mono" autocomplete="off" placeholder="smtp.example.org" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>{{.T "set.mail.security"}}</span>
+          <select name="security">
+            <option value="starttls">STARTTLS (587)</option>
+            <option value="tls">SSL/TLS (465)</option>
+            <option value="none">{{.T "set.mail.none"}} (25)</option>
+          </select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "set.mail.username"}}</span>
+          <input name="username" autocomplete="off" spellcheck="false" placeholder="{{.T "ui.optional"}}">
+        </label>
+        <label class="field">
+          <span>{{.T "set.mail.password"}}</span>
+          <input type="password" name="password" autocomplete="new-password" aria-describedby="mail-pw-hint">
+          <small class="muted" id="mail-pw-hint"></small>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "set.mail.from"}}</span>
+          <input name="from" autocomplete="off" spellcheck="false" placeholder="wolweb@example.org" aria-describedby="mail-from-hint">
+          <small class="muted" id="mail-from-hint">{{.T "set.mail.from_hint"}}</small>
+        </label>
+        <label class="field">
+          <span>{{.T "set.mail.port"}}</span>
+          <input name="port" class="mono" inputmode="numeric" autocomplete="off" placeholder="587">
+        </label>
+      </div>
+      <label class="field">
+        <span>{{.T "set.mail.link"}}</span>
+        <input name="link" class="mono" type="url" autocomplete="off" spellcheck="false" aria-describedby="mail-link-hint">
+        <small class="muted" id="mail-link-hint">{{.T "set.mail.link_hint"}}</small>
+      </label>
+      <p class="form-error" id="mail-error" role="alert" tabindex="-1" hidden></p>
+      <div class="row gap-start">
+        <button type="submit" class="btn btn-primary" id="mail-save"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.save"}}</button>
+        <button type="button" class="btn btn-secondary" id="mail-test"><svg aria-hidden="true" class="ico"><use href="#i-send"/></svg>{{.T "set.mail.test"}}</button>
+      </div>
+    </form>
+  </section>
+
   <!-- Passwort für Änderungen: gilt sofort, nicht über „Speichern“ -->
   <section class="set-section" id="pw-section" aria-labelledby="sec-password" hidden>
     <h2 id="sec-password">{{.T "set.pw.title"}}</h2>
     <p class="muted small">{{.T "set.pw.intro"}}</p>
     <p class="pw-state" id="pw-state" tabindex="-1"></p>
-    <form id="pw-form" class="pw-form" novalidate>
+    <form id="pw-form" class="pw-form" method="post" novalidate>
       <label class="field" id="pw-current-field">
         <span>{{.T "set.pw.current"}}</span>
         <input type="password" name="current" autocomplete="current-password" maxlength="128">
@@ -310,6 +388,94 @@ ip link set eth0.20 up</code></pre>
 </dialog>
 
 {{template "group-dialog" .}}
+
+<!-- Benutzer anlegen oder bearbeiten (users.js) -->
+<dialog class="modal" id="user-dialog" aria-labelledby="user-dialog-title">
+  <form id="user-form" method="post" novalidate>
+    <header class="modal-head">
+      <h2 id="user-dialog-title"></h2>
+      <button type="button" class="btn btn-ghost icon-only" id="user-close" aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="modal-body">
+      <p class="notice" id="user-first" hidden>{{.T "ui.usr.first"}}</p>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "ui.usr.name"}}</span>
+          <input name="name" required maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>{{.T "ui.usr.email"}}</span>
+          <input type="email" name="email" maxlength="254" autocomplete="off" placeholder="{{.T "ui.optional"}}">
+        </label>
+      </div>
+      <label class="field">
+        <span id="user-pw-label"></span>
+        <input type="password" name="password" maxlength="128" autocomplete="new-password" aria-describedby="user-pw-hint">
+        <small class="muted" id="user-pw-hint"></small>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="admin" aria-describedby="user-admin-hint">
+        <span>{{.T "ui.usr.admin"}}<small class="muted" id="user-admin-hint">{{.T "ui.usr.admin_hint"}}</small></span>
+      </label>
+      <fieldset class="checks" id="user-groups-box">
+        <legend>{{.T "ui.usr.groups"}}</legend>
+        <div class="check-grid" id="user-groups"></div>
+      </fieldset>
+      <!-- Einzelne Geräte direkt zuweisen: aufklappbar, damit der Dialog kurz bleibt -->
+      <details class="user-devices" id="user-devices-box">
+        <summary><span>{{.T "ui.usr.devices"}}</span> <small class="muted" id="user-devices-count"></small></summary>
+        <p class="muted small">{{.T "ui.usr.devices_hint"}}</p>
+        <div class="check-grid" id="user-devices"></div>
+        <p class="muted small" id="user-no-devices" hidden>{{.T "ui.grp.no_devices"}}</p>
+      </details>
+      <p class="form-error" id="user-error" role="alert" tabindex="-1" hidden></p>
+    </div>
+    <footer class="modal-foot">
+      <button type="button" class="btn btn-danger-ghost" id="user-delete" hidden><svg aria-hidden="true" class="ico"><use href="#i-trash"/></svg>{{.T "ui.delete"}}</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-ghost" id="user-cancel">{{.T "ui.cancel"}}</button>
+      <button type="submit" class="btn btn-primary" id="user-save"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.save"}}</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- Benutzergruppe anlegen oder bearbeiten (users.js) -->
+<dialog class="modal" id="ugroup-dialog" aria-labelledby="ugroup-dialog-title">
+  <form id="ugroup-form" method="post" novalidate>
+    <header class="modal-head">
+      <h2 id="ugroup-dialog-title"></h2>
+      <button type="button" class="btn btn-ghost icon-only" id="ugroup-close" aria-label="{{.T "page.close"}}"><svg aria-hidden="true" class="ico"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="modal-body">
+      <label class="field">
+        <span>{{.T "ui.ugrp.name"}}</span>
+        <input name="name" required maxlength="32" autocomplete="off">
+      </label>
+      <fieldset class="checks">
+        <legend>{{.T "ui.ugrp.users"}}</legend>
+        <div class="check-grid" id="ugroup-users"></div>
+      </fieldset>
+      <fieldset class="checks">
+        <legend>{{.T "ui.ugrp.dgroups"}}</legend>
+        <small class="muted">{{.T "ui.ugrp.dgroups_hint"}}</small>
+        <div class="check-grid" id="ugroup-dgroups"></div>
+        <p class="muted small" id="ugroup-no-dgroups" hidden>{{.T "ui.ugrp.no_dgroups"}}</p>
+      </fieldset>
+      <fieldset class="checks">
+        <legend>{{.T "ui.ugrp.devices"}}</legend>
+        <div class="check-grid" id="ugroup-devices"></div>
+        <p class="muted small" id="ugroup-no-devices" hidden>{{.T "ui.grp.no_devices"}}</p>
+      </fieldset>
+      <p class="form-error" id="ugroup-error" role="alert" tabindex="-1" hidden></p>
+    </div>
+    <footer class="modal-foot">
+      <button type="button" class="btn btn-danger-ghost" id="ugroup-delete" hidden><svg aria-hidden="true" class="ico"><use href="#i-trash"/></svg>{{.T "ui.delete"}}</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-ghost" id="ugroup-cancel">{{.T "ui.cancel"}}</button>
+      <button type="submit" class="btn btn-primary" id="ugroup-save"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.save"}}</button>
+    </footer>
+  </form>
+</dialog>
 {{template "unlock" .}}
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>

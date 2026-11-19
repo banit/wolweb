@@ -359,6 +359,34 @@ At the bottom of the settings page you can set a password for changes – no use
   Without Docker: stop the service, run `wolweb -c config.json -reset-password` with the same configuration (so it
   finds the data directory) and start the service again.
 
+### Users and user groups
+
+Should several people use wolweb, each only with their own devices? Under **Users** on the settings page,
+“Set up users” creates the first account – that is you, as administrator, and you stay logged in.
+
+- From then on wolweb **requires a login** (name or e-mail plus password; the login lasts 30 days). The password
+  for changes goes away – everyone has their own password.
+- **Administrators** may do everything, like before. Everyone else sees and wakes **only the devices of their
+  user groups** and changes only their own account (**My account**: e-mail, password, log out).
+- **User groups** share devices with their members: tick individual devices or whole **device groups** (then also
+  devices added to the group later). A user can be in several groups. You can also tick a user's groups right in
+  the user dialog.
+- Fixed wake links keep working for logged-in users with access. Without a login (“Wake links without login”)
+  they always need the device's key – the links copied by an administrator contain it.
+- Automations with `auth.api_token` count as administrator. The HTTP Basic login (if configured) stays in front.
+- Accounts are stored in `data/state.json` (password as PBKDF2 hash), never in the device export.
+- **Sending e-mail** (optional, section “Sending e-mail” below the user groups): enter your mail provider's SMTP
+  server (STARTTLS/587, SSL/TLS/465 or unencrypted/25), login, sender and the address under which users open
+  wolweb (the links in the e-mails are built from it, never from the request). “Test mail to me” checks it. Then:
+  - the login page offers **“Forgot your password?”**: a link valid for one hour, used once (at most one e-mail per
+    user every 2 minutes, 50 per day; the answer never reveals whether an account exists);
+  - a new user with an e-mail address but **without a password** gets an **invitation** (link valid for 3 days) and
+    sets their own password.
+  The mail settings live in `data/state.json` (password included, never sent back to the browser).
+- **Forgotten password?** With e-mail set up: “Forgot your password?” on the login page. Otherwise an administrator
+  sets a new one in the user dialog. If the last administrator is locked
+  out: stop wolweb and run it once with `-reset-user <name>` – it prints a new random password and exits.
+
 ### Privacy
 
 Under “Privacy” on the settings page you choose who sees whether devices are running (`privacy.online_status`):
@@ -1100,6 +1128,36 @@ Unten auf der Einstellungsseite lässt sich ein Passwort für Änderungen setzen
 
   Ohne Docker: den Dienst anhalten, `wolweb -c config.json -reset-password` mit derselben Konfiguration ausführen
   (damit es das Datenverzeichnis findet) und den Dienst wieder starten.
+
+### Benutzer und Benutzergruppen
+
+Sollen mehrere Leute wolweb nutzen, jeder nur mit seinen Geräten? Unter **Benutzer** auf der Einstellungsseite legt
+„Benutzer einrichten“ das erste Konto an – das bist du, als Administrator, und du bleibst gleich angemeldet.
+
+- Ab dann braucht wolweb eine **Anmeldung** (Name oder E-Mail und Passwort; sie hält 30 Tage). Das Passwort für
+  Änderungen entfällt – jeder hat sein eigenes Passwort.
+- **Administratoren** dürfen alles wie bisher. Alle anderen sehen und wecken **nur die Geräte ihrer
+  Benutzergruppen** und ändern nur ihr eigenes Konto (**Mein Konto**: E-Mail, Passwort, Abmelden).
+- **Benutzergruppen** geben ihren Mitgliedern Geräte frei: einzelne Geräte oder ganze **Gerätegruppen** ankreuzen
+  (dann auch Geräte, die später in die Gruppe kommen). Ein Benutzer kann in mehreren Gruppen sein; seine Gruppen
+  lassen sich auch direkt im Benutzer-Dialog ankreuzen.
+- Feste Wecklinks gelten weiter für angemeldete Benutzer mit Freigabe. Ohne Anmeldung („Wecklinks ohne Anmeldung“)
+  brauchen sie immer den Schlüssel des Geräts – die von einem Administrator kopierten Links enthalten ihn.
+- Automationen mit `auth.api_token` zählen als Administrator. Die HTTP-Basic-Anmeldung (falls eingerichtet) bleibt
+  davor.
+- Die Konten stehen in `data/state.json` (Passwort als PBKDF2-Hash), nie im Geräte-Export.
+- **Mailversand** (freiwillig, Abschnitt „Mailversand“ unter den Benutzergruppen): SMTP-Server deines Mail-Anbieters
+  (STARTTLS/587, SSL/TLS/465 oder unverschlüsselt/25), Anmeldung, Absender und die Adresse, unter der Benutzer wolweb
+  öffnen (daraus entstehen die Links in den Mails, nie aus der Anfrage). „Testmail an mich“ prüft das. Danach:
+  - bietet die Anmeldeseite **„Passwort vergessen?“**: ein Link, eine Stunde gültig, nur einmal benutzbar (höchstens
+    eine Mail je Benutzer alle 2 Minuten, 50 am Tag; die Antwort verrät nie, ob es ein Konto gibt);
+  - bekommt ein neuer Benutzer mit E-Mail-Adresse, aber **ohne Passwort**, eine **Einladung** (Link 3 Tage gültig) und
+    setzt sein Passwort selbst.
+  Die Mail-Einstellungen stehen in `data/state.json` (samt Passwort, das nie zurück an den Browser geht).
+- **Passwort vergessen?** Mit Mailversand: „Passwort vergessen?“ auf der Anmeldeseite. Sonst setzt ein Administrator
+  im Benutzer-Dialog ein neues. Hat sich der letzte Administrator
+  ausgesperrt: wolweb anhalten und einmal mit `-reset-user <Name>` starten – das gibt ein neues Zufallspasswort aus
+  und beendet sich.
 
 ### Privatsphäre
 

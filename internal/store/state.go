@@ -83,10 +83,14 @@ type stateFile struct {
 	// Export), damit eine alte Exportdatei keine dieser Berechtigungen nachbilden kann.
 	LocalSecret string `json:"local_secret,omitempty"`
 	// Password ist der Hash des Passworts für Änderungen (siehe password.go), leer = keins.
-	Password string               `json:"edit_password,omitempty"`
-	LastWake map[string]time.Time `json:"last_wake,omitempty"`
-	LastSeen map[string]time.Time `json:"last_seen,omitempty"`
-	History  []Event              `json:"history,omitempty"`
+	Password string `json:"edit_password,omitempty"`
+	// Users und UserGroups: Benutzerverwaltung (users.go). Mit Benutzern gilt Password nicht mehr.
+	Users      []User               `json:"users,omitempty"`
+	UserGroups []UserGroup          `json:"user_groups,omitempty"`
+	Mail       *MailSettings        `json:"mail,omitempty"` // Mailversand (mail.go)
+	LastWake   map[string]time.Time `json:"last_wake,omitempty"`
+	LastSeen   map[string]time.Time `json:"last_seen,omitempty"`
+	History    []Event              `json:"history,omitempty"`
 }
 
 func (s *Store) statePath() string { return filepath.Join(s.dir, "state.json") }

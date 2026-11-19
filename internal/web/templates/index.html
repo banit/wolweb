@@ -41,6 +41,9 @@
     <button class="btn btn-ghost icon-only lock-toggle" id="lock-toggle" hidden>
       <svg aria-hidden="true" class="ico"><use href="#i-lock"/></svg>
     </button>
+    <a class="btn btn-ghost account-link" id="open-account" href="account" title="{{.T "page.account"}}" aria-label="{{.T "page.account"}}" hidden>
+      <svg aria-hidden="true" class="ico"><use href="#i-user"/></svg><span class="account-name" id="account-name"></span>
+    </a>
     <a class="btn btn-ghost icon-only not-simple" id="open-settings" href="settings" title="{{.T "page.settings"}}" aria-label="{{.T "page.settings"}}" hidden>
       <svg aria-hidden="true" class="ico"><use href="#i-settings"/></svg>
     </a>
@@ -96,7 +99,7 @@
   <div class="empty" id="empty" hidden>
     <div class="empty-art"><svg aria-hidden="true" class="ico"><use href="#i-power"/></svg></div>
     <h2>{{.T "page.empty.title"}}</h2>
-    <p class="muted">{{.T "page.empty.text"}}</p>
+    <p class="muted" id="empty-text">{{.T "page.empty.text"}}</p>
     <div class="row gap">
       <button class="btn btn-secondary" data-action="discovery"><svg aria-hidden="true" class="ico"><use href="#i-radar"/></svg>{{.T "page.empty.scan"}}</button>
       <button class="btn btn-primary" data-action="add"><svg aria-hidden="true" class="ico"><use href="#i-plus"/></svg>{{.T "page.empty.add"}}</button>

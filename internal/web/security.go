@@ -189,7 +189,7 @@ func hostAllowed(host, self string, allowed []string) bool {
 // auch bei einer von einer fremden Seite ausgelösten Navigation mit. Kommt der Aufruf von einer
 // fremden Seite und trägt keinen gültigen Schlüssel (want), weckt die Seite deshalb erst auf Knopfdruck.
 func (s *Server) confirmWake(r *http.Request, want string) bool {
-	if !s.conf().Auth.WakeKeys || s.tokenAuthorized(r) || s.needsKey(r) { // ohne Anmeldung ist der Schlüssel schon geprüft
+	if !(s.conf().Auth.WakeKeys || s.usersOn()) || s.tokenAuthorized(r) || s.needsKey(r) { // ohne Anmeldung ist der Schlüssel schon geprüft
 		return false
 	}
 	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "cross-site" && sfs != "same-site" {
@@ -215,12 +215,21 @@ func markPublic(r *http.Request) *http.Request {
 }
 
 // needsKey: Ohne Anmeldung verlangt auth.wake_keys den Schlüssel des Geräts.
-func (s *Server) needsKey(r *http.Request) bool { return s.conf().Auth.WakeKeys && isPublic(r) }
+func (s *Server) needsKey(r *http.Request) bool { return s.keysOn() && isPublic(r) }
+
+// keysOn: Wecklinks ohne Anmeldung brauchen den Schlüssel – mit auth.wake_keys (und einer Anmeldung)
+// oder immer, sobald es Benutzer gibt.
+func (s *Server) keysOn() bool {
+	return (s.conf().Auth.WakeKeys && s.conf().AuthEnabled()) || s.usersOn()
+}
 
 // findForLink sucht das Gerät eines Wecklinks. Fehlt der nötige Schlüssel oder ist er falsch,
 // gilt das Gerät als nicht vorhanden – so lassen sich Namen nicht durchprobieren.
 func (s *Server) findForLink(r *http.Request) (store.Device, bool) {
 	d, ok := s.store.FindByName(r.PathValue("name"))
+	if ok && !s.access(r).can(d.ID) { // angemeldet, aber nicht freigegeben: wie nicht vorhanden
+		return store.Device{}, false
+	}
 	if !ok || !s.needsKey(r) {
 		return d, ok
 	}

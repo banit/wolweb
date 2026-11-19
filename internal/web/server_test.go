@@ -523,7 +523,7 @@ func TestStatusChangeNotifies(t *testing.T) {
 // Jeder Schlüssel, den Vorlagen und Skripte benutzen, muss im Katalog stehen.
 func TestUIKeysExist(t *testing.T) {
 	cat := i18n.Catalog(i18n.DE)
-	use := regexp.MustCompile(`(?:\bt|\btn|\.T|\.TN|\$\.T)\(?\s*"((?:ui|page|wake|group|set|blocked)\.[a-z_.]+)"`)
+	use := regexp.MustCompile(`(?:\bt|\btn|\.T|\.TN|\$\.T)\(?\s*"((?:ui|page|wake|group|set|blocked|acc|login|val|reset)\.[a-z_.]+)"`)
 	files, _ := fs.Glob(assets, "*/*")
 	for _, f := range files {
 		b, _ := assets.ReadFile(f)
@@ -902,7 +902,7 @@ func TestSchedulePaused(t *testing.T) {
 	if got := s.wakeDue(at); len(got) != 0 {
 		t.Errorf("pausiert geweckt: %v", got)
 	}
-	if v := s.view(d, visibility{true, true}); v.NextWake != nil {
+	if v := s.view(d, visibility{status: true, wakes: true}); v.NextWake != nil {
 		t.Errorf("pausiert, aber nächste Weckzeit %v", v.NextWake)
 	}
 	d, _ = st.Update(d.ID, store.Input{Name: "Büro", MAC: d.MAC, Schedule: d.Schedule, Broadcast: d.Broadcast}, nil)

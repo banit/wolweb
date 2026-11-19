@@ -816,3 +816,16 @@ input:disabled, textarea:disabled, select:disabled { background: var(--surface-2
 .net-choices { display: grid; gap: 8px; }
 .net-choices .btn { justify-content: flex-start; height: auto; min-height: 44px; padding: .55rem .8rem; white-space: normal; text-align: left; flex-wrap: wrap; }
 .net-choices .btn .muted { font-weight: 400; font-size: .85rem; }
+
+/* Benutzer: Anmeldung, Konto, Rollen */
+.login-card { max-width: 24rem; }
+.login-form { display: grid; gap: .8rem; text-align: left; width: 100%; }
+.login-form .btn-primary { justify-self: stretch; justify-content: center; }
+.account-link { gap: .4rem; max-width: 12rem; }
+.account-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .account-name { display: none; } }
+.badge-role { font-size: .75rem; font-weight: 600; padding: .05rem .5rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); }
+.user-devices { border: 1px solid var(--border); border-radius: 12px; padding: .5rem .8rem; }
+.user-devices summary { cursor: pointer; font-weight: 600; font-size: .92rem; padding: .2rem 0; }
+.user-devices[open] summary { margin-bottom: .4rem; }
+.user-devices .check-grid { margin-top: .4rem; }
