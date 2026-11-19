@@ -163,7 +163,7 @@ func (s *Server) accounts(next http.Handler) http.Handler {
 // limitStatus nimmt für Benutzer ohne Administratorrechte die Netzdetails aus einem Prüfergebnis.
 func (s *Server) limitStatus(r *http.Request, st status.State) status.State {
 	if s.limited(r) {
-		st.IP, st.Conflict, st.IPSource, st.Note = "", "", "", ""
+		st.Conflict, st.IPSource, st.Note = "", "", ""
 	}
 	return st
 }
@@ -365,7 +365,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	u, first, err := s.store.CreateUserFirst(in)
+	u, first, err := s.store.CreateUserFirst(in, !s.isAdmin(r)) // ohne Admin-Anmeldung nur als erster Benutzer
 	if err != nil {
 		s.userError(w, r, err)
 		return

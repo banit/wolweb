@@ -50,7 +50,7 @@
   <p class="notice warn" id="set-no-auth" hidden>{{.T "set.no_auth"}}</p>
   <p class="notice" id="set-read-only" hidden>{{.T "set.read_only"}}</p>
 
-  <form id="settings-form" tabindex="-1" novalidate>
+  <form id="settings-form" method="post" tabindex="-1" novalidate>
     <!-- Netze und VLANs -->
     <section class="set-section" aria-labelledby="sec-networks" data-key="discovery.networks">
       <h2 id="sec-networks">{{.T "set.net.title"}}</h2>
@@ -292,7 +292,7 @@ ip link set eth0.20 up</code></pre>
     <h2 id="sec-password">{{.T "set.pw.title"}}</h2>
     <p class="muted small">{{.T "set.pw.intro"}}</p>
     <p class="pw-state" id="pw-state" tabindex="-1"></p>
-    <form id="pw-form" class="pw-form" novalidate>
+    <form id="pw-form" class="pw-form" method="post" novalidate>
       <label class="field" id="pw-current-field">
         <span>{{.T "set.pw.current"}}</span>
         <input type="password" name="current" autocomplete="current-password" maxlength="128">

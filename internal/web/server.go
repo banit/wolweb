@@ -445,11 +445,11 @@ func (s *Server) view(d store.Device, vis visibility) deviceView {
 		v.Status = &st
 	}
 	if vis.limited { // Benutzer ohne Administratorrechte: nur, was zum Wecken nötig ist
-		v.WakeKey, v.SecureOn, v.Aliases, v.Interface, v.Broadcast, v.Ports, v.MAC = "", "", nil, "", "", nil, ""
-		v.WakeTarget, v.CheckIP, v.IP = "", "", ""
+		// Die IP bleibt: Weckseite und Übersicht verfolgen damit den Start des eigenen Geräts.
+		v.WakeKey, v.SecureOn, v.Aliases, v.Interface, v.Broadcast, v.Ports, v.MAC, v.WakeTarget = "", "", nil, "", "", nil, "", ""
 		if v.Status != nil {
 			st := *v.Status
-			st.IP, st.Conflict, st.IPSource, st.Note = "", "", "", ""
+			st.Conflict, st.IPSource, st.Note = "", "", ""
 			v.Status = &st
 		}
 	}
@@ -923,6 +923,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		events[i] = events[i].Localized(s.lang(r))
 		if vis.limited { // wer geweckt hat und von wo, sehen nur Administratoren
 			events[i].Client, events[i].User, events[i].Target, events[i].Group, events[i].Error = "", "", "", "", ""
+			events[i].ErrorKey, events[i].ErrorArgs = "", nil
 		}
 		if !show { // ob und wann ein Gerät lief, gehört zum Online-Status
 			events[i].Checkable, events[i].WasOnline, events[i].Started = false, false, nil

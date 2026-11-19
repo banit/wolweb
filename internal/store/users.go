@@ -204,12 +204,14 @@ func (s *Store) CheckLogin(login, pw string) (User, bool) {
 // CreateUser legt einen Benutzer an. Der erste ist immer Administrator; mit ihm entfällt das Passwort
 // für Änderungen (im selben Schreibvorgang).
 func (s *Store) CreateUser(in UserInput) (User, error) {
-	u, _, err := s.CreateUserFirst(in)
+	u, _, err := s.CreateUserFirst(in, false)
 	return u, err
 }
 
 // CreateUserFirst wie CreateUser; first sagt, ob es der erste Benutzer war (unter derselben Sperre bestimmt).
-func (s *Store) CreateUserFirst(in UserInput) (u User, first bool, err error) {
+// Mit expectFirst gilt die Anlage nur, solange es noch keinen Benutzer gibt (sonst ErrConflict): Die
+// Berechtigung dafür wurde ohne Benutzer geprüft und gilt danach nicht mehr.
+func (s *Store) CreateUserFirst(in UserInput, expectFirst bool) (u User, first bool, err error) {
 	name, err := validUserName(in.Name)
 	if err != nil {
 		return User{}, false, err
@@ -231,6 +233,9 @@ func (s *Store) CreateUserFirst(in UserInput) (u User, first bool, err error) {
 		return User{}, false, err
 	}
 	first = len(s.state.Users) == 0
+	if expectFirst && !first {
+		return User{}, false, ErrConflict
+	}
 	u = User{ID: newSecretID(), Name: name, Email: email, Password: hash, Admin: in.Admin || len(s.state.Users) == 0,
 		Created: time.Now().UTC()}
 	prevUsers, prevPw := s.state.Users, s.state.Password
