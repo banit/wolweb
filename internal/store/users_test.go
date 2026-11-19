@@ -61,6 +61,12 @@ func TestUsersStore(t *testing.T) {
 		t.Fatalf("chef ohne Gruppe: %v", acc)
 	}
 
+	// Gruppen, die nur für ToLower gleich heißen, geben einander nichts frei.
+	x, _ := s.Create(Input{Name: "X", MAC: "02:00:00:00:00:03", Group: "İnfo"})
+	if acc := s.Access(bob.ID); acc[x.ID] {
+		t.Fatal("fremde Gruppe mit ähnlichem Namen freigegeben")
+	}
+
 	// Nach einem Neustart: dieselben IDs, Benutzer und Freigaben.
 	s2, _, err := Open(dir, "")
 	if err != nil {

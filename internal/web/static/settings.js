@@ -392,7 +392,7 @@
   const privacyNotes = [["privacy.online_status", "privacy-no-pw", "hint-privacy-unlocked"], ["privacy.wake_history", "wakes-no-pw", "hint-wakes-unlocked"]];
   function renderPrivacyNote() {
     for (const [key, note, hint] of privacyNotes) {
-      const show = !!view && !view.password && form.elements[key].value === "unlocked";
+      const show = !!view && !view.password && !view.users && form.elements[key].value === "unlocked"; // mit Benutzern: Administratoren
       $("#" + note).hidden = !show;
       // nur ansagen, was zu sehen ist (ein verborgenes, aber verknüpftes Element läse der Screenreader mit)
       form.querySelector(`input[name="${key}"][value="unlocked"]`).setAttribute("aria-describedby", show ? hint + " " + note : hint);

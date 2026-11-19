@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"wolweb/internal/i18n"
+	"wolweb/internal/status"
 	"wolweb/internal/store"
 )
 
@@ -92,7 +93,7 @@ func (s *Server) isAdmin(r *http.Request) bool {
 // limited: Die Anfrage kommt von einem angemeldeten Benutzer ohne Administratorrechte – sie sieht nur
 // die Geräte ihrer Benutzergruppen und keine technischen Details.
 func (s *Server) limited(r *http.Request) bool {
-	if !s.usersOn() || isPublic(r) || s.tokenAuthorized(r) {
+	if r == nil || !s.usersOn() || isPublic(r) || s.tokenAuthorized(r) {
 		return false
 	}
 	u, _, ok := s.session(r)
@@ -157,6 +158,14 @@ func (s *Server) accounts(next http.Handler) http.Handler {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"success": false, "login": true,
 			"message": i18n.T(s.lang(r), "err.login_required")})
 	})
+}
+
+// limitStatus nimmt für Benutzer ohne Administratorrechte die Netzdetails aus einem Prüfergebnis.
+func (s *Server) limitStatus(r *http.Request, st status.State) status.State {
+	if s.limited(r) {
+		st.IP, st.Conflict, st.IPSource, st.Note = "", "", "", ""
+	}
+	return st
 }
 
 // --- Anmelden, Abmelden ---
@@ -356,8 +365,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	first := !s.usersOn()
-	u, err := s.store.CreateUser(in)
+	u, first, err := s.store.CreateUserFirst(in)
 	if err != nil {
 		s.userError(w, r, err)
 		return
@@ -379,13 +387,14 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
+	me, _, loggedIn := s.session(r) // vor der Änderung: ein neues Passwort macht das Cookie ungültig
 	u, err := s.store.UpdateUser(r.PathValue("id"), in)
 	if err != nil {
 		s.userError(w, r, err)
 		return
 	}
 	log.Printf("User changed: %s (admin: %v)", u.Name, u.Admin)
-	if me, _, ok := s.session(r); ok && me.ID == u.ID && in.Password != "" {
+	if loggedIn && me.ID == u.ID && in.Password != "" {
 		s.setSession(w, r, &u) // eigenes Passwort neu gesetzt: dieser Browser bleibt angemeldet
 	}
 	s.usersChanged(false)

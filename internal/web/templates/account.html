@@ -33,7 +33,7 @@
 <main class="container settings">
   <section class="set-section" aria-labelledby="acc-mail-title">
     <h2 id="acc-mail-title">{{.T "acc.email.title"}}</h2>
-    <form id="acc-mail-form" novalidate>
+    <form id="acc-mail-form" method="post" novalidate>
       <label class="field">
         <span>{{.T "acc.email"}}</span>
         <input type="email" name="email" autocomplete="email" maxlength="254" aria-describedby="acc-mail-hint">
@@ -48,7 +48,7 @@
 
   <section class="set-section" aria-labelledby="acc-pw-title">
     <h2 id="acc-pw-title">{{.T "acc.pw.title"}}</h2>
-    <form id="acc-pw-form" novalidate>
+    <form id="acc-pw-form" method="post" novalidate>
       <label class="field">
         <span>{{.T "set.pw.current"}}</span>
         <input type="password" name="current" autocomplete="current-password" maxlength="128">

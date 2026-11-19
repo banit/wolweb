@@ -24,7 +24,7 @@
     <div class="wake-icon"><svg aria-hidden="true" class="ico"><use href="#i-power"/></svg></div>
   </div>
   <h1>{{.T "login.title"}}</h1>
-  <form id="login-form" class="login-form" novalidate>
+  <form id="login-form" class="login-form" method="post" novalidate>
     <label class="field">
       <span>{{.T "login.name"}}</span>
       <input name="name" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required autofocus>

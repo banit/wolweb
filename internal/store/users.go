@@ -204,36 +204,43 @@ func (s *Store) CheckLogin(login, pw string) (User, bool) {
 // CreateUser legt einen Benutzer an. Der erste ist immer Administrator; mit ihm entfällt das Passwort
 // für Änderungen (im selben Schreibvorgang).
 func (s *Store) CreateUser(in UserInput) (User, error) {
+	u, _, err := s.CreateUserFirst(in)
+	return u, err
+}
+
+// CreateUserFirst wie CreateUser; first sagt, ob es der erste Benutzer war (unter derselben Sperre bestimmt).
+func (s *Store) CreateUserFirst(in UserInput) (u User, first bool, err error) {
 	name, err := validUserName(in.Name)
 	if err != nil {
-		return User{}, err
+		return User{}, false, err
 	}
 	email, err := validEmail(in.Email)
 	if err != nil {
-		return User{}, err
+		return User{}, false, err
 	}
 	if err := validNewPassword(in.Password); err != nil {
-		return User{}, err
+		return User{}, false, err
 	}
 	hash, err := hashPassword(in.Password)
 	if err != nil {
-		return User{}, err
+		return User{}, false, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := checkUnique(s.state.Users, name, email, ""); err != nil {
-		return User{}, err
+		return User{}, false, err
 	}
-	u := User{ID: newSecretID(), Name: name, Email: email, Password: hash, Admin: in.Admin || len(s.state.Users) == 0,
+	first = len(s.state.Users) == 0
+	u = User{ID: newSecretID(), Name: name, Email: email, Password: hash, Admin: in.Admin || len(s.state.Users) == 0,
 		Created: time.Now().UTC()}
 	prevUsers, prevPw := s.state.Users, s.state.Password
 	s.state.Users = append(slices.Clone(s.state.Users), u)
 	s.state.Password = ""
 	if err := s.saveState(); err != nil {
 		s.state.Users, s.state.Password = prevUsers, prevPw
-		return User{}, err
+		return User{}, false, err
 	}
-	return u, nil
+	return u, first, nil
 }
 
 // UpdateUser ändert einen Benutzer (Verwaltung durch einen Administrator). Ein leeres Passwort lässt
@@ -515,7 +522,7 @@ func (s *Store) Access(userID string) map[string]bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	ids := map[string]bool{}
-	groups := map[string]bool{} // Namen der Gerätegruppen (klein)
+	groups := map[string]bool{} // Namen der Gerätegruppen (exakt: Geräte tragen den Namen ihrer Gruppe, syncGroups)
 	for _, g := range s.state.UserGroups {
 		if !slices.Contains(g.Users, userID) {
 			continue
@@ -525,12 +532,12 @@ func (s *Store) Access(userID string) map[string]bool {
 		}
 		for _, gid := range g.DeviceGroups {
 			if i := slices.IndexFunc(s.groups, func(x Group) bool { return x.ID == gid }); i >= 0 {
-				groups[strings.ToLower(s.groups[i].Name)] = true
+				groups[s.groups[i].Name] = true
 			}
 		}
 	}
 	for _, d := range s.devices {
-		if d.Group != "" && groups[strings.ToLower(d.Group)] {
+		if d.Group != "" && groups[d.Group] {
 			ids[d.ID] = true
 		}
 	}

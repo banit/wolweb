@@ -1214,6 +1214,7 @@
 
   async function loadDiscovery() {
     clearTimeout(discoveryTimer);
+    if (state.info.users && !state.info.admin) return; // Netzwerksuche nur für Administratoren
     try {
       const data = await api("GET", "discovery");
       state.found = data.found;

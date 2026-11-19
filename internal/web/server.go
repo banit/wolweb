@@ -150,7 +150,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET "+api+"history", s.history)
 	mux.HandleFunc("GET "+api+"export", s.editable(s.export)) // mit Weckschlüsseln
 	mux.HandleFunc("POST "+api+"import", s.change(s.importDevices))
-	mux.HandleFunc("GET "+api+"discovery", s.discovery)
+	mux.HandleFunc("GET "+api+"discovery", s.adminOnly(s.discovery))
 	mux.HandleFunc("POST "+api+"discovery/scan", s.editable(s.startScan))
 	mux.HandleFunc("POST "+api+"discovery/cancel", s.editable(s.cancelScan))
 	mux.HandleFunc("POST "+api+"discovery/{mac}/ignore", s.change(s.ignoreFound))
@@ -607,7 +607,7 @@ func (s *Server) deviceStatus(w http.ResponseWriter, r *http.Request) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
+	writeJSON(w, http.StatusOK, s.limitStatus(r, s.freshStatus(r.Context(), d)))
 }
 
 // freshStatus prüft sofort, außer die letzte Prüfung ist jünger als eine Sekunde.
@@ -684,7 +684,7 @@ const (
 // Wurde d eben erst geweckt, geht kein weiterer Weckruf raus (siehe wakeDedupWindow).
 func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wakeResult, int) {
 	if res, code, busy := s.alreadyWaking(r, d); busy { // eben geweckt oder eben gescheitert
-		return res, code
+		return s.limitWake(r, res), code
 	}
 	s.supersedeRetry(d.ID)
 	res, code, a := s.sendWake(r, d, source, group)
@@ -692,7 +692,15 @@ func (s *Server) wake(r *http.Request, d store.Device, source, group string) (wa
 		s.limiter.fail(d.ID, res)
 	}
 	s.recordWakes(a)
-	return res, code
+	return s.limitWake(r, res), code
+}
+
+// limitWake nimmt für Benutzer ohne Administratorrechte Ziel und technische Fehlerdetails heraus.
+func (s *Server) limitWake(r *http.Request, res wakeResult) wakeResult {
+	if r != nil && s.limited(r) {
+		res.Target, res.Error = "", ""
+	}
+	return res
 }
 
 // wakeAttempt ist ein Weckversuch, der noch eingetragen und gemeldet werden muss.
@@ -887,7 +895,7 @@ func (s *Server) wakeLinkStatus(w http.ResponseWriter, r *http.Request) {
 		s.hidden(w, r, "err.status_hidden")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.freshStatus(r.Context(), d))
+	writeJSON(w, http.StatusOK, s.limitStatus(r, s.freshStatus(r.Context(), d)))
 }
 
 // --- Verlauf, Export, Import ---
@@ -914,7 +922,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	for i := range events {
 		events[i] = events[i].Localized(s.lang(r))
 		if vis.limited { // wer geweckt hat und von wo, sehen nur Administratoren
-			events[i].Client, events[i].User, events[i].Target, events[i].Group = "", "", "", ""
+			events[i].Client, events[i].User, events[i].Target, events[i].Group, events[i].Error = "", "", "", "", ""
 		}
 		if !show { // ob und wann ein Gerät lief, gehört zum Online-Status
 			events[i].Checkable, events[i].WasOnline, events[i].Started = false, false, nil

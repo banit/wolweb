@@ -207,6 +207,9 @@ func (s *Server) wakeGroup(r *http.Request, name string, members []store.Device,
 		}
 	}
 	s.recordWakes(attempts...) // ein Schreibvorgang, ein Ereignis für die ganze Gruppe
+	for i := range res.Results {
+		res.Results[i] = s.limitWake(r, res.Results[i])
+	}
 	res.Message = i18n.T(s.lang(r), "msg.group_sent", ok, len(members), name)
 	code := http.StatusOK
 	if ok == 0 {
@@ -328,7 +331,7 @@ func (s *Server) groupLinkStatus(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			out[i] = memberStatus{ID: d.ID, Name: d.Name, Status: s.freshStatus(r.Context(), d)}
+			out[i] = memberStatus{ID: d.ID, Name: d.Name, Status: s.limitStatus(r, s.freshStatus(r.Context(), d))}
 		}()
 	}
 	wg.Wait()
