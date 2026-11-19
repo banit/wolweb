@@ -179,7 +179,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE "+api+"users/{id}", s.change(s.deleteUser))
 	mux.HandleFunc("GET "+base+"reset", s.resetPage)
 	mux.HandleFunc("POST "+api+"password-reset", s.requestReset)
-	mux.HandleFunc("POST "+api+"password-reset/confirm", s.confirmReset)
+	mux.HandleFunc("POST "+api+"password-reset/confirm", s.writable(s.confirmReset))
 	mux.HandleFunc("GET "+api+"mail", s.editable(s.getMail))
 	mux.HandleFunc("PUT "+api+"mail", s.change(s.putMail))
 	mux.HandleFunc("POST "+api+"mail/test", s.change(s.testMail))

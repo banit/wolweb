@@ -57,6 +57,9 @@ func validMail(m MailSettings) (MailSettings, error) {
 	if strings.ContainsAny(m.Username, "\r\n") || strings.ContainsAny(m.Password, "\r\n") || len(m.Username) > 254 || len(m.Password) > 254 {
 		return m, invalid("username", "val.mail_login")
 	}
+	if m.Security == "none" && (m.Username != "" || m.Password != "") {
+		return m, invalid("security", "val.mail_plain_login") // Zugangsdaten nie unverschlüsselt
+	}
 	u, err := url.Parse(m.Link)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
 		return m, invalid("link", "val.mail_link")

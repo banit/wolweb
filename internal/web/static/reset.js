@@ -3,7 +3,7 @@
   "use strict";
   const { t } = window.wolwebI18n;
   const $ = (s) => document.querySelector(s);
-  const token = new URLSearchParams(location.search).get("token");
+  const token = new URLSearchParams(location.hash.slice(1)).get("token");
 
   async function post(url, body) {
     const res = await fetch("api/v1/" + url, {
@@ -55,7 +55,7 @@
   }
 
   // Den Link nicht in der Adresszeile (und im Verlauf) stehen lassen.
-  history.replaceState(null, "", location.pathname);
+  history.replaceState(null, "", location.pathname + location.search);
   const form = $("#reset-confirm");
   form.hidden = false;
   form.elements.password.focus();

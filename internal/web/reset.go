@@ -43,7 +43,8 @@ func (s *Server) mailServer() mail.Server {
 
 func (s *Server) resetSig(u store.User, exp string) string {
 	m := hmac.New(sha256.New, s.store.LocalSecret())
-	m.Write([]byte("reset|" + u.ID + "|" + u.Password + "|" + exp))
+	// Auch an die E-Mail-Adresse gebunden: Wird sie korrigiert, gilt ein Link an die alte nicht mehr.
+	m.Write([]byte("reset|" + u.ID + "|" + u.Password + "|" + strings.ToLower(u.Email) + "|" + exp))
 	return hex.EncodeToString(m.Sum(nil))
 }
 
@@ -103,7 +104,8 @@ func (s *Server) sendLink(u store.User, l i18n.Lang, invite bool) {
 	if invite {
 		ttl, kind = inviteTTL, "invite"
 	}
-	link := m.Link + "reset?token=" + s.resetToken(u, ttl)
+	// Im #-Teil: Der Browser schickt ihn nicht mit – so landet der Link in keinem Zugriffsprotokoll.
+	link := m.Link + "reset#token=" + s.resetToken(u, ttl)
 	subject := i18n.T(l, "mail."+kind+".subject")
 	body := i18n.T(l, "mail."+kind+".body", u.Name, link, m.Link)
 	srv := s.mailServer()

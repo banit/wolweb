@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"net/mail"
 	"slices"
 	"strings"
 	"sync"
@@ -90,8 +91,9 @@ func validEmail(s string) (string, error) {
 	if s == "" {
 		return "", nil
 	}
-	at := strings.LastIndex(s, "@")
-	if len(s) > emailMax || at < 1 || at == len(s)-1 || strings.ContainsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+	a, err := mail.ParseAddress(s)
+	if len(s) > emailMax || err != nil || a.Address != s || a.Name != "" ||
+		strings.ContainsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
 		return "", invalid("email", "val.email")
 	}
 	return s, nil

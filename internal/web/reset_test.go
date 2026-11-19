@@ -79,7 +79,7 @@ func waitMail(t *testing.T, mails chan string) string {
 	return ""
 }
 
-var linkRE = regexp.MustCompile(`http://wol\.test/reset\?token=([0-9a-f.]+)`)
+var linkRE = regexp.MustCompile(`http://wol\.test/reset#token=([0-9a-f.]+)`)
 
 func TestPasswordResetByMail(t *testing.T) {
 	port, mails := smtpSink(t)

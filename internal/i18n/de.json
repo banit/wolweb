@@ -735,6 +735,7 @@
  "val.mail_host": "Gib den Mailserver als Namen oder IP-Adresse ein, z. B. smtp.example.org.",
  "val.mail_link": "Gib die Adresse von wolweb mit http:// oder https:// ein, z. B. https://wol.example.org/.",
  "val.mail_login": "Benutzername oder Passwort des Mailservers ist ungültig.",
+ "val.mail_plain_login": "Ohne Verschlüsselung schickt wolweb keine Zugangsdaten – wähle STARTTLS oder SSL/TLS oder lass Benutzername und Passwort leer.",
  "val.mail_port": "Port: eine Zahl von 1 bis 65535.",
  "val.name_chars": "Der Name darf keine der Zeichen / \\ ? # % und keine Steuerzeichen enthalten (er wird Teil des Wecklinks).",
  "val.name_dots": "Die Namen „.“ und „..“ sind nicht erlaubt.",
