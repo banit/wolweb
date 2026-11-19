@@ -28,10 +28,11 @@ import (
 // einem solchen Link raus (drei Tage gültig).
 
 const (
-	resetTTL    = time.Hour
-	inviteTTL   = 72 * time.Hour
-	resetPause  = 2 * time.Minute // je Benutzer höchstens eine Mail in dieser Zeit
-	resetPerDay = 50              // insgesamt höchstens so viele Mails pro Tag
+	resetTTL     = time.Hour
+	inviteTTL    = 72 * time.Hour
+	resetPause   = 2 * time.Minute // je Benutzer höchstens eine Mail in dieser Zeit
+	resetPerDay  = 50              // insgesamt höchstens so viele Mails pro Tag
+	resetPerUser = 5               // je Benutzer höchstens so viele pro Tag – ein Konto allein leert das Tageskontingent nicht
 )
 
 func (s *Server) mailReady() bool { return s.usersOn() && s.store.Mail().Ready() }
@@ -74,6 +75,7 @@ func (s *Server) checkReset(tok string) (store.User, bool) {
 type resetLimiter struct {
 	mu    sync.Mutex
 	last  map[string]time.Time
+	sent  map[string]int // je Benutzer heute verschickt
 	day   time.Time
 	count int
 }
@@ -83,16 +85,21 @@ func (l *resetLimiter) allow(id string) bool {
 	defer l.mu.Unlock()
 	now := time.Now()
 	if l.last == nil {
-		l.last = map[string]time.Time{}
+		l.last, l.sent = map[string]time.Time{}, map[string]int{}
 	}
 	if now.Sub(l.day) > 24*time.Hour {
 		l.day, l.count = now, 0
 		clear(l.last)
+		clear(l.sent)
 	}
-	if now.Sub(l.last[id]) < resetPause || l.count >= resetPerDay {
+	if now.Sub(l.last[id]) < resetPause || l.sent[id] >= resetPerUser || l.count >= resetPerDay {
+		if l.count >= resetPerDay {
+			log.Printf("Password reset mails: daily limit of %d reached", resetPerDay)
+		}
 		return false
 	}
 	l.last[id] = now
+	l.sent[id]++
 	l.count++
 	return true
 }
