@@ -390,7 +390,16 @@ Sollen mehrere Leute wolweb nutzen, jeder nur mit seinen Geräten? Unter **Benut
 - Automationen mit `auth.api_token` zählen als Administrator. Die HTTP-Basic-Anmeldung (falls eingerichtet) bleibt
   davor.
 - Die Konten stehen in `data/state.json` (Passwort als PBKDF2-Hash), nie im Geräte-Export.
-- **Passwort vergessen?** Ein Administrator setzt im Benutzer-Dialog ein neues. Hat sich der letzte Administrator
+- **Mailversand** (freiwillig, Abschnitt „Mailversand“ unter den Benutzergruppen): SMTP-Server deines Mail-Anbieters
+  (STARTTLS/587, SSL/TLS/465 oder unverschlüsselt/25), Anmeldung, Absender und die Adresse, unter der Benutzer wolweb
+  öffnen (daraus entstehen die Links in den Mails, nie aus der Anfrage). „Testmail an mich“ prüft das. Danach:
+  - bietet die Anmeldeseite **„Passwort vergessen?“**: ein Link, eine Stunde gültig, nur einmal benutzbar (höchstens
+    eine Mail je Benutzer alle 2 Minuten, 50 am Tag; die Antwort verrät nie, ob es ein Konto gibt);
+  - bekommt ein neuer Benutzer mit E-Mail-Adresse, aber **ohne Passwort**, eine **Einladung** (Link 3 Tage gültig) und
+    setzt sein Passwort selbst.
+  Die Mail-Einstellungen stehen in `data/state.json` (samt Passwort, das nie zurück an den Browser geht).
+- **Passwort vergessen?** Mit Mailversand: „Passwort vergessen?“ auf der Anmeldeseite. Sonst setzt ein Administrator
+  im Benutzer-Dialog ein neues. Hat sich der letzte Administrator
   ausgesperrt: wolweb anhalten und einmal mit `-reset-user <Name>` starten – das gibt ein neues Zufallspasswort aus
   und beendet sich.
 

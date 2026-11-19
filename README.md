@@ -375,7 +375,16 @@ Should several people use wolweb, each only with their own devices? Under **User
   they always need the device's key – the links copied by an administrator contain it.
 - Automations with `auth.api_token` count as administrator. The HTTP Basic login (if configured) stays in front.
 - Accounts are stored in `data/state.json` (password as PBKDF2 hash), never in the device export.
-- **Forgotten password?** An administrator sets a new one in the user dialog. If the last administrator is locked
+- **Sending e-mail** (optional, section “Sending e-mail” below the user groups): enter your mail provider's SMTP
+  server (STARTTLS/587, SSL/TLS/465 or unencrypted/25), login, sender and the address under which users open
+  wolweb (the links in the e-mails are built from it, never from the request). “Test mail to me” checks it. Then:
+  - the login page offers **“Forgot your password?”**: a link valid for one hour, used once (at most one e-mail per
+    user every 2 minutes, 50 per day; the answer never reveals whether an account exists);
+  - a new user with an e-mail address but **without a password** gets an **invitation** (link valid for 3 days) and
+    sets their own password.
+  The mail settings live in `data/state.json` (password included, never sent back to the browser).
+- **Forgotten password?** With e-mail set up: “Forgot your password?” on the login page. Otherwise an administrator
+  sets a new one in the user dialog. If the last administrator is locked
   out: stop wolweb and run it once with `-reset-user <name>` – it prints a new random password and exits.
 
 ### Privacy
@@ -1137,7 +1146,16 @@ Sollen mehrere Leute wolweb nutzen, jeder nur mit seinen Geräten? Unter **Benut
 - Automationen mit `auth.api_token` zählen als Administrator. Die HTTP-Basic-Anmeldung (falls eingerichtet) bleibt
   davor.
 - Die Konten stehen in `data/state.json` (Passwort als PBKDF2-Hash), nie im Geräte-Export.
-- **Passwort vergessen?** Ein Administrator setzt im Benutzer-Dialog ein neues. Hat sich der letzte Administrator
+- **Mailversand** (freiwillig, Abschnitt „Mailversand“ unter den Benutzergruppen): SMTP-Server deines Mail-Anbieters
+  (STARTTLS/587, SSL/TLS/465 oder unverschlüsselt/25), Anmeldung, Absender und die Adresse, unter der Benutzer wolweb
+  öffnen (daraus entstehen die Links in den Mails, nie aus der Anfrage). „Testmail an mich“ prüft das. Danach:
+  - bietet die Anmeldeseite **„Passwort vergessen?“**: ein Link, eine Stunde gültig, nur einmal benutzbar (höchstens
+    eine Mail je Benutzer alle 2 Minuten, 50 am Tag; die Antwort verrät nie, ob es ein Konto gibt);
+  - bekommt ein neuer Benutzer mit E-Mail-Adresse, aber **ohne Passwort**, eine **Einladung** (Link 3 Tage gültig) und
+    setzt sein Passwort selbst.
+  Die Mail-Einstellungen stehen in `data/state.json` (samt Passwort, das nie zurück an den Browser geht).
+- **Passwort vergessen?** Mit Mailversand: „Passwort vergessen?“ auf der Anmeldeseite. Sonst setzt ein Administrator
+  im Benutzer-Dialog ein neues. Hat sich der letzte Administrator
   ausgesperrt: wolweb anhalten und einmal mit `-reset-user <Name>` starten – das gibt ein neues Zufallspasswort aus
   und beendet sich.
 

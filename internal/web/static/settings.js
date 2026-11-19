@@ -538,7 +538,7 @@
     $("#set-lockscreen").hidden = !on;
     for (const id of ["#set-intro", "#settings-form"]) $(id).hidden = on;
     // Die übrigen Abschnitte blenden ihre eigenen Darstellungen ein (je nach Benutzerverwaltung).
-    if (on) for (const id of ["#pw-section", "#grp-section", "#usr-section", "#ugrp-section"]) $(id).hidden = true;
+    if (on) for (const id of ["#pw-section", "#grp-section", "#usr-section", "#ugrp-section", "#mail-section"]) $(id).hidden = true;
     if (on) {
       for (const id of ["#set-no-auth", "#set-read-only"]) $(id).hidden = true;
       $("#set-source").textContent = t("set.lockscreen.title");

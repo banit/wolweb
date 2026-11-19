@@ -523,7 +523,7 @@ func TestStatusChangeNotifies(t *testing.T) {
 // Jeder Schlüssel, den Vorlagen und Skripte benutzen, muss im Katalog stehen.
 func TestUIKeysExist(t *testing.T) {
 	cat := i18n.Catalog(i18n.DE)
-	use := regexp.MustCompile(`(?:\bt|\btn|\.T|\.TN|\$\.T)\(?\s*"((?:ui|page|wake|group|set|blocked|acc|login|val)\.[a-z_.]+)"`)
+	use := regexp.MustCompile(`(?:\bt|\btn|\.T|\.TN|\$\.T)\(?\s*"((?:ui|page|wake|group|set|blocked|acc|login|val|reset)\.[a-z_.]+)"`)
 	files, _ := fs.Glob(assets, "*/*")
 	for _, f := range files {
 		b, _ := assets.ReadFile(f)

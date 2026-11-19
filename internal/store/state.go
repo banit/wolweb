@@ -87,6 +87,7 @@ type stateFile struct {
 	// Users und UserGroups: Benutzerverwaltung (users.go). Mit Benutzern gilt Password nicht mehr.
 	Users      []User               `json:"users,omitempty"`
 	UserGroups []UserGroup          `json:"user_groups,omitempty"`
+	Mail       *MailSettings        `json:"mail,omitempty"` // Mailversand (mail.go)
 	LastWake   map[string]time.Time `json:"last_wake,omitempty"`
 	LastSeen   map[string]time.Time `json:"last_seen,omitempty"`
 	History    []Event              `json:"history,omitempty"`

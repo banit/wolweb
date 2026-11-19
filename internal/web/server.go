@@ -49,6 +49,7 @@ type Server struct {
 	flights   checkFlights   // laufende Online-Prüfungen je Gerät (gemeinsam genutzt)
 	waitSlots chan struct{}  // Plätze für gleichzeitige ?wait=-Schleifen (maxWaiters)
 	attempts  attemptLimiter // Fehlversuche beim Entsperren
+	resets    resetLimiter   // Mails "Passwort vergessen" (reset.go)
 	logins    loginBrake     // gescheiterte Anmeldungen (Basic, API-Token)
 	rejected  rejectedHosts  // vom Schutz vor DNS-Rebinding abgelehnte Hostnamen
 	schedRan  ranSchedules   // ausgeführte Weckzeiten (Sommerzeit: dieselbe Uhrzeit zweimal)
@@ -176,6 +177,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+api+"users", s.change(s.createUser))
 	mux.HandleFunc("PUT "+api+"users/{id}", s.change(s.updateUser))
 	mux.HandleFunc("DELETE "+api+"users/{id}", s.change(s.deleteUser))
+	mux.HandleFunc("GET "+base+"reset", s.resetPage)
+	mux.HandleFunc("POST "+api+"password-reset", s.requestReset)
+	mux.HandleFunc("POST "+api+"password-reset/confirm", s.confirmReset)
+	mux.HandleFunc("GET "+api+"mail", s.editable(s.getMail))
+	mux.HandleFunc("PUT "+api+"mail", s.change(s.putMail))
+	mux.HandleFunc("POST "+api+"mail/test", s.change(s.testMail))
 	mux.HandleFunc("GET "+api+"user-groups", s.editable(s.listUserGroups))
 	mux.HandleFunc("POST "+api+"user-groups", s.change(s.createUserGroup))
 	mux.HandleFunc("PUT "+api+"user-groups/{id}", s.change(s.updateUserGroup))
@@ -374,6 +381,8 @@ type pageData struct {
 	Confirm bool   // Seite weckt erst auf Knopfdruck (Aufruf einer fremden Seite ohne Schlüssel, siehe confirmWake)
 	Host    string // abgelehnter Hostname (blocked.html)
 	Group   *groupView
+	// MailReset: Ein Mailserver ist eingetragen – "Passwort vergessen?" geht per Mail (reset.go).
+	MailReset bool
 
 	Lang         i18n.Lang         // Sprache der Seite
 	OtherLang    i18n.Lang         // Ziel des Umschalters

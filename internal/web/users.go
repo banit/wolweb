@@ -139,7 +139,8 @@ func (s *Server) accounts(next http.Handler) http.Handler {
 			return
 		}
 		base, p := s.conf().VDir, r.URL.Path
-		if p == base+"health" || strings.HasPrefix(p, base+"static/") || p == base+"login" || p == base+"api/v1/login" || p == base+"api/v1/logout" {
+		if p == base+"health" || strings.HasPrefix(p, base+"static/") || p == base+"login" || p == base+"api/v1/login" || p == base+"api/v1/logout" ||
+			p == base+"reset" || p == base+"api/v1/password-reset" || p == base+"api/v1/password-reset/confirm" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -175,7 +176,7 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.conf().VDir, http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, http.StatusOK, "login.html", pageData{})
+	s.render(w, r, http.StatusOK, "login.html", pageData{MailReset: s.mailReady()})
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -365,6 +366,11 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
+	// Ohne Passwort, mit E-Mail und Mailserver: Einladung – der Benutzer setzt sein Passwort selbst.
+	invite := in.Password == "" && strings.TrimSpace(in.Email) != "" && s.mailReady()
+	if invite {
+		in.Password = store.RandomPassword()
+	}
 	u, first, err := s.store.CreateUserFirst(in, !s.isAdmin(r)) // ohne Admin-Anmeldung nur als erster Benutzer
 	if err != nil {
 		s.userError(w, r, err)
@@ -377,8 +383,15 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		s.setUnlockCookie(w, r, "", true)
 		s.setSession(w, r, &u)
 	}
+	if invite && !first {
+		s.sendLink(u, s.lang(r), true)
+	}
 	s.usersChanged(first)
-	writeJSON(w, http.StatusCreated, s.userView(u, s.store.UserGroups()))
+	v := s.userView(u, s.store.UserGroups())
+	writeJSON(w, http.StatusCreated, struct {
+		userView
+		Invited bool `json:"invited,omitempty"`
+	}{v, invite && !first})
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {

@@ -173,6 +173,16 @@ func (s *Store) UserByID(id string) (User, bool) {
 	return User{}, false
 }
 
+// UserByLogin findet einen Benutzer über Anmeldenamen oder E-Mail.
+func (s *Store) UserByLogin(login string) (User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if i := loginIndex(s.state.Users, login); i >= 0 {
+		return s.state.Users[i], true
+	}
+	return User{}, false
+}
+
 // dummyHash dient dazu, bei unbekanntem Namen genauso lange zu rechnen wie bei einem bekannten –
 // sonst verriete die Antwortzeit, welche Namen es gibt.
 var (

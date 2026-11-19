@@ -6,6 +6,7 @@
   const $ = (s) => document.querySelector(s);
   let view = null; // Einstellungen (read_only, users)
   let users = [], ugroups = [], dgroups = [], devices = [];
+  let mail = null; // Mailserver (ohne Passwort) – null ohne Benutzer
 
   function el(tag, attrs, ...children) {
     const n = document.createElement(tag);
@@ -85,8 +86,8 @@
       const [g, d] = await Promise.all([api("GET", "groups"), api("GET", "devices")]);
       dgroups = g;
       devices = d;
-      if (view.users) [users, ugroups] = await Promise.all([api("GET", "users"), api("GET", "user-groups")]);
-      else users = ugroups = [];
+      if (view.users) [users, ugroups, mail] = await Promise.all([api("GET", "users"), api("GET", "user-groups"), api("GET", "mail")]);
+      else { users = ugroups = []; mail = null; }
     } catch (err) {
       toast("err", t("set.load_failed"), err.message);
       return;
@@ -117,7 +118,66 @@
         el("button", { type: "button", class: "btn btn-ghost icon-only", "data-act": "edit", title: t("ui.ugrp.edit_x", g.name), "aria-label": t("ui.ugrp.edit_x", g.name), onclick: () => openUGroup(g) }, icon("edit"))))));
     $("#ugrp-empty").hidden = ugroups.length > 0;
     $("#ugrp-add").hidden = off;
+    renderMail();
   }
+
+  // ---------- Mailserver ----------
+  const mform = $("#mail-form");
+  const mailReady = () => !!(mail && mail.host && mail.from && mail.link);
+  function renderMail() {
+    $("#mail-section").hidden = !view.users;
+    if (!view.users || !mail) return;
+    const f = mform.elements;
+    f.host.value = mail.host || "";
+    f.security.value = mail.security || "starttls";
+    f.port.value = mail.port || "";
+    f.username.value = mail.username || "";
+    f.password.value = "";
+    f.from.value = mail.from || "";
+    // Vorschlag: die Adresse, unter der diese Seite gerade offen ist.
+    f.link.value = mail.link || new URL(".", document.baseURI).href;
+    $("#mail-pw-hint").textContent = mail.password_set ? t("set.mail.password_keep") : "";
+    $("#mail-state").textContent = mailReady() ? t("set.mail.on") : t("set.mail.off");
+    $("#mail-state").className = "pw-state " + (mailReady() ? "ok" : "warn");
+    $("#mail-test").hidden = !mailReady();
+    for (const i of mform.querySelectorAll("input, select, button")) i.disabled = view.read_only;
+  }
+  // Port passend zur Verschlüsselung vorschlagen, solange er nicht von Hand geändert wurde.
+  mform.elements.security.addEventListener("change", () => {
+    const p = mform.elements.port;
+    if (!p.value || ["25", "465", "587"].includes(p.value)) p.value = { starttls: 587, tls: 465, none: 25 }[mform.elements.security.value];
+  });
+  mform.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = mform.elements;
+    const body = { host: f.host.value.trim(), port: parseInt(f.port.value, 10) || 0, security: f.security.value,
+      username: f.username.value.trim(), password: f.password.value, from: f.from.value.trim(), link: f.link.value.trim() };
+    const btn = $("#mail-save");
+    btn.disabled = true;
+    try {
+      mail = await api("PUT", "mail", body);
+      showError(mform, $("#mail-error"));
+      renderMail();
+      toast("ok", mailReady() ? t("set.mail.saved") : t("set.mail.removed"), mailReady() ? t("set.mail.saved_text") : "");
+    } catch (err) {
+      showError(mform, $("#mail-error"), err.data && err.data.field, err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  $("#mail-test").addEventListener("click", async () => {
+    const btn = $("#mail-test");
+    btn.disabled = true;
+    try {
+      const res = await api("POST", "mail/test");
+      showError(mform, $("#mail-error"));
+      toast("ok", t("set.mail.test_ok"), t("set.mail.test_ok_text", res.to));
+    } catch (err) {
+      showError(mform, $("#mail-error"), "", err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // sharedDevices: alle Geräte, die eine Benutzergruppe freigibt (einzeln oder über Gerätegruppen).
   function sharedDevices(g) {
@@ -139,7 +199,7 @@
     uform.elements.email.value = u ? u.email : "";
     uform.elements.password.value = "";
     $("#user-pw-label").textContent = u ? t("ui.usr.password_new") : t("ui.usr.password");
-    $("#user-pw-hint").textContent = u ? t("ui.usr.password_keep") : t("ui.usr.password_hint");
+    $("#user-pw-hint").textContent = u ? t("ui.usr.password_keep") : mailReady() ? t("ui.usr.password_invite") : t("ui.usr.password_hint");
     uform.elements.admin.checked = first || !!(u && u.admin);
     uform.elements.admin.disabled = first;
     $("#user-groups-box").hidden = first || ugroups.length === 0;
@@ -161,7 +221,10 @@
     const f = uform.elements;
     const body = { name: f.name.value.trim(), email: f.email.value.trim(), password: f.password.value, admin: f.admin.checked };
     if (!body.name) return showError(uform, $("#user-error"), "name", t("val.user_required"));
-    if (!u && !body.password) return showError(uform, $("#user-error"), "password", t("set.pw.missing"));
+    // Ohne Passwort geht es nur als Einladung per Mail (Mailserver und E-Mail-Adresse nötig).
+    if (!u && !body.password && !(mailReady() && body.email)) {
+      return showError(uform, $("#user-error"), mailReady() ? "email" : "password", mailReady() ? t("ui.usr.invite_needs_mail") : t("set.pw.missing"));
+    }
     const first = !view.users;
     const btn = $("#user-save");
     btn.disabled = true;
@@ -180,7 +243,7 @@
         await api("PUT", "user-groups/" + encodeURIComponent(g.id), { name: g.name, users: members, devices: g.devices || [], device_groups: g.device_groups || [] });
       }
       udlg.close();
-      toast("ok", u ? t("ui.usr.saved", saved.name) : t("ui.usr.created", saved.name), "");
+      toast("ok", u ? t("ui.usr.saved", saved.name) : t("ui.usr.created", saved.name), saved.invited ? t("ui.usr.invited", saved.email) : "");
       await load();
     } catch (err) {
       showError(uform, $("#user-error"), err.data && err.data.field, err.message);

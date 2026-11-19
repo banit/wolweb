@@ -287,6 +287,61 @@ ip link set eth0.20 up</code></pre>
     </div>
   </section>
 
+  <!-- Mailversand für Passwort vergessen und Einladungen (users.js) -->
+  <section class="set-section" id="mail-section" aria-labelledby="sec-mail" hidden>
+    <h2 id="sec-mail">{{.T "set.mail.title"}}</h2>
+    <p class="muted small">{{.T "set.mail.intro"}}</p>
+    <p class="pw-state" id="mail-state"></p>
+    <form id="mail-form" method="post" novalidate>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "set.mail.host"}}</span>
+          <input name="host" class="mono" autocomplete="off" placeholder="smtp.example.org" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>{{.T "set.mail.security"}}</span>
+          <select name="security">
+            <option value="starttls">STARTTLS (587)</option>
+            <option value="tls">SSL/TLS (465)</option>
+            <option value="none">{{.T "set.mail.none"}} (25)</option>
+          </select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "set.mail.username"}}</span>
+          <input name="username" autocomplete="off" spellcheck="false" placeholder="{{.T "ui.optional"}}">
+        </label>
+        <label class="field">
+          <span>{{.T "set.mail.password"}}</span>
+          <input type="password" name="password" autocomplete="new-password" aria-describedby="mail-pw-hint">
+          <small class="muted" id="mail-pw-hint"></small>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>{{.T "set.mail.from"}}</span>
+          <input name="from" autocomplete="off" spellcheck="false" placeholder="wolweb@example.org" aria-describedby="mail-from-hint">
+          <small class="muted" id="mail-from-hint">{{.T "set.mail.from_hint"}}</small>
+        </label>
+        <label class="field">
+          <span>{{.T "set.mail.port"}}</span>
+          <input name="port" class="mono" inputmode="numeric" autocomplete="off" placeholder="587">
+        </label>
+      </div>
+      <label class="field">
+        <span>{{.T "set.mail.link"}}</span>
+        <input name="link" class="mono" type="url" autocomplete="off" spellcheck="false" aria-describedby="mail-link-hint">
+        <small class="muted" id="mail-link-hint">{{.T "set.mail.link_hint"}}</small>
+      </label>
+      <p class="form-error" id="mail-error" role="alert" tabindex="-1" hidden></p>
+      <div class="row gap-start">
+        <button type="submit" class="btn btn-primary" id="mail-save"><svg aria-hidden="true" class="ico"><use href="#i-check"/></svg>{{.T "page.save"}}</button>
+        <button type="button" class="btn btn-secondary" id="mail-test"><svg aria-hidden="true" class="ico"><use href="#i-send"/></svg>{{.T "set.mail.test"}}</button>
+      </div>
+    </form>
+  </section>
+
   <!-- Passwort für Änderungen: gilt sofort, nicht über „Speichern“ -->
   <section class="set-section" id="pw-section" aria-labelledby="sec-password" hidden>
     <h2 id="sec-password">{{.T "set.pw.title"}}</h2>
