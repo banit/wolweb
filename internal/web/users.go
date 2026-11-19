@@ -226,10 +226,17 @@ type userView struct {
 	Email  string   `json:"email"`
 	Admin  bool     `json:"admin"`
 	Groups []string `json:"groups"` // Namen der Benutzergruppen
+	// Devices: direkt zugewiesene Geräte-IDs (nur noch vorhandene)
+	Devices []string `json:"devices"`
 }
 
 func (s *Server) userView(u store.User, groups []store.UserGroup) userView {
-	v := userView{ID: u.ID, Name: u.Name, Email: u.Email, Admin: u.Admin, Groups: []string{}}
+	v := userView{ID: u.ID, Name: u.Name, Email: u.Email, Admin: u.Admin, Groups: []string{}, Devices: []string{}}
+	for _, id := range u.Devices {
+		if _, ok := s.store.Get(id); ok {
+			v.Devices = append(v.Devices, id)
+		}
+	}
 	for _, g := range groups {
 		if slices.Contains(g.Users, u.ID) {
 			v.Groups = append(v.Groups, g.Name)

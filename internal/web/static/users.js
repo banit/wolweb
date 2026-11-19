@@ -104,7 +104,7 @@
       el("div", { class: "grp-main" },
         el("strong", { text: u.name }),
         u.admin ? el("span", { class: "badge-role", text: t("acc.role.admin") }) : null,
-        el("span", { class: "muted small", text: [u.email, u.groups.join(", ")].filter(Boolean).join(" · ") || (u.admin ? "" : t("set.usr.no_group")) })),
+        el("span", { class: "muted small", text: [u.email, u.groups.join(", "), (u.devices || []).length ? tn("set.usr.n_direct", u.devices.length) : ""].filter(Boolean).join(" · ") || (u.admin ? "" : t("set.usr.no_group")) })),
       off ? null : el("div", { class: "grp-actions" },
         el("button", { type: "button", class: "btn btn-ghost icon-only", "data-act": "edit", title: t("ui.usr.edit_x", u.name), "aria-label": t("ui.usr.edit_x", u.name), onclick: () => openUser(u) }, icon("edit"))))));
     $("#usr-add").hidden = off;
@@ -203,6 +203,13 @@
     uform.elements.admin.checked = first || !!(u && u.admin);
     uform.elements.admin.disabled = first;
     $("#user-groups-box").hidden = first || ugroups.length === 0;
+    // Einzelne Geräte: zugeklappt, außer es sind schon welche zugewiesen.
+    const mine = new Set((u && u.devices) || []);
+    $("#user-devices").replaceChildren(...[...devices].sort(byName).map((d) =>
+      checkbox("udevice", d.id, mine.has(d.id), d.name, d.group ? t("ui.ugrp.in_x", d.group) : null)));
+    $("#user-no-devices").hidden = devices.length > 0;
+    $("#user-devices-box").open = mine.size > 0;
+    renderDeviceBox();
     $("#user-groups").replaceChildren(...[...ugroups].sort(byName).map((g) =>
       checkbox("ugroup", g.id, !!(u && (g.users || []).includes(u.id)), g.name)));
     $("#user-delete").hidden = !u;
@@ -210,6 +217,15 @@
     udlg.showModal();
     uform.elements.name.focus();
   }
+  // renderDeviceBox: Anzahl der Haken im Kopf; für Administratoren unnötig (sie sehen alles).
+  function renderDeviceBox() {
+    const n = uform.querySelectorAll('input[name="udevice"]:checked').length;
+    $("#user-devices-count").textContent = n ? tn("ui.n_devices", n) : t("ui.usr.devices_none");
+    $("#user-devices-box").hidden = !view.users || uform.elements.admin.checked;
+  }
+  uform.addEventListener("change", (e) => {
+    if (e.target.name === "udevice" || e.target.name === "admin") renderDeviceBox();
+  });
   const closeUser = () => udlg.close();
   $("#user-close").addEventListener("click", closeUser);
   $("#user-cancel").addEventListener("click", closeUser);
@@ -220,6 +236,7 @@
     const u = ucur.user;
     const f = uform.elements;
     const body = { name: f.name.value.trim(), email: f.email.value.trim(), password: f.password.value, admin: f.admin.checked };
+    if (view.users) body.devices = [...uform.querySelectorAll('input[name="udevice"]:checked')].map((i) => i.value);
     if (!body.name) return showError(uform, $("#user-error"), "name", t("val.user_required"));
     // Ohne Passwort geht es nur als Einladung per Mail (Mailserver und E-Mail-Adresse nötig).
     if (!u && !body.password && !(mailReady() && body.email)) {

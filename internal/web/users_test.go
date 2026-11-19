@@ -161,6 +161,24 @@ func TestUsersAndUserGroups(t *testing.T) {
 		t.Fatalf("einzelnes Gerät: %s", l)
 	}
 
+	// Einzelne Geräte direkt am Benutzer, zusätzlich zu den Gruppen.
+	devB, _ := st.FindByName("B")
+	if v := string(admin.want(http.StatusOK, "PUT", "/api/v1/users/"+bob, `{"name":"bob","devices":["`+devB.ID+`"]}`)); !strings.Contains(v, devB.ID) {
+		t.Fatalf("direkte Zuweisung fehlt in der Antwort: %s", v)
+	}
+	if l := string(user.want(http.StatusOK, "GET", "/api/v1/devices", "")); !strings.Contains(l, `"name":"B"`) || !strings.Contains(l, `"name":"C"`) {
+		t.Fatalf("direkt zugewiesen: %s", l)
+	}
+	admin.want(http.StatusOK, "PUT", "/api/v1/users/"+bob, `{"name":"bob"}`) // ohne "devices": bleibt
+	if l := string(user.want(http.StatusOK, "GET", "/api/v1/devices", "")); !strings.Contains(l, `"name":"B"`) {
+		t.Fatalf("Zuweisung ohne Angabe verloren: %s", l)
+	}
+	admin.want(http.StatusOK, "PUT", "/api/v1/users/"+bob, `{"name":"bob","devices":[]}`)
+	if l := string(user.want(http.StatusOK, "GET", "/api/v1/devices", "")); strings.Contains(l, `"name":"B"`) {
+		t.Fatalf("Zuweisung nicht entfernt: %s", l)
+	}
+	admin.want(http.StatusBadRequest, "PUT", "/api/v1/users/"+bob, `{"name":"bob","devices":["gibtsnicht"]}`)
+
 	// Mein Konto: E-Mail und Passwort; ein neues Passwort meldet andere Sitzungen ab.
 	user.want(http.StatusOK, "PUT", "/api/v1/account", `{"email":"bob@example.org"}`)
 	user.want(http.StatusBadRequest, "PUT", "/api/v1/account", `{"email":"chef@example.org"}`)

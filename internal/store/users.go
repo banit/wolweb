@@ -28,6 +28,8 @@ type User struct {
 	Password string    `json:"password"` // Hash wie beim Passwort für Änderungen (password.go)
 	Admin    bool      `json:"admin,omitempty"`
 	Created  time.Time `json:"created"`
+	// Devices sind direkt zugewiesene Geräte (zusätzlich zu den Benutzergruppen).
+	Devices []string `json:"devices,omitempty"`
 }
 
 type UserGroup struct {
@@ -44,6 +46,22 @@ type UserInput struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Admin    bool   `json:"admin"`
+	// Devices: direkt zugewiesene Geräte-IDs; fehlt das Feld (null), bleiben sie unverändert.
+	Devices *[]string `json:"devices"`
+}
+
+// deviceIDs prüft Geräte-IDs gegen die vorhandenen Geräte (ohne doppelte). Unter s.mu aufrufen.
+func (s *Store) deviceIDs(ids []string) ([]string, error) {
+	var out []string
+	for _, id := range ids {
+		if !slices.ContainsFunc(s.devices, func(d Device) bool { return d.ID == id }) {
+			return nil, Invalid("val.stale")
+		}
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 
 // UserGroupInput sind die Angaben aus dem Dialog einer Benutzergruppe.
@@ -250,6 +268,11 @@ func (s *Store) CreateUserFirst(in UserInput, expectFirst bool) (u User, first b
 	}
 	u = User{ID: newSecretID(), Name: name, Email: email, Password: hash, Admin: in.Admin || len(s.state.Users) == 0,
 		Created: time.Now().UTC()}
+	if in.Devices != nil {
+		if u.Devices, err = s.deviceIDs(*in.Devices); err != nil {
+			return User{}, false, err
+		}
+	}
 	prevUsers, prevPw := s.state.Users, s.state.Password
 	s.state.Users = append(slices.Clone(s.state.Users), u)
 	s.state.Password = ""
@@ -286,6 +309,13 @@ func (s *Store) UpdateUser(id string, in UserInput) (User, error) {
 		}
 		if u.Admin && !in.Admin && admins(users) == 1 {
 			return ErrLastAdmin
+		}
+		if in.Devices != nil {
+			devs, err := s.deviceIDs(*in.Devices)
+			if err != nil {
+				return err
+			}
+			u.Devices = devs
 		}
 		u.Name, u.Email, u.Admin = name, email, in.Admin
 		if hash != "" {
@@ -539,6 +569,13 @@ func (s *Store) Access(userID string) map[string]bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	ids := map[string]bool{}
+	if i := userIndex(s.state.Users, userID); i >= 0 { // direkt zugewiesene Geräte
+		for _, id := range s.state.Users[i].Devices {
+			if slices.ContainsFunc(s.devices, func(d Device) bool { return d.ID == id }) {
+				ids[id] = true
+			}
+		}
+	}
 	groups := map[string]bool{} // Namen der Gerätegruppen (exakt: Geräte tragen den Namen ihrer Gruppe, syncGroups)
 	for _, g := range s.state.UserGroups {
 		if !slices.Contains(g.Users, userID) {

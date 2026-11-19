@@ -825,3 +825,7 @@ input:disabled, textarea:disabled, select:disabled { background: var(--surface-2
 .account-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 640px) { .account-name { display: none; } }
 .badge-role { font-size: .75rem; font-weight: 600; padding: .05rem .5rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); }
+.user-devices { border: 1px solid var(--border); border-radius: 12px; padding: .5rem .8rem; }
+.user-devices summary { cursor: pointer; font-weight: 600; font-size: .92rem; padding: .2rem 0; }
+.user-devices[open] summary { margin-bottom: .4rem; }
+.user-devices .check-grid { margin-top: .4rem; }

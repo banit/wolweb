@@ -421,6 +421,13 @@ ip link set eth0.20 up</code></pre>
         <legend>{{.T "ui.usr.groups"}}</legend>
         <div class="check-grid" id="user-groups"></div>
       </fieldset>
+      <!-- Einzelne Geräte direkt zuweisen: aufklappbar, damit der Dialog kurz bleibt -->
+      <details class="user-devices" id="user-devices-box">
+        <summary><span>{{.T "ui.usr.devices"}}</span> <small class="muted" id="user-devices-count"></small></summary>
+        <p class="muted small">{{.T "ui.usr.devices_hint"}}</p>
+        <div class="check-grid" id="user-devices"></div>
+        <p class="muted small" id="user-no-devices" hidden>{{.T "ui.grp.no_devices"}}</p>
+      </details>
       <p class="form-error" id="user-error" role="alert" tabindex="-1" hidden></p>
     </div>
     <footer class="modal-foot">
